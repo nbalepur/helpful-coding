@@ -25,7 +25,7 @@ const { getDatabase } = require("firebase-admin/database");
 initializeApp();
 
 // Example usage:
-// runCode('your_rapidapi_key', 'print("Hello, world!")').then(stdout => console.log(stdout));
+// runCode('your_rapidapi_key', 'print("Hello, world!")').then(stdout => /* console.log(stdout) */);
 
 // https://codewithandrea.com/articles/api-keys-2ndgen-cloud-functions-firebase/
 // , enforceAppCheck: true
@@ -115,7 +115,6 @@ exports.get_together_completion = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log("Error calling the API: ", error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",
@@ -162,7 +161,6 @@ exports.get_together_chat = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log("Error calling the API: ", error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",
@@ -181,7 +179,6 @@ exports.get_groq_chat = onCall(
         "The function must be called while authenticated."
       );
     }
-    console.log(request.data.model, request.data.messages, request.data.max_tokens);
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
     const options = {
       method: "POST",
@@ -208,7 +205,6 @@ exports.get_groq_chat = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log("Error calling the API: ", error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",
@@ -310,7 +306,6 @@ exports.get_openai_chat = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log(error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",

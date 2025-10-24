@@ -64,10 +64,8 @@ export function trackSubmitCode (
     editor,
     ) {
     if (editor == null) {
-      console.log("editor is null");
       return;
     }
-    console.log("submitting code", editor.getValue());
     let newTelemetry = {
         event_type: "submit_code",
         task_index: task_index,

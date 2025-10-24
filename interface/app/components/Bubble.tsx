@@ -70,7 +70,6 @@ const Bubble: React.FC<BubbleProps> = ({
     // }
     if (msg.hash) {
       chatRef.current.deleteMessage(msg.hash, true, -1);
-      console.log('deleting message', msg.hash);
     }
     actualEditorRef.current.clearDiffEditor();
   }, [msg.hash]);
@@ -80,7 +79,6 @@ const Bubble: React.FC<BubbleProps> = ({
       clearTimeout(delete_timer);
     }
     delete_timer = setTimeout(setDelete, proactive_delete_time);
-    console.log('Throttle started');
   }, [proactive_delete_time]);
 
   useEffect(() => {
@@ -97,7 +95,6 @@ const Bubble: React.FC<BubbleProps> = ({
 
   useEffect(() => {
     if (!proactiveResponse.length) {
-      console.log("empty message");
       setTextString(msg.text);
     }
     setShowFeedbackButtons(!showFeedbackButtons);
@@ -108,7 +105,6 @@ const Bubble: React.FC<BubbleProps> = ({
   }, [keep]);
 
   const handleFeedback = (type: string) => {
-    console.log(`${type} feedback received`);
     // Update telemetry or perform other actions here
     setTelemetry((prev) => [
       ...prev,
@@ -128,7 +124,6 @@ const Bubble: React.FC<BubbleProps> = ({
 
   const handleCopy = async (event: any) => {
     // let copyText = await navigator.clipboard.readText();
-    console.log('copy outside');
 
     setTelemetry((prev) => [
       ...prev,
@@ -163,7 +158,7 @@ const Bubble: React.FC<BubbleProps> = ({
               theme={atomOneDark}
               onCopy={copy_fn}
               key={index}
-              customStyle={{ overflowX: "auto", fontSize: "0.8em", lineHeight: "1em", margin: "1em 0" }}
+              customStyle={{ overflowX: "hidden", overflowY: "auto", maxHeight: "400px", fontSize: "0.8em", lineHeight: "1em", margin: "1em 0", wordBreak: "break-word" }}
             />
           </div>
         );
@@ -174,7 +169,6 @@ const Bubble: React.FC<BubbleProps> = ({
   }
 
   const handlePreviewRegular = async () => {
-    console.log("Preview button clicked");
     actualEditorRef.current.clearDiffEditor();
     setPreviewButtonTextRegular("Preview Loading...");
     setTelemetry((prev) => [
@@ -193,7 +187,6 @@ const Bubble: React.FC<BubbleProps> = ({
       await chatRef.current.previewMessage(msg.hash, -1, msg.text);
       setPreviewButtonTextRegular("Preview");
     } catch (error) {
-      console.error("Error during preview:", error);
       setPreviewButtonTextRegular("Preview");
     }
   }
@@ -201,7 +194,6 @@ const Bubble: React.FC<BubbleProps> = ({
   const ProactiveSuggestions = () => {
 
     const handleButtonClick = (item: ProactiveMessageData, index: number) => {
-      console.log(`Button ${index + 1} clicked: ${item}`);
       setIsNew(false);
       setShowProactiveButtons(false);
       setTextString(item.full_text);
@@ -214,7 +206,6 @@ const Bubble: React.FC<BubbleProps> = ({
     };
 
     const handleBackClick = () => {
-      console.log("Back button clicked");
       setShowProactiveButtons(true);
       setTextString("");
       startDeleteTimer();
@@ -222,18 +213,15 @@ const Bubble: React.FC<BubbleProps> = ({
     }
 
     const handleRefresh = async () => {
-      console.log("Refreshing proactive suggestions", chatRef.current);
       setClickState(Array(proactiveResponse.length).fill(true));
       setIsNew(false);
       const suggestions = await chatRef.current.getProactiveSuggestions({ id: id, manual: true });
-      console.log("done");
       setShowProactiveButtons(true);
       setClickState(Array(proactiveResponse.length).fill(false));
       setTextString("");
     }
 
     const handlePreview = async (index: number) => {
-      console.log("Preview button clicked");
       actualEditorRef.current.clearDiffEditor();
 
       setPreviewButtonText("Preview Loading...");
@@ -245,13 +233,11 @@ const Bubble: React.FC<BubbleProps> = ({
         await  chatRef.current.previewMessage(msg.hash, index, proactiveResponse[index].full_text);
         setPreviewButtonText("Preview");
       } catch (error) {
-        console.error("Error during preview:", error);
         setPreviewButtonText("Preview");
       }
     }
 
     const handleAccept = (index: number) => {
-      console.log("Accept button clicked");
       trackProactiveInteraction(setTelemetry, "accept", index, proactiveResponse[index], task_index, msg.hash);
       chatRef.current.cancelProactiveSuggestions();
       chatRef.current.startThrottle();
@@ -260,7 +246,6 @@ const Bubble: React.FC<BubbleProps> = ({
     }
 
     const handleDelete = (all: boolean, index: number) => {
-      console.log("Delete button clicked");
       if (all) trackProactiveInteraction(setTelemetry, "clear all", null, null, task_index, msg.hash);
       else trackProactiveInteraction(setTelemetry, "delete", index, proactiveResponse[index], task_index, msg.hash);
       chatRef.current.startThrottle();
@@ -271,7 +256,6 @@ const Bubble: React.FC<BubbleProps> = ({
     }
 
     const handleProactiveCopy = (index: number) => {
-      console.log("Copy button clicked");
       trackProactiveInteraction(setTelemetry, "copy", index, proactiveResponse[index], task_index, msg.hash);
       startDeleteTimer();
       chatRef.current.startThrottle();
@@ -279,7 +263,6 @@ const Bubble: React.FC<BubbleProps> = ({
     }
 
     const toggleCollapsible = (index: number) => {
-      console.log("Collapsible clicked");
       trackProactiveInteraction(setTelemetry, "expand", index, proactiveResponse[index], task_index, msg.hash);
       setIsOpen(isOpen.map((value, i) => i === index ? !value : false));
       setIsNew(false);
@@ -299,9 +282,6 @@ const Bubble: React.FC<BubbleProps> = ({
         // }
         // chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
         const element = document.getElementsByClassName("collapsible-button")[index];
-        console.log(chatWindowRef.current.scrollHeight, chatWindowRef.current.offsetHeight, chatWindowRef.current.scrollTop,
-          chatWindowRef.current.getBoundingClientRect(), element.getBoundingClientRect()
-        );
 
 
         // const boundingRect = chatWindowRef.current.getBoundingClientRect();
@@ -333,14 +313,14 @@ const Bubble: React.FC<BubbleProps> = ({
             ref={contentRef}
           >
             <span className={`triangle ${isOpen[index] ? 'open' : ''}`}>▶</span>
-            <Markdown>{item.short_text}</Markdown>
+            <div className="markdown-content"><Markdown>{item.short_text}</Markdown></div>
           </button>
           <div
             className={`collapsible-content ${isOpen[index] ? 'open' : ''}`}
             // style={{ maxHeight: isOpen ? `${contentRef.current.scrollHeight}px` : '0px' }}
             style={{ maxHeight: isOpen[index] ? `100%` : '0px', }}
           >
-            {textBlock(item.full_text, () => handleProactiveCopy(index))}
+            <div className="markdown-content">{textBlock(item.full_text, () => handleProactiveCopy(index))}</div>
             <div className="flex justify-end mt-2">
               {check_has_code(item.full_text) && <button onClick={() => handlePreview(index)}>
                 {previewButtonText}
@@ -402,12 +382,12 @@ const Bubble: React.FC<BubbleProps> = ({
   return (sender === "user" ? (
     <div
       className={classNames(
-        "text-xs py-2 pl-10 pr-0 rounded-none justify-end float-right items-center whitespace-pre-wrap w-full"
+        "text-xs py-2 pl-10 pr-0 rounded-none justify-end float-right items-center w-full"
       )}
     >
       <div
         className="flex flex-row mt-2 justify-end float-right">
-        <div className="user-message">
+        <div className="user-message" style={{ wordBreak: "break-word", maxWidth: "100%" }}>
           {/* <b  style={{lineHeight: "1.5em"}}>{"You\n"}</b> */}
           <Markdown>{textString}</Markdown></div>
         {/* <div > */}
@@ -423,7 +403,7 @@ const Bubble: React.FC<BubbleProps> = ({
   ) : (
     <div
       className={classNames(
-        "text-xs py-2 pr-3 rounded-none justify-center items-center overflow-auto whitespace-pre-wrap w-full"
+        "text-xs py-2 pr-3 rounded-none justify-center items-center overflow-auto w-full"
       )}
     >
       <div
@@ -439,7 +419,7 @@ const Bubble: React.FC<BubbleProps> = ({
           <ProactiveSuggestions
           />
         ) : (
-          <div style={{ overflowX: "hidden", borderRadius: "0" }}>
+          <div className="markdown-content" style={{ overflowX: "hidden", borderRadius: "0", wordBreak: "break-word", maxWidth: "100%" }}>
             {/* <b>{sender === "user" ? "You\n" : "Coding Assistant\n"}</b> */}
             {textBlock(textString)}
             <div className="flex justify-end mt-2">

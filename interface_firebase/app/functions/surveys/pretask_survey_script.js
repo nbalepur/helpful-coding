@@ -35,10 +35,8 @@ firebase
   .auth()
   .signOut()
   .then(() => {
-    console.log("signed out");
   })
   .catch((error) => {
-    console.log(error);
   });
 
 let inputs = document.querySelectorAll("input");
@@ -97,13 +95,11 @@ function submit(event) {
           }
         })
         .catch((error) => {
-          console.log("Error getting documents: ", error);
         });
     })
     .catch(function (error) {
       var error_answer = document.getElementById("message_highlighted");
       error_answer.innerHTML = "Not signed in or information missing";
-      console.log("Error getting documents: ", error);
     });
   return false;
 }
@@ -144,7 +140,6 @@ function assignRandomTask() {
       }
     })
     .catch((error) => {
-      console.log("Error getting documents: ", error);
     });
 }
 
@@ -161,12 +156,10 @@ function assignTask(taskId) {
         interface_type = task.interface_type;
         moveToTask();
       } else {
-        console.log("No such document!");
         assignRandomTask();
       }
     })
     .catch((error) => {
-      console.log("Error getting document:", error);
     });
 }
 
@@ -186,7 +179,6 @@ function moveToTask() {
       exp_condition: exp_condition,
     })
     .then(() => {
-      console.log("Document successfully written!");
       var myData = [response_id, task_id_rand, exp_condition, worker_id_rand];
       localStorage.setItem("objectToPass", JSON.stringify(myData));
 
@@ -201,7 +193,6 @@ function moveToTask() {
       }
     })
     .catch((error) => {
-      console.error("Error writing document: ", error);
     });
 }
 

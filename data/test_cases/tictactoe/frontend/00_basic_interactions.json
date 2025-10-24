@@ -1,0 +1,174 @@
+[
+  {
+    "title": "Basic Gameplay (Mock User)",
+    "name": "All board cells start empty",
+    "description": "When the game loads, all 9 cells should be empty",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-0",
+        "expected": "",
+        "description": "Top-left cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-1",
+        "expected": "",
+        "description": "Top-center cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-2",
+        "expected": "",
+        "description": "Top-right cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-1-0",
+        "expected": "",
+        "description": "Middle-left cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-1-1",
+        "expected": "",
+        "description": "Middle-center cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-1-2",
+        "expected": "",
+        "description": "Middle-right cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-0",
+        "expected": "",
+        "description": "Bottom-left cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-1",
+        "expected": "",
+        "description": "Bottom-center cell is empty"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-2",
+        "expected": "",
+        "description": "Bottom-right cell is empty"
+      }
+    ]
+  },
+  {
+    "title": "Basic Gameplay (Mock User)",
+    "name": "Initial game status shows Human Turn",
+    "description": "If no one has played yet, the game status should contain the text 'Human Turn'",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "assert": "elementTextContains",
+        "selector": "#game-status",
+        "expected": "Human Turn",
+        "description": "Game status shows 'Human Turn' initially"
+      }
+    ]
+  },
+  {
+    "title": "Basic Gameplay (Mock User)",
+    "name": "Click empty square fills with X",
+    "description": "If we click on an empty square, it should get filled in with 'X'",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-0",
+        "expected": "",
+        "description": "Top-left cell starts empty"
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-0",
+        "description": "Click on empty top-left cell"
+      },
+      {
+        "action": "wait",
+        "duration": 1000,
+        "description": "Brief wait for DOM update"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-0",
+        "expected": "X",
+        "description": "Cell now contains X"
+      }
+    ]
+  },
+  {
+    "title": "Basic Gameplay (Mock User)",
+    "name": "Click empty center square fills with X",
+    "description": "Clicking the center square should also fill it with X",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "action": "click",
+        "selector": "#cell-1-1",
+        "description": "Click center cell"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-1-1",
+        "expected": "X",
+        "description": "Center cell contains X"
+      }
+    ]
+  },
+  {
+    "title": "Basic Gameplay (Mock User)",
+    "name": "Cannot click occupied cell with X",
+    "description": "Clicking a cell that already has X should not change it",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "action": "click",
+        "selector": "#cell-2-2",
+        "description": "Click bottom-right cell"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-2",
+        "expected": "X",
+        "description": "Cell has X"
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-2",
+        "description": "Try clicking same cell again"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-2",
+        "expected": "X",
+        "description": "Cell still has X (no change to O or empty)"
+      }
+    ]
+  }
+]

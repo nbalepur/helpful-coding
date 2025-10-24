@@ -2,28 +2,64 @@
 // CLOUD FUNCTIONS CALLS
 /////////////////////////////////////////
 import axios from "axios";
-import { OpenAI } from 'openai';
 import {OPENAI_API_KEY, RAPID_API_KEY, TOGETHER_API_KEY } from "../components/settings";
-
-
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY, dangerouslyAllowBrowser: true
-});
+import { ENV } from "../config/env";
 
 export async function get_openai_chat_response(model, messages, max_tokens, setLogprobs) {
   
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: messages,
-      max_tokens: max_tokens,
+    // Call the Python backend instead of OpenAI directly
+    const response = await fetch(`${ENV.BACKEND_URL}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: messages,
+        model: model,
+        max_tokens: max_tokens,
+        proactive: false,
+        current_code: ""
+      })
     });
-    const text_response = response.choices[0].message.content;
-    console.log(text_response);
-    return text_response;
+    
+    if (!response.ok) {
+      throw new Error(`Backend error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Set logprobs if provided (backend doesn't return logprobs yet)
+    if (setLogprobs) {
+      setLogprobs(null); // Backend doesn't return logprobs currently
+    }
+    
+    return data.response;
   } catch (error) {
-    console.error("Error calling the OpenAI API:", error);
-    return
+    return null;
+  }
+}
+
+export async function get_openai_chat_response_streaming(model, messages, max_tokens, onChunk, onComplete, onError) {
+  try {
+    // Use the WebSocket helper instead of direct OpenAI calls
+    const { streamChatResponse } = await import('./websocket_helper');
+    
+    const response = await streamChatResponse(
+      messages,
+      model,
+      max_tokens,
+      false, // proactive
+      "", // current_code
+      onChunk,
+      onComplete,
+      onError
+    );
+    
+    return response;
+  } catch (error) {
+    onError(error);
+    return null;
   }
 }
 
@@ -47,7 +83,6 @@ export function get_chat_together(model, messages, max_tokens, setLogprobs) {
       resolve(text_response);
     })
     .catch((error) => {
-      console.error("Error calling the Together API:", error);
       reject(error);
     });
   });
@@ -69,7 +104,6 @@ export function get_chat_groq(model, messages, max_tokens, setLogprobs) {
       resolve(text_response);
     })
     .catch((error) => {
-      console.error("Error calling the Groq API:", error);
       reject(error);
     });
   });
@@ -90,7 +124,6 @@ export async function get_openai_response(prefix, suffix, max_tokens, setLogprob
     setLogprobs(logprobs);
     return text_response;
   } catch (error) {
-    console.error("Error calling the OpenAI API:", error);
     return;
   }
 }
@@ -115,7 +148,6 @@ export function get_completion_together(model, prompt, max_tokens, setLogprobs) 
       resolve(text_response);
     })
     .catch((error) => {
-      console.error("Error calling the Together API:", error);
       reject(error);
     });
   });
@@ -123,7 +155,6 @@ export function get_completion_together(model, prompt, max_tokens, setLogprobs) 
 
 export async function submitCode(editor, setOutput, setTelemetry, task_index) {
   try {
-    console.log("submitting code");
     setOutput("Running...");
 
     const options = {
@@ -167,12 +198,10 @@ export async function submitCode(editor, setOutput, setTelemetry, task_index) {
       ];
     });
 
-    console.log("Got response on runcode");
     setOutput(log);
 
     return result;
   } catch (error) {
-    console.error("Error in submitCode function:", error);
     alert("Error running the code.");
   }
 }
@@ -217,7 +246,6 @@ export async function runCodeTest(editor, task_index, unit_tests) {
     return result;
 
   } catch (error) {
-    console.error("Error in runCodeTest function:", error);
     alert("Error running the code test.");
   }
 }

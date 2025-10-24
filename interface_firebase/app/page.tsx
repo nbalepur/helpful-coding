@@ -183,7 +183,6 @@ export default function Home() {
   }, [telemetry]);
 
   const handleSaveToSession = () => {
-    console.log("saving data");
 
     if (editorRef.current) {
       let editor_value = editorRef.current.getValue();
@@ -271,7 +270,6 @@ export default function Home() {
     }
     // if (telemetry_saved) {
     //   setTelemetry(JSON.parse(telemetry_saved));
-    //   console.log(telemetry);
     // }
 
     // TODO: task index 
@@ -345,7 +343,7 @@ export default function Home() {
       <>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>RealHumanEval </title>
+        <title>Vibe Code Arena </title>
         <div className="login-container">
           <input
             type="email"
@@ -364,7 +362,7 @@ export default function Home() {
       <>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>RealHumanEval </title>
+        <title>Vibe Code Arena </title>
         <div id="timeout_popup" className="popup" style={{ display: "none" }}>
           <h2>Time is Up!</h2>
           <p> You have reached the end of the coding part of the studys.</p>

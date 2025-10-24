@@ -10,10 +10,9 @@ import React, {
   useCallback,
 } from "react";
 import {
-  get_completion_together,
   get_openai_response,
 } from "../functions/cloud_functions_helper";
-import "../style.css";
+// CSS imported via globals.css
 import { CursorPos } from "readline";
 
 import MonacoEditor, {
@@ -22,6 +21,7 @@ import MonacoEditor, {
   loader,
 } from "@monaco-editor/react";
 import { get } from "http";
+import { FileNode } from './FileManager';
 
 interface EditorProps {
   onEditorMount: (editor: any, monaco: any) => void;
@@ -38,9 +38,31 @@ interface EditorProps {
   setIsSpinning: Dispatch<SetStateAction<boolean>>;
   proactive_refresh_time_inactive: number;
   chatRef: any;
+  code?: string;
+  setCode?: Dispatch<SetStateAction<string>>;
+  // Multi-file support
+  files?: FileNode[];
+  activeFileId?: string | null;
+  onFileContentChange?: (fileId: string, content: string) => void;
+  enableMultiFile?: boolean;
+  onFileSave?: (fileId: string) => void;
+  onContentChange?: () => void;
 }
 
-const Editor: React.FC<EditorProps> = forwardRef(({
+interface EditorRef {
+  setEditorType: (isDiff: boolean, originalCode: string, newCode: string) => void;
+  setEditorReadOnly: (isReadOnly: boolean) => void;
+  getCodeValue: () => string;
+  clearDiffEditor: () => void;
+  scrollToBottom: () => void;
+  // Multi-file support
+  switchToFile: (fileId: string) => void;
+  getActiveFileId: () => string | null;
+  getAllFileContents: () => Record<string, string>;
+  layout: () => void;
+}
+
+const Editor = forwardRef<EditorRef, EditorProps>(({
   onEditorMount,
   contextLength,
   wait_time_for_sug,
@@ -55,13 +77,23 @@ const Editor: React.FC<EditorProps> = forwardRef(({
   setIsSpinning,
   proactive_refresh_time_inactive,
   chatRef,
+  code,
+  setCode,
+  files = [],
+  activeFileId,
+  onFileContentChange,
+  enableMultiFile = false,
+  onFileSave,
+  onContentChange,
 }, ref) => {
-  const [language, setLanguage] = useState("python");
-  const useTabs = false; // Set to true to enable tabs 
-  const [tabs, setTabs] = useState([{ id: "tab1", label: "Tab 1" }]);
-  const [activeTab, setActiveTab] = useState("tab1");
-  const [openTabs, setOpenTabs] = useState(["tab1"]);
+  const monaco = useMonaco();
+  const [language, setLanguage] = useState("html");
+  const useTabs = false; // Disable internal tabs; MultiFileEditor manages tabs
+  const [tabs, setTabs] = useState<Array<{ id: string; label: string; fileId?: string }>>([]);
+  const [activeTab, setActiveTab] = useState<string>("");
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
   const editorRef: any = useRef(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const monacoRef: any = useRef(null);
   const decorationsCollection: any = useRef(null);
   // Add state variables to manage the editor type and read-only state
@@ -69,17 +101,91 @@ const Editor: React.FC<EditorProps> = forwardRef(({
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [originalCode, setOriginalCode] = useState("");
   const [modifiedCode, setModifiedCode] = useState("");
-  const [codeValue, setCodeValue] = useState("");
+  const [codeValue, setCodeValue] = useState(code || "");
+  // Multi-file state
+  const [fileModels, setFileModels] = useState<Record<string, any>>({});
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [currentActiveFileId, setCurrentActiveFileId] = useState<string | null>(activeFileId || null);
+  const saveCommandRegistered = useRef<string | null>(null);
   // const [isNewTask, setIsNewTask] = useState(true);
   const newTaskRef = useRef(true);
   const taskIndexRef = useRef(taskIndex);
   const prevTaskIndexRef = useRef(-1);
+  const lastLanguageRef = useRef<string>('');
 
+  // File management functions
+  const getLanguageFromFileName = useCallback((fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'py':
+        return 'python';
+      case 'js':
+      case 'jsx':
+        return 'javascript';
+      case 'ts':
+      case 'tsx':
+        return 'typescript';
+      case 'html':
+      case 'htm':
+        return 'html';
+      case 'css':
+        return 'css';
+      case 'json':
+        return 'json';
+      case 'md':
+        return 'markdown';
+      case 'xml':
+        return 'xml';
+      case 'sql':
+        return 'sql';
+      case 'yaml':
+      case 'yml':
+        return 'yaml';
+      case 'sh':
+        return 'shell';
+      case 'bash':
+        return 'shell';
+      default:
+        return 'plaintext';
+    }
+  }, []);
+
+  const switchToFileInternal = useCallback((fileId: string) => {
+    const file = files.find(f => f.id === fileId);
+    if (!file || file.type !== 'file') return;
+
+    setCurrentActiveFileId(fileId);
+    
+    // Create tab if it doesn't exist
+    const existingTab = tabs.find(tab => tab.fileId === fileId);
+    if (!existingTab) {
+      const newTab = { 
+        id: `tab_${fileId}`, 
+        label: file.name, 
+        fileId: fileId 
+      };
+      setTabs(prev => [...prev, newTab]);
+      setOpenTabs(prev => [...prev, newTab.id]);
+    }
+    
+    setActiveTab(`tab_${fileId}`);
+    
+    // Update language
+    const fileLanguage = getLanguageFromFileName(file.name);
+    setLanguage(fileLanguage);
+    lastLanguageRef.current = fileLanguage;
+    
+    // Update code value
+    setCodeValue(file.content || '');
+  }, [files, getLanguageFromFileName]);
 
   const handleAcceptChangesEditor = () => {
     // get current modfiied code from the diff editor not the regular editor
+    
+    const modifiedValue = getModifiedValue();
+    
     editorRef.current.pushUndoStop();
-    setCodeValue(getModifiedValue());
+    setCodeValue(modifiedValue || modifiedCode); // Fallback to state if getModifiedValue returns null
     setIsDiffEditor(false);
 
     setTelemetry((prevTelemetry: any[]) => {
@@ -109,14 +215,15 @@ const Editor: React.FC<EditorProps> = forwardRef(({
 
   const diffEditorRef = useRef(null);
 
-  const handleDiffEditorDidMount = useCallback((editor) => {
+  const handleDiffEditorDidMount = useCallback((editor: any, monaco: any) => {
     diffEditorRef.current = editor;
   }, []);
 
   const getModifiedValue = useCallback(() => {
     if (diffEditorRef.current) {
-      const modifiedEditor = diffEditorRef.current.getModifiedEditor();
-      return modifiedEditor.getValue();
+      const modifiedEditor = (diffEditorRef.current as any).getModifiedEditor();
+      const value = modifiedEditor.getValue();
+      return value;
     }
     return null;
   }, []);
@@ -125,6 +232,155 @@ const Editor: React.FC<EditorProps> = forwardRef(({
     newTaskRef.current = true;
     taskIndexRef.current = taskIndex;
   }, [taskIndex]);
+
+  // Update codeValue when code prop changes
+  useEffect(() => {
+    if (code !== undefined && code !== codeValue) {
+      setCodeValue(code);
+    }
+  }, [code]);
+
+  // Sync single-file content to fileContents for test case access
+  useEffect(() => {
+    if (!enableMultiFile && codeValue) {
+      // Determine file extension based on current language
+      let extension = '.txt';
+      if (language === 'html') extension = '.html';
+      else if (language === 'css') extension = '.css';
+      else if (language === 'javascript') extension = '.js';
+      else if (language === 'python') extension = '.py';
+      else if (language === 'json') extension = '.json';
+      
+      const newFileContents = {
+        [`index${extension}`]: codeValue
+      };
+      setFileContents(newFileContents);
+    }
+  }, [codeValue, language, enableMultiFile]);
+
+  // Handle file changes
+  useEffect(() => {
+    if (enableMultiFile && files.length > 0) {
+      // Initialize file contents
+      const newFileContents: Record<string, string> = {};
+      files.forEach(file => {
+        if (file.type === 'file') {
+          newFileContents[file.id] = file.content || '';
+        }
+      });
+      setFileContents(newFileContents);
+
+      // Do not auto-open first file; respect external selection
+    } else {
+      // No files available - ensure contents are cleared
+      setFileContents({});
+    }
+  }, [enableMultiFile, files]);
+
+  // Handle active file changes
+  useEffect(() => {
+    if (activeFileId && activeFileId !== currentActiveFileId) {
+      // Get the file and update language immediately before switching
+      const file = files.find(f => f.id === activeFileId);
+      if (file && file.type === 'file') {
+        const fileLanguage = getLanguageFromFileName(file.name);
+        setLanguage(fileLanguage);
+      }
+      switchToFileInternal(activeFileId);
+      setCurrentActiveFileId(activeFileId);
+    }
+  }, [activeFileId, currentActiveFileId, files, getLanguageFromFileName, language, switchToFileInternal]);
+
+  // Update Monaco model language when language state changes
+  useEffect(() => {
+    if (editorRef.current && monaco && language !== lastLanguageRef.current) {
+      const editor = editorRef.current;
+      const model = editor.getModel();
+      if (model) {
+        const currentLanguage = model.getLanguageId();
+        if (currentLanguage !== language) {
+          monaco.editor.setModelLanguage(model, language);
+          lastLanguageRef.current = language;
+        }
+      }
+    }
+  }, [language, monaco]);
+
+
+  // Fix language when editor becomes ready for the current active file
+  useEffect(() => {
+    if (editorRef.current && monaco && currentActiveFileId && files.length > 0) {
+      const file = files.find(f => f.id === currentActiveFileId);
+      if (file && file.type === 'file') {
+        const correctLanguage = getLanguageFromFileName(file.name);
+        const editor = editorRef.current;
+        const model = editor.getModel();
+        
+        if (model) {
+          const currentLanguage = model.getLanguageId();
+          if (currentLanguage !== correctLanguage) {
+            setLanguage(correctLanguage);
+            monaco.editor.setModelLanguage(model, correctLanguage);
+          }
+        }
+      }
+    }
+  }, [editorRef.current, monaco, currentActiveFileId, files]);
+
+  // Set up save command when active file changes
+  useEffect(() => {
+    if (enableMultiFile && activeFileId && editorRef.current && onFileSave && monaco) {
+      const editor = editorRef.current;
+      
+      // Only register the command if it hasn't been registered for this file yet
+      if (saveCommandRegistered.current !== activeFileId) {
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+          if (onFileSave && activeFileId) {
+            onFileSave(activeFileId);
+          }
+        });
+        saveCommandRegistered.current = activeFileId;
+      }
+    }
+  }, [activeFileId, enableMultiFile, onFileSave, monaco]);
+
+  // Keyboard shortcuts for diff editor
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isDiffEditor) return;
+      
+      const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+      
+      if (isCtrlOrCmd && event.key === 'y') {
+        event.preventDefault();
+        handleAcceptChangesEditor();
+      } else if (isCtrlOrCmd && event.key === 'n') {
+        event.preventDefault();
+        handleDeclineChangesEditor();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isDiffEditor]);
+
+  const getAvailableUnits = (variation: any): FileNode[] => {
+    // Return available units for the variation
+    return files.filter(f => f.type === 'file');
+  };
+
+  const getPriceForUnit = (variation: any, unit: any): string => {
+    // Get price for specific unit
+    const file = files.find(f => f.id === unit?.id);
+    return file?.content || '';
+  };
+
+  const createMonacoModel = (file: FileNode, monaco: any) => {
+    const language = getLanguageFromFileName(file.name);
+    const model = monaco.editor.createModel(file.content || '', language);
+    model.setValue(file.content || '');
+    return model;
+  };
 
   const handleAddTab = () => {
     const newTabId = `tab${tabs.length + 1}`;
@@ -135,17 +391,33 @@ const Editor: React.FC<EditorProps> = forwardRef(({
   };
 
   const handleDeleteTab = (tabId: string) => {
-    if (tabId === "tab1") return; // Prevent deleting the first tab
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.fileId) {
+      // This is a file tab, don't allow deletion from here
+      return;
+    }
+    
     const filteredTabs = tabs.filter(tab => tab.id !== tabId);
     setTabs(filteredTabs);
     if (activeTab === tabId) {
-      setActiveTab("tab1");
+      const nextTab = filteredTabs[0];
+      setActiveTab(nextTab?.id || "");
       setOpenTabs(openTabs.filter(t => t !== tabId));
     }
   };
 
-  const selectTab = (tabId: React.SetStateAction<string>) => {
+  const selectTab = (tabId: string) => {
     setActiveTab(tabId);
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab?.fileId) {
+      setCurrentActiveFileId(tab.fileId);
+      const file = files.find(f => f.id === tab.fileId);
+      if (file) {
+        const fileLanguage = getLanguageFromFileName(file.name);
+        setLanguage(fileLanguage);
+        setCodeValue(file.content || '');
+      }
+    }
   };
 
 
@@ -156,18 +428,13 @@ const Editor: React.FC<EditorProps> = forwardRef(({
     model: any,
     source: string,
   ) => {
-    let code = model.getValue();
-    if (code.length < 100 && code.split('\n').length < 5) {
-      console.log("Code too short for proactive suggestions");
-      return;
-    }
-    console.log(source);
-    chatRef.current.getProactiveSuggestions({ source: source });
+    // Proactive suggestions disabled
+    return;
   }
 
   const manualProactiveSuggestions = () => {
-    chatRef.current.getProactiveSuggestions({ manual: true });
-    // highlightLine(editorRef.current.getPosition().lineNumber);
+    // Manual proactive suggestions disabled
+    return;
   }
 
   const provideInlineAutocompleteSuggestions = async (
@@ -176,11 +443,8 @@ const Editor: React.FC<EditorProps> = forwardRef(({
     context: any,
     token: any
   ) => {
-    // provideProactiveSuggestions(model, "active");
-
-    if (modelAutocompleteRef.current === "Off") {
-      return Promise.resolve({ items: [] });
-    }
+    // Autocomplete functionality disabled - always return empty suggestions
+    return Promise.resolve({ items: [] });
     // Get code input up to the current cursor position
     let prefix_code = model.getValueInRange({
       startLineNumber: 1,
@@ -234,7 +498,6 @@ const Editor: React.FC<EditorProps> = forwardRef(({
       return Promise.resolve({ items: [] });
     }
 
-    console.log("Calling api");
     // Replace with tabs.
     full_code = full_code.replace(new RegExp(" ".repeat(4), "g"), "\t");
 
@@ -259,26 +522,15 @@ const Editor: React.FC<EditorProps> = forwardRef(({
     setIsSpinning(true);
 
     let suggestion = "";
-    console.log("Model autocomplete", modelAutocompleteRef.current);
-    if (modelAutocompleteRef.current === "gpt-3.5") {
-      suggestion = await get_openai_response(
-        prefix_code,
-        suffix_code,
-        mean,
-        setLogprobsCompletion
-      );
-    } else {
-      suggestion = await get_completion_together(
-        modelAutocompleteRef.current,
-        full_code,
-        mean,
-        setLogprobsCompletion
-      );
-    }
+    // Always use OpenAI for autocomplete
+    suggestion = await get_openai_response(
+      prefix_code,
+      suffix_code,
+      mean,
+      setLogprobsCompletion
+    );
     setIsSpinning(false);
 
-    console.log("Got suggestion");
-    console.log(suggestion);
     // Split full_code into each word/whitesapce
 
     // Clean up suggestion, leading spaces if new line
@@ -320,15 +572,8 @@ const Editor: React.FC<EditorProps> = forwardRef(({
 
   var interval: any = null;
   function startInactiveSuggestions(editor: any) {
-    if (interval) {
-      clearInterval(interval);
-    }
-    interval = setTimeout(() => {
-      console.log("Refreshing proactive suggestions inactive", proactive_refresh_time_inactive);
-      provideProactiveSuggestions(editor, "inactive");
-      // startInactiveSuggestions(editor);
-    },
-      proactive_refresh_time_inactive);
+    // Inactive suggestions disabled
+    return;
   }
 
   const highlightLine = (lineNumber: any) => {
@@ -345,143 +590,179 @@ const Editor: React.FC<EditorProps> = forwardRef(({
         ];
       decorationsCollection.current.set(new_decorations);
       editorRef.current.revealLineInCenter(lineNumber);
-      console.log("highlighted line", lineNumber, new_decorations);
     } else {
-      console.log("No editor ref or decoration collection", decorationsCollection.current);
     }
   };
 
   useEffect(() => {
     // proactive_refresh_time changed
-    console.log("proactive_refresh_time_inactive changed", proactive_refresh_time_inactive);
     if (editorRef.current) {
-      console.log("Clearing interval", editorRef);
       clearInterval(interval);
       startInactiveSuggestions(editorRef.current);
-    } else {
-      console.log("No editor ref");
     }
   }, [proactive_refresh_time_inactive]);
 
   function handleEditorDidMount(editor: any, monaco: any, activeTab: string) {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    
+    // Define custom dark theme with #2a2a2a background without overriding built-in themes
+    monaco.editor.defineTheme('custom-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': '#2a2a2a',
+        'editor.foreground': '#e5e5e5',
+        'editorLineNumber.foreground': '#888888',
+        'editorLineNumber.activeForeground': '#e5e5e5',
+        'editorCursor.foreground': '#e5e5e5',
+        'editor.selectionBackground': '#404040',
+        'editor.inactiveSelectionBackground': '#404040',
+      }
+    });
+    
+    // Set the custom theme
+    monaco.editor.setTheme('custom-dark');
+    
+    // Set the correct language for the current file if in multi-file mode
+    if (enableMultiFile && currentActiveFileId && files.length > 0) {
+      const file = files.find(f => f.id === currentActiveFileId);
+      if (file && file.type === 'file') {
+        const correctLanguage = getLanguageFromFileName(file.name);
+        setLanguage(correctLanguage);
+        lastLanguageRef.current = correctLanguage;
+        const model = editor.getModel();
+        if (model) {
+          monaco.editor.setModelLanguage(model, correctLanguage);
+        }
+      }
+    } else {
+      // Set initial language ref for single file mode
+      lastLanguageRef.current = language;
+    }
+    
     onEditorMount(editor, monaco); // Pass the editor and monaco instances back to the parent if needed
     editor.updateOptions({
       renderIndentGuides: true, // Show indentation guides
       roundedSelection: false,
       cursorStyle: "line",
       automaticLayout: true,
-    });
-
-    monaco.languages.registerInlineCompletionsProvider("python", {
-      provideInlineCompletions: provideInlineAutocompleteSuggestions,
-      freeInlineCompletions: (completions: any) => { },
-    });
-
-    monaco.editor.addCommand({
-      id: "trackSuggestionAccept",
-      run: (_: any, suggestion: any, suggestion_id: any, task_index: any) => {
-        setTelemetry((prev) => [
-          ...prev,
-          {
-            event_type: "accept",
-            task_index: task_index,
-            suggestion_id: suggestion_id,
-            suggestion: suggestion,
-            timestamp: Date.now(),
-          },
-        ]);
-        console.log("accepted suggestion");
-      },
-    });
-
-    editor.addAction({
-      id: "requestSuggestion",
-      label: "Request Suggestion",
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: async () => {
-        manualProactiveSuggestions();
-        //TODO: reject suggestion shown currently if any
-        // comment this out if you dont want to show suggestions on every ctrl+enter
-        console.log("Requesting suggestion");
-        chatRef.current.getProactiveSuggestions();
-
-        setTelemetry((prev) => [
-          ...prev,
-          {
-            event_type: "request_suggestion",
-            task_index: taskIndex,
-            suggestion_id: suggestionIdx,
-            timestamp: Date.now(),
-          },
-        ]);
-
-        const position = editor.getPosition();
-        if (position) {
-          const model = editor.getModel();
-          const token = new monaco.CancellationTokenSource();
-          const context = {};
-
-          if (model) {
-            const suggestions = await provideInlineAutocompleteSuggestions(
-              model,
-              position,
-              context,
-              token.token
-            );
-          }
-        }
-
-      },
-    });
-
-    editor.onDidPaste((e: any) => {
-      setTelemetry((prevState) => {
-        return [
-          ...prevState,
-          {
-            event_type: "paste_into_editor",
-            task_index: taskIndex,
-            messageAIindex: messageAIIndex,
-            copied_text: editor.getModel().getValueInRange(e.range),
-            timestamp: Date.now(),
-          },
-        ];
-      });
-    });
-
-    // editor.onDidChangeCursorPosition((e: any) => {
-    editor.onDidChangeModelContent((e: any) => {
-
-      if (interval) {
-        clearInterval(interval);
+      scrollBeyondLastLine: false, // This fixes the scrolling issue
+      wordWrap: 'on', // Enable word wrapping
+      scrollbar: {
+        vertical: 'visible',
+        horizontal: 'hidden', // Hide horizontal scrollbar
+        verticalScrollbarSize: 12,
+        horizontalScrollbarSize: 10,
+        useShadows: false,
+        verticalHasArrows: false,
+        horizontalHasArrows: false,
+        handleMouseWheel: true,
+        alwaysConsumeMouseWheel: false
       }
-      chatRef.current.cancelProactiveSuggestions();
-
-      if (newTaskRef.current) {
-        console.log(taskIndexRef.current, "New task, not starting suggestions");
-        newTaskRef.current = false;
-        prevTaskIndexRef.current = taskIndexRef.current;
-        return;
-      }
-      // const position = editor.getPosition();
-      // console.log('Cursor Position:', position);
-      console.log(taskIndexRef.current, newTaskRef.current, "Model content changed");
-      startInactiveSuggestions(editor);
     });
+
+    // Save command is handled in useEffect to ensure proper cleanup
+
+    // Inline completions provider disabled
+    // monaco.languages.registerInlineCompletionsProvider("python", {
+    //   provideInlineCompletions: provideInlineAutocompleteSuggestions,
+    //   freeInlineCompletions: (completions: any) => { },
+    // });
+
+    // Suggestion tracking command disabled
+    // monaco.editor.addCommand({
+    //   id: "trackSuggestionAccept",
+    //   run: (_: any, suggestion: any, suggestion_id: any, task_index: any) => {
+    //     setTelemetry((prev) => [
+    //       ...prev,
+    //       {
+    //         event_type: "accept",
+    //         task_index: task_index,
+    //         suggestion_id: suggestion_id,
+    //         suggestion: suggestion,
+    //         timestamp: Date.now(),
+    //       },
+    //     ]);
+    //     console.log("accepted suggestion");
+    //   },
+    // });
+
+    // Keyboard shortcut for requesting suggestions disabled
+    // editor.addAction({
+    //   id: "requestSuggestion",
+    //   label: "Request Suggestion",
+    //   keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+    //   run: async () => {
+    //     // Suggestions disabled
+    //   },
+    // });
+
+    // editor.onDidPaste((e: any) => {
+    //   setTelemetry((prevState) => {
+    //     return [
+    //       ...prevState,
+    //       {
+    //         event_type: "paste_into_editor",
+    //         task_index: taskIndex,
+    //         messageAIindex: messageAIIndex,
+    //         copied_text: editor.getModel().getValueInRange(e.range),
+    //         timestamp: Date.now(),
+    //       },
+    //     ];
+    //   });
+    // });
+
+    // // editor.onDidChangeCursorPosition((e: any) => {
+    // editor.onDidChangeModelContent((e: any) => {
+
+    //   // if (interval) {
+    //   //   clearInterval(interval);
+    //   // }
+    //   // chatRef.current.cancelProactiveSuggestions();
+
+    //   // if (newTaskRef.current) {
+    //   //   console.log(taskIndexRef.current, "New task, not starting suggestions");
+    //   //   newTaskRef.current = false;
+    //   //   prevTaskIndexRef.current = taskIndexRef.current;
+    //   //   return;
+    //   // }
+    //   // const position = editor.getPosition();
+    //   // console.log('Cursor Position:', position);
+    //   // startInactiveSuggestions(editor);
+    // });
 
     decorationsCollection.current = editor.createDecorationsCollection();
+
+    // Ensure layout recalculates when container size changes (e.g., drag-resize)
+    try {
+      if (containerRef.current && typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => {
+          if (editorRef.current) {
+            editorRef.current.layout();
+          }
+        });
+        ro.observe(containerRef.current);
+      } else {
+        // Fallback: trigger layout on window resize
+        const onResize = () => {
+          if (editorRef.current) {
+            editorRef.current.layout();
+          }
+        };
+        window.addEventListener('resize', onResize);
+      }
+    } catch (e) {
+      // no-op
+    }
 
   }
   useImperativeHandle(ref, () => {
     return {
 
       setEditorType(isDiff: boolean, originalCode: string, newCode: string) {
-        console.log(isDiff);
         if (isDiff) {
-          console.log("Setting diff editor");
-          console.log(newCode);
           setOriginalCode(originalCode);
           setModifiedCode(newCode);
           setIsDiffEditor(isDiff);
@@ -499,7 +780,6 @@ const Editor: React.FC<EditorProps> = forwardRef(({
       },
 
       getCodeValue() {
-
         return editorRef.current.getValue();
       },
 
@@ -507,16 +787,61 @@ const Editor: React.FC<EditorProps> = forwardRef(({
         setOriginalCode("");
         setModifiedCode("");
         setIsDiffEditor(false);
+      },
+
+      scrollToBottom() {
+        if (editorRef.current) {
+          const model = editorRef.current.getModel();
+          if (model) {
+            const lineCount = model.getLineCount();
+            const lastLine = model.getLineContent(lineCount);
+            editorRef.current.setPosition({ lineNumber: lineCount, column: lastLine.length + 1 });
+            editorRef.current.revealLineInCenter(lineCount);
+          }
+        }
+      },
+
+      // Multi-file support methods
+      switchToFile(fileId: string) {
+        switchToFileInternal(fileId);
+      },
+
+      getActiveFileId() {
+        return currentActiveFileId;
+      },
+
+      getAllFileContents() {
+        // In single-file mode, return the current code value as a default file
+        if (!enableMultiFile || Object.keys(fileContents).length === 0) {
+          // Determine file extension based on current language
+          let extension = '.txt';
+          if (language === 'html') extension = '.html';
+          else if (language === 'css') extension = '.css';
+          else if (language === 'javascript') extension = '.js';
+          else if (language === 'python') extension = '.py';
+          else if (language === 'json') extension = '.json';
+          
+          const result = {
+            [`index${extension}`]: codeValue
+          };
+          return result;
+        }
+        return fileContents;
+      },
+
+      layout() {
+        if (editorRef.current) {
+          editorRef.current.layout();
+        }
       }
 
     };
 
-  }, [codeValue]);
+  }, [codeValue, currentActiveFileId, fileContents, switchToFileInternal]);
 
 
   return (
-
-    <div className="">
+    <div ref={containerRef} className="editor-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {useTabs &&
         <div className="tabs">
           {tabs.map(tab => (
@@ -529,52 +854,109 @@ const Editor: React.FC<EditorProps> = forwardRef(({
           ))}
           <button onClick={handleAddTab}>+</button>
         </div>}
-      {isDiffEditor && (
-        <div className="absolute w-full flex" style={{ top: '0px' }}>
-          <div className="mr-2">
-            <button
-              onClick={handleAcceptChangesEditor}
-              className="px-4 py-2 bg-green-600 text-white rounded"
-            >
-              Accept Changes
-            </button>
-          </div>
-          <div>
-            <button
-              onClick={handleDeclineChangesEditor}
-              className="px-4 py-2 bg-red-600 text-white rounded"
-            >
-              Hide Changes
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className={isDiffEditor ? '' : 'hidden'}>
+      <div className={isDiffEditor ? 'relative block' : 'hidden'} style={{ flex: 1, height: '100%' }}>
         <DiffEditor
-          height="70vh"
-          language={language}
-          theme="vs-dark"
+          height="100%"
+          language="html"
+          theme="custom-dark"
           original={originalCode}
           modified={modifiedCode}
           onMount={handleDiffEditorDidMount}
           options={{
-            readOnly: isReadOnly, minimap: { enabled: false },
+            readOnly: isReadOnly, 
+            minimap: { enabled: false },
             enableSplitViewResizing: false,
-            renderSideBySide: false
+            renderSideBySide: false,
+            scrollBeyondLastLine: false,
+            fontSize: 12,
+            fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', monospace",
+            lineHeight: 22,
+            padding: { top: 8, bottom: 8 },
+            renderLineHighlight: 'line',
+            renderWhitespace: 'selection',
+            wordWrap: 'on',
+            automaticLayout: true,
+            // Diff editor specific options
+            ignoreTrimWhitespace: false,
+            renderIndicators: true,
+            originalEditable: false,
+            // Force line-level highlighting
+            diffWordWrap: 'on',
+            diffCodeLens: false,
+            scrollbar: {
+              vertical: 'visible',
+              horizontal: 'hidden',
+              verticalScrollbarSize: 12,
+              horizontalScrollbarSize: 10,
+              useShadows: false,
+              verticalHasArrows: false,
+              horizontalHasArrows: false,
+              handleMouseWheel: true,
+              alwaysConsumeMouseWheel: false,
+              arrowSize: 0
+            }
           }}
         />
+        {isDiffEditor && (
+          <div className="absolute flex gap-1 z-50" style={{ bottom: '10px', left: '10px' }}>
+            <button
+              onClick={handleDeclineChangesEditor}
+              className="px-3 py-1 bg-red-600 text-white rounded text-sm opacity-80 hover:opacity-100 transition-opacity duration-200 shadow-lg"
+            >
+              Reject ⌘N
+            </button>
+            <button
+              onClick={handleAcceptChangesEditor}
+              className="px-3 py-1 bg-green-600 text-white rounded text-sm opacity-80 hover:opacity-100 transition-opacity duration-200 shadow-lg"
+            >
+              Accept ⌘Y
+            </button>
+          </div>
+        )}
       </div>
-      <div className={isDiffEditor ? 'hidden' : ''}>
+      <div className={`${isDiffEditor ? 'hidden' : 'block'} border-b border-gray-700/50`} style={{ flex: 1, height: '100%' }}>
         <MonacoEditor
-          height="70vh"
+          height="100%"
           language={language}
-          value={codeValue}
-          theme="vs-dark"
+          value={codeValue || ""}
+          theme="custom-dark"
+          keepCurrentModel={true}
           onMount={(editor, monaco) => handleEditorDidMount(editor, monaco, activeTab)}
-          defaultLanguage="python"
-          path={activeTab}
-          options={{ minimap: { enabled: false }, readOnly: isReadOnly }}
+          onChange={(value) => {
+            setCodeValue(value || "");
+            if (setCode) {
+              setCode(value || "");
+            }
+            // Update file content if in multi-file mode
+            if (enableMultiFile && currentActiveFileId && onFileContentChange) {
+              onFileContentChange(currentActiveFileId, value || "");
+            }
+          }}
+          options={{ 
+            minimap: { enabled: false }, 
+            readOnly: isReadOnly,
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', monospace",
+            lineHeight: 22,
+            padding: { top: 8, bottom: 8 },
+            renderLineHighlight: 'line',
+            renderWhitespace: 'selection',
+            wordWrap: 'on',
+            automaticLayout: true,
+            scrollbar: {
+              vertical: 'visible',
+              horizontal: 'hidden',
+              verticalScrollbarSize: 12,
+              horizontalScrollbarSize: 10,
+              useShadows: false,
+              verticalHasArrows: false,
+              horizontalHasArrows: false,
+              handleMouseWheel: true,
+              alwaysConsumeMouseWheel: false,
+              arrowSize: 0
+            }
+          }}
         />
       </div>
     </div>

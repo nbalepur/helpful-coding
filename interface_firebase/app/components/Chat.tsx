@@ -109,7 +109,6 @@ const Chat: React.FC<ChatProps> = ({
   }
 
   async function submitMessage() {
-    console.log("Submitting message");
     if (awaitingResponse) {
       setAwaitingResponse(false);
 
@@ -156,7 +155,6 @@ const Chat: React.FC<ChatProps> = ({
     setAwaitingResponse(true);
     awaitingRef.current = true;
 
-    console.log(modelChat);
     let response = "";
     if (modelChat == "Off") {
       response = "Chat Model has been disabled.";

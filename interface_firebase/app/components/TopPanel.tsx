@@ -139,7 +139,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
           var time_completed_string = time_completed.toString();
           try {
             const db = getFirestore(app);
-            console.log("response id inside exit" + response_id);
             let userDoc = doc(db, "responses", response_id);
             const newData = {
               time_completed: time_completed_string,
@@ -147,7 +146,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
 
             const updateDocData = updateDoc(userDoc, newData);
           } catch (error) {
-            console.error('Error writing document: ', error);
           }
           handleOpenSurvey();
         }
@@ -190,7 +188,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
   };
 
   const changeAutocompleteModel: (model: string) => void = (model) => {
-    console.log("Changing autocomplete model to " + model);
     setModelAutocomplete(model);
     toggleDropdownAI();
 
@@ -222,7 +219,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
         ];
       });
 
-      console.log("Resetting code");
 
       editor.setValue(function_signatures[task_index].replace(/\\n/g, "\n"));
 
