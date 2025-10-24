@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic-Tac-Toe Game</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="game-header">
+            <h1>Tic-Tac-Toe</h1>
+            <div class="game-status" id="game-status">
+                Game Status: Human Turn
+            </div>
+            <button class="reset-button" id="play-again-btn" style="display: none;">
+                Play Again
+            </button>
+        </div>
+        
+        <div class="game-board">
+            <div class="board-cell" id="cell-0-0" data-row="0" data-col="0"></div>
+            <div class="board-cell" id="cell-0-1" data-row="0" data-col="1"></div>
+            <div class="board-cell" id="cell-0-2" data-row="0" data-col="2"></div>
+            <div class="board-cell" id="cell-1-0" data-row="1" data-col="0"></div>
+            <div class="board-cell" id="cell-1-1" data-row="1" data-col="1"></div>
+            <div class="board-cell" id="cell-1-2" data-row="1" data-col="2"></div>
+            <div class="board-cell" id="cell-2-0" data-row="2" data-col="0"></div>
+            <div class="board-cell" id="cell-2-1" data-row="2" data-col="1"></div>
+            <div class="board-cell" id="cell-2-2" data-row="2" data-col="2"></div>
+        </div>
+        
+        <!-- Test content to verify scrolling -->
+        <div style="margin-top: 200vh; padding: 20px; background: linear-gradient(45deg, #ff6b6b, #4ecdc4); color: white; text-align: center; border-radius: 15px;">
+            <h2 style="margin-bottom: 20px;">🎉 Scrolling Test Area 🎉</h2>
+            <p style="font-size: 18px; margin-bottom: 15px;">If you can see this content, scrolling is working perfectly!</p>
+            <p style="font-size: 16px; margin-bottom: 10px;">This content is positioned way down below the game board.</p>
+            <p style="font-size: 14px; opacity: 0.9;">Scroll up to get back to the tic-tac-toe game!</p>
+            
+            <div style="margin-top: 30px; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 10px;">
+                <h3 style="margin-bottom: 15px;">🚀 Additional Test Content</h3>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+                <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+                <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4 style="margin-bottom: 10px;">🎮 Game Instructions</h4>
+                <ul style="text-align: left; display: inline-block;">
+                    <li>Click on any empty cell to make your move</li>
+                    <li>You play as X, the AI plays as O</li>
+                    <li>Get three in a row to win!</li>
+                    <li>Use the "Play Again" button to restart</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <script src="frontend.js"></script>
+</body>
+</html>

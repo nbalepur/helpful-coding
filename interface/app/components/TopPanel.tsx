@@ -196,12 +196,10 @@ const TopPanel: React.FC<TopPanelProps> = ({
       // handleOpenSurvey();
       var time_completed = new Date();
       var time_completed_string = time_completed.toString();
-      console.log("response id inside exit" + response_id);
       const newData = {
         time_completed: time_completed_string,
       };
 
-      console.log("useEffect");
       setTaskIndex(-1);
     }
   }, [task_index, function_signatures]);
@@ -209,7 +207,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
   // const [partTwoTaskIndex, setPartTwoTaskIndex] = useState(-1);
   const partTwoTaskIndex = useRef(-1);
   useEffect(() => {
-    console.log("function_signatures", function_signatures);
     if (function_signatures.length == 0) return;
     partTwoTaskIndex.current = Math.floor(function_signatures.length / 2);
   }, [function_signatures]);
@@ -223,7 +220,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
         false,
         editorRef.current
       );
-      console.log("goToPartTwo");
       setTaskIndex(partTwoTaskIndex.current);
       isPartTwo.current = true;
       switchProactive();
@@ -293,7 +289,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
         if (distance < 0) {
           // // get the user out
           setCurrTime("Time is up");
-          console.log("time is up updateTimer");
 
           trackSubmitCode(
             setTelemetry,
@@ -350,17 +345,14 @@ const TopPanel: React.FC<TopPanelProps> = ({
   };
 
   const changeAutocompleteModel: (model: string) => void = (model) => {
-    console.log("Changing autocomplete model to " + model);
     setModelAutocomplete(model);
     toggleDropdownAI();
   };
   const changeChatModel: (model: string) => void = (model) => {
-    console.log("Changing chat model to " + model);
     setModelChat(model);
     toggleDropdownAI();
   };
   const changeProactive: (on: boolean) => void = (on) => {
-    console.log("Changing proactive chat suggestion to " + on);
     setProactive(on);
     toggleDropdownAI();
   };
@@ -369,9 +361,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
     active: number | null,
     inactive: number | null
   ) => void = (active, inactive) => {
-    console.log(
-      "Changing proactive refresh time to " + active + " and " + inactive
-    );
     if (active) setProactiveRefreshTimeActive(active * 1000);
     if (inactive) setProactiveRefreshTimeInactive(inactive * 1000);
     toggleDropdownAI();
@@ -397,7 +386,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
         ];
       });
 
-      console.log("Resetting code");
       actualEditorRef.current.setEditorType(
         false,
         function_signatures[task_index].replace(/\\n/g, "\n"),
@@ -466,45 +454,6 @@ const TopPanel: React.FC<TopPanelProps> = ({
               left: `${buttonAIPosition.left}px`,
             }}
           >
-            <div className="menu-item">
-              Proactive Asistant
-              <div className="submenu">
-                <button onClick={() => changeProactive(true)}>On </button>
-                <button onClick={() => changeProactive(false)}>Off </button>
-              </div>
-            </div>
-            <div className="menu-item">
-              Autocomplete Model
-              <div className="submenu">
-                <button
-                  onClick={() =>
-                    changeAutocompleteModel("codellama/CodeLlama-70b-Python-hf")
-                  }
-                >
-                  CodeLlama-70b-Python-hf{" "}
-                </button>
-                <button
-                  onClick={() =>
-                    changeAutocompleteModel("codellama/CodeLlama-7b-Python-hf")
-                  }
-                >
-                  CodeLlama-7b-Python-hf
-                </button>
-                <button
-                  onClick={() =>
-                    changeAutocompleteModel("Phind/Phind-CodeLlama-34B-v2")
-                  }
-                >
-                  Phind-CodeLlama-34B-v2
-                </button>
-                <button onClick={() => changeAutocompleteModel("gpt-3.5")}>
-                  GPT-3.5
-                </button>
-                <button onClick={() => changeAutocompleteModel("Off")}>
-                  Off
-                </button>
-              </div>
-            </div>
             <div className="menu-item">
               Chat Model
               <div className="submenu">

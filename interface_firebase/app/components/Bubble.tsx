@@ -29,7 +29,6 @@ const Bubble: React.FC<BubbleProps> = ({
   const [showFeedbackButtons, setShowFeedbackButtons] = useState(true);
 
   const handleFeedback = (type: string) => {
-    console.log(`${type} feedback received`);
     // Update telemetry or perform other actions here
     setTelemetry((prev) => [
       ...prev,
@@ -49,7 +48,6 @@ const Bubble: React.FC<BubbleProps> = ({
 
   const handleCopy = async (event: any) => {
     let copyText = await navigator.clipboard.readText();
-    console.log(event);
 
     setTelemetry((prev) => [
       ...prev,

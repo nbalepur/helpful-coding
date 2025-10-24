@@ -9,7 +9,7 @@ interface TextInputProps {
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onKeyUp: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   // Submit code is a button press
-  submitMessage: () => void;
+  submitMessage: (messageText?: string) => void;
   awaitingResponse: boolean;
 }
 
@@ -43,19 +43,20 @@ const TextInput: React.FC<TextInputProps> = ({
   return (
     <div className="flex flex-row w-full justify-around items-center">
       <textarea
-        placeholder={"Send a message..."}
+        placeholder={"Type your next instruction..."}
         value={text_value}
         ref={textareaRef}
         onChange={onChange}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
-        className="p-2 m-2 text-sm overflow-y-auto resize-none border border-black flex-grow"
+        className="px-2 py-1.5 m-2 text-sm overflow-y-auto resize-none border border-black flex-grow leading-6"
+        style={{ lineHeight: '24px' }}
       ></textarea>
       <button
-        className={awaitingResponse ? "ml-0 h-10 w-10 bg-red-600" : "ml-0 h-10 w-10"}
-        onClick={submitMessage}
+        className="ml-0 h-10 w-10 flex items-center justify-center"
+        onClick={() => submitMessage(text_value)}
       >
-        {awaitingResponse ? "✕" : "↑"}
+        ↑
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
+import { ENV } from '../config/env';
+
 export const toPersist = true;
-export const OPENAI_API_KEY = "";
 export const TOGETHER_API_KEY = "1";
 export const RAPID_API_KEY = "";
 export const wait_time_autocomplete_suggestion = 1500;
@@ -7,15 +8,15 @@ export const settings = {
   taskSettings: {
     durationMinutes: 40,
     skipTaskMinutes: 10,
-    proactiveAvailableStart: null, // empty = random
+    proactiveAvailableStart: false, // disabled
     proactiveSwitchMinutes: 20,
     showAiSettings: false,
     tasksId: null // empty = random
   },
   modelSettings: {
-    // api: 'openai',
-    chatModel: 'gpt-4o',
-    autocompleteModel: 'gpt-3.5',
+    api: 'openai',
+    chatModel: 'gpt-4',
+    autocompleteModel: 'Off',
     maxTokens: 1024,
     temperature: 0.5, // not used for now
     topP: 0.5, // not used for now
@@ -69,8 +70,8 @@ export const settings = {
   }
 };
 
-
-export const API_URL = "http://localhost:8000/v1";
+// Use centralized environment configuration
+export const API_URL = `${ENV.BACKEND_URL}/v1`;
 
 const chat_prompt = `\`\`\`
 \${code}

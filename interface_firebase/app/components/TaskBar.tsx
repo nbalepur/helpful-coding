@@ -96,7 +96,6 @@ const TaskBar: React.FC<TaskBarProps> = ({
       unit_tests
     );
 
-    console.log("Finished run code");
     displayResult(res);
   }
 

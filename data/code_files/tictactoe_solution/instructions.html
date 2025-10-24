@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic-Tac-Toe Human vs AI - Instructions</title>
+    <!-- Styling is applied by the app's CSS (see interface/app/style.css) to keep all instructions consistent. -->
+</head>
+<body>
+    <div class="container">
+        <div class="accent"></div>
+        <h1>Tic-Tac-Toe Human vs AI</h1>
+        <p>Build an interactive tic-tac-toe game where humans (playing as "X") compete against an AI opponent (playing as "O").</p>
+        
+        <video controls>
+            <source src="demo.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+
+        <p><strong class="text-primary">Your Task:</strong> Pass all test cases in the "Test Cases" pane and click "Submit" when complete. Use the "API" pane to debug your backend endpoints and the "Preview" pane to test your website interactively. <strong class="text-accent">You have access to an AI assistant as a chatbot below</strong> - use it to ask questions, debug issues, and get help with the task. Everything you need is in this interface - avoid navigating to external pages.</p>
+        
+        <p>These test cases are the <strong class="text-accent">bare minimum requirements</strong> to pass. Your project will be assessed later for code quality, UI/UX design, edge case handling, and overall functionality beyond just passing tests.</p>
+
+        <hr>
+
+        <h2>Directory Overview</h2>
+        <ul>
+            <li><code>index.html</code> + <code>styles.css</code> - Game interface and styling</li>
+            <li><code>frontend.js</code> - Handles user interactions and rendering. Use <code>callAPI(endpoint, data)</code> to call backend functions.</li>
+            <li><code>backend.py</code> - Game logic API. Mark endpoints with <code>@endpoint()</code> decorator.</li>
+        </ul>
+
+        <hr>
+
+        <h2>Guidelines & Constraints</h2>
+        <div class="requirement">
+            <ul>
+                <li><strong>Use exact element IDs</strong> - Tests look for specific IDs like <code>#game-status</code>, <code>#cell-0-0</code>, <code>#play-again-btn</code></li>
+                <li><strong>Update text content properly</strong> - Set <code>textContent</code>, <code>innerHTML</code>, or <code>innerText</code> (tests read <code>textContent</code>)</li>
+                <li><strong>Minimize delays</strong> - Keep <code>setTimeout()</code> under 300ms. Tests execute backend calls instantly, so long delays only slow down execution</li>
+                <li><strong>Update your UI after changes</strong> - Make sure your interface reflects the current game state so tests can verify correctness</li>
+                <li><strong>No external libraries</strong> - Use only native JavaScript, Python, HTML, and CSS. No npm packages, no pip installs, no CDN imports</li>
+                <li><strong>No external APIs</strong> - Don't fetch data from external services. Use only the provided <code>callAPI()</code> function for backend communication</li>
+                <li><strong>No external navigation</strong> - Stay in this interface. Use the AI assistant chatbot for help instead of searching online</li>
+            </ul>
+        </div>
+
+        <hr>
+
+        <h2>HTML Test Cases</h2>
+        <p>Files: <span class="file-tag">index.html</span> <span class="file-tag">styles.css</span></p>
+
+        <div class="requirement">
+            <h3>Page renders</h3>
+            <p><strong>Name:</strong> Page renders</p>
+            <p><strong>Check:</strong> The HTML page should render and look like a real, accessible web page.</p>
+        </div>
+
+        <div class="requirement">
+            <h3>Tic-tac-toe board</h3>
+            <p><strong>Name:</strong> Tic Tac Toe Board</p>
+            <p><strong>Check:</strong> A 3×3 grid is visible, with cells large enough to click to make a move.</p>
+        </div>
+
+        <div class="requirement">
+            <h3>Game status</h3>
+            <p><strong>Name:</strong> Game Status</p>
+            <p><strong>Check:</strong> A status element shows whose turn it is (must contain "Human Turn"), or that the game has ended (must contain "Game Over"). Tests are case-insensitive.</p>
+        </div>
+
+        <hr>
+
+        <h2>Backend Test Cases</h2>
+        <p><span class="file-tag">backend.py</span> Implement these API endpoints with <code>@endpoint()</code> decorator:</p>
+
+        <div class="requirement">
+            <h3>/check_winner</h3>
+            
+            <p>Given an input tic-tac-toe board, return a string denoting who won the game. Check all rows, columns, and diagonals for three matching symbols. Return <code>"X"</code> if X has won, <code>"O"</code> if O has won, <code>"Tie"</code> if the board is full and no one has won, or <code>null</code> if the game is still in progress.</p>
+            
+            <p><strong>Input:</strong> <code>{ "board": [[...], [...], [...]] }</code><br>
+            <strong>Output:</strong> <code>"X"</code> | <code>"O"</code> | <code>"Tie"</code> | <code>null</code></p>
+            
+            <p><strong>Examples:</strong></p>
+            <pre><code>Input: {"board": [["X", "X", "X"], ["", "O", ""], ["", "O", ""]]}
+Output: "X"
+
+Input: {"board": [["X", "O", "X"], ["O", "X", "O"], ["O", "X", "O"]]}
+Output: "Tie"
+
+Input: {"board": [["X", "O", ""], ["O", "X", ""], ["", "", ""]]}
+Output: null</code></pre>
+        </div>
+
+        <div class="requirement">
+            <h3>/play_move</h3>
+            
+            <p>Attempt to place an "X" at the specified row and column on the board. Validate that the position is within bounds (0-2) and that the cell is empty. If valid, place the X and return <code>is_valid: true</code> with the updated board. If invalid (out of bounds or cell occupied), return <code>is_valid: false</code> with the original board unchanged.</p>
+            
+            <p><strong>Input:</strong> <code>{ "board": [[...], [...], [...]],  "row": int, "col": int }</code><br>
+            <strong>Output:</strong> <code>{ "is_valid": bool, "board": [[...], [...], [...]] }</code></p>
+            
+            <p><strong>Examples:</strong></p>
+            <pre><code>Input: {"board": [["", "", ""], ["", "", ""], ["", "", ""]], "row": 1, "col": 1}
+Output: {"is_valid": true, "board": [["", "", ""], ["", "X", ""], ["", "", ""]]}
+
+Input: {"board": [["X", "", ""], ["", "", ""], ["", "", ""]], "row": 0, "col": 0}
+Output: {"is_valid": false, "board": [["X", "", ""], ["", "", ""], ["", "", ""]]}</code></pre>
+        </div>
+
+        <div class="requirement">
+            <h3>/ai_move</h3>
+            
+            <p>AI selects and executes the best available move for "O". Strategy: (1) prioritize winning moves that complete three O's in a row, (2) block the human from winning by filling cells that would complete three X's, (3) otherwise choose any valid empty cell. Return the updated board with the AI's O placed.</p>
+            
+            <p><strong>Input:</strong> <code>{ "board": [[...], [...], [...]] }</code><br>
+            <strong>Output:</strong> Updated board with AI's move (O placed)</p>
+            
+            <p><strong>Examples:</strong></p>
+            <pre><code>Input: {"board": [["X", "O", "X"], ["X", "O", "O"], ["O", "X", ""]]}
+Output: [["X", "O", "X"], ["X", "O", "O"], ["O", "X", "O"]]
+
+Input: {"board": [["O", "O", ""], ["X", "", ""], ["X", "", ""]]}
+Output: [["O", "O", "O"], ["X", "", ""], ["X", "", ""]]
+
+Input: {"board": [["X", "X", ""], ["", "O", ""], ["", "", ""]]}
+Output: [["X", "X", "O"], ["", "O", ""], ["", "", ""]]</code></pre>
+        </div>
+
+        <div class="requirement">
+            <h3>/reset</h3>
+            
+            <p>Reset the game to its initial state by returning a clean 3x3 board with all cells empty. This endpoint takes no input parameters.</p>
+            
+            <p><strong>Input:</strong> <code>{}</code><br>
+            <strong>Output:</strong> <code>{ "board": [["", "", ""], ["", "", ""], ["", "", ""]] }</code></p>
+        </div>
+
+        <hr>
+
+        <h2>Frontend Test Cases</h2>
+        <p><span class="file-tag">frontend.js</span> Implement these element IDs and behaviors:</p>
+
+        <div class="requirement">
+            <h3>Board Cells</h3>
+            <ul>
+                <li><strong>ID format:</strong> <code>#cell-{row}-{col}</code> (e.g., <code>#cell-0-0</code>, <code>#cell-1-1</code>, <code>#cell-2-2</code>)</li>
+                <li>Each cell must be clickable</li>
+                <li>Clicking an empty cell places "X" and triggers AI response</li>
+                <li>Clicking occupied cells does nothing</li>
+                <li>Display "X" or "O" as text content</li>
+            </ul>
+        </div>
+
+        <div class="requirement">
+            <h3>Game Status</h3>
+            <ul>
+                <li><strong>ID:</strong> <code>#game-status</code></li>
+                <li><strong>Required text content (case-insensitive):</strong>
+                    <ul>
+                        <li>Must contain <code>"Human Turn"</code> when waiting for human player</li>
+                        <li>Must contain <code>"Game Over"</code> when the game has ended (win or tie)</li>
+                    </ul>
+                </li>
+                <li><strong>Examples of valid status messages:</strong>
+                    <ul>
+                        <li><code>"Game Status: Human Turn"</code> ✓</li>
+                        <li><code>"Human Turn"</code> ✓</li>
+                        <li><code>"Game Over - X Wins!"</code> ✓</li>
+                        <li><code>"Game Over - Tie!"</code> ✓</li>
+                        <li><code>"Game Over - AI Wins!"</code> ✓</li>
+                    </ul>
+                </li>
+                <li><strong>Note:</strong> Tests check if the text <em>contains</em> these keywords, not exact matches. Be descriptive!</li>
+            </ul>
+        </div>
+
+        <div class="requirement">
+            <h3>Play Again Button</h3>
+            <ul>
+                <li><strong>ID:</strong> <code>#play-again-btn</code></li>
+                <li>Hidden during active gameplay</li>
+                <li>Visible when game ends (win/tie)</li>
+                <li>Clicking resets board via <code>/reset</code> endpoint</li>
+                <li>After reset: board clears, status shows "Human Turn", button hides</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+

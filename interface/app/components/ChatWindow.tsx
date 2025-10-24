@@ -2,6 +2,7 @@ import React, { Dispatch, SetStateAction } from "react";
 import { MessageData, ProactiveMessageData } from "./Message";
 import Message from "./Message";
 import { useEffect, useRef } from "react";
+import AIThinking from "./AIThinking";
 
 import { useState, useCallback } from 'react'
 
@@ -43,19 +44,65 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   const [messageLen, setMessageLen] = useState(0);
+  const [lastMessageText, setLastMessageText] = useState("");
   
   useEffect(() => {
     if (chatContainerRef.current != null && messages.length === 0) {
       chatContainerRef.current.scrollTop =
         chatContainerRef.current.clientHeight;
     } else if (messages.length <= messageLen) {
-      console.log("message deleted, not scroll", messageLen, messages.length);
     }
     else {
-      scrollToBottom(); 
+      // Scroll for new messages
+      const isNewMessage = messages.length > messageLen;
+      if (isNewMessage) {
+        scrollToBottom();
+      }
     }
     setMessageLen(messages.length);
   }, [messages]);
+
+  // Effect to handle streaming updates and AI assistant responses
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      
+      // Scroll when AI assistant starts responding or when streaming
+      if (lastMessage && lastMessage.sender === "bot") {
+        // Check if this is a streaming message or if the text has changed
+        const isStreaming = lastMessage.isStreaming || false;
+        const textChanged = lastMessage.text !== lastMessageText;
+        
+        if (isStreaming || textChanged) {
+          // Small delay to ensure DOM is updated
+          setTimeout(() => {
+            scrollToBottom();
+          }, 10);
+        }
+      }
+      
+      // Always scroll for user messages
+      if (lastMessage && lastMessage.sender === "user") {
+        setTimeout(() => {
+          scrollToBottom();
+        }, 10);
+      }
+      
+      // Update the last message text for comparison
+      setLastMessageText(lastMessage.text);
+    }
+  }, [messages]);
+
+  // Effect to scroll when AI starts responding (when awaitingResponse changes to true)
+  useEffect(() => {
+    if (awaitingResponse) {
+      // Small delay to ensure the loading indicator is rendered
+      setTimeout(() => {
+        scrollToBottom();
+      }, 50);
+    }
+  }, [awaitingResponse]);
+
 
   const textCopy = useCallback(async (event: any) => {
     const selection = window.getSelection();
@@ -68,7 +115,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       // Text is selected and copied
       // navigator.clipboard.writeText(selectedText);
       // Push the data to telemetry
-      console.log('ho', selectedText);
       setTelemetry((prev) => [
         ...prev,
         {
@@ -84,28 +130,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   return (
     <>
-      <div className="flex text-center items-center align-middle">
-        <button
-          id="clear-chat"
-          onClick={clearChat}
-        >
-          Clear
-        </button>
-        {proactive && <button
-          id="get-suggestion"
-          onClick={() => chatRef.current.getProactiveSuggestions({manual: true})}
-        >
-          Suggest
-        </button>}
-      </div>
       <div
-        className="h-full flex flex-col px-3 overflow-auto"
+        className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden"
         ref={chatContainerRef}
         // onCopy={textCopy}
       >
         {messages.map((message, index) => (
           <Message
-            // key={index}
+            key={index}
             msg={message}
             text={message.text}
             sender={message.sender}
@@ -122,8 +154,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             proactive={proactive}
           />
         ))}
-        {awaitingResponse ? <div className="text-xs">Awaiting chatbot response</div> : null}
-        {awaitingSuggestions ? <div className="text-xs">Awaiting agent suggestions</div> : null}
+        <div className="flex-1" />
+        {awaitingResponse && !messages.some(msg => msg.sender === "bot" && (msg.isStreaming && msg.text.length > 0)) ? (
+          <div className="flex justify-start mt-2">
+            <img
+              id="sender_icon"
+              src="/chatbot_icon.png"
+              className="h-8 w-8 mr-3 invert"
+            />
+            <div className="flex items-center">
+              <AIThinking className="opacity-70" />
+            </div>
+          </div>
+        ) : null}
+        {awaitingSuggestions ? <div className="text-xs text-gray-400 p-2">Awaiting agent suggestions...</div> : null}
       </div>
     </>
   );
