@@ -1,0 +1,20 @@
+[
+    {
+      "title": "Web Page Design (Automatic Judge)",
+      "name": "Page renders",
+      "description": "The HTML page should render and should look like a web page that a user could access.",
+      "public": true
+    },
+    {
+        "title": "Web Page Design (Automatic Judge)",
+        "name": "Tic Tac Toe Board",
+        "description": "The page should have a component that resembles a tic tac toe board. There must be three rows and three columns. Each cell should be large enough such that a user can click on it to make a move.",
+        "public": true
+    },
+    {
+        "title": "Web Page Design (Automatic Judge)",
+        "name": "Game Status",
+        "description": "The page should have a component that displays the current game status. This could include who's turn it is, whether the game has ended in a win/loss/tie, or whether the game is in progress.",
+        "public": true
+    }
+]

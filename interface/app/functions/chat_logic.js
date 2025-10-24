@@ -1,6 +1,5 @@
 
 
-import { get_chat_together } from "./cloud_functions_helper";
 import { get_openai_chat_response } from "./cloud_functions_helper";
 
 
@@ -23,26 +22,16 @@ export function sampleGaussianTruncated(mean, stdDev, min, max) {
 
 export function getModelName(model_given){
     /*   <option value="gpt35">GPT-3.5</option>
-      <option value="togethercomputer/CodeLlama-7b">CodeLlama-7b</option>
-      <option value="togethercomputer/CodeLlama-13b">CodeLlama-13b</option>
-      <option value="togethercomputer/CodeLlama-34b">CodeLlama-34b</option> */
+      <option value="gpt4">GPT-4</option> */
       if (model_given == "gpt35") {
         return "gpt-3.5-turbo";
       }
-      else if (model_given == "CodeLlama-7b") {
-        return "CodeLlama-7b";
-      }
-      else if (model_given == "CodeLlama-13b") {
-        return "CodeLlama-13b";
-      }
-      else if (model_given == "CodeLlama-34b") {
-        return "CodeLlama-34b";
+      else if (model_given == "gpt4") {
+        return "gpt-4";
       }
       else {
-        return "gpt-3.5-turbo";
+        return "gpt-4";
       }
-    
-      
     }
     
 
@@ -51,18 +40,15 @@ export function getAIResponse(model, chatHistory, max_tokens_task) {
     switch (model) {
         case "gpt-3.5-turbo":
             return get_openai_chat_response("gpt-3.5-turbo", chatHistory, max_tokens_task);
-        case "CodeLlama-34b":
-            return get_chat_together("togethercomputer/CodeLlama-34b-Instruct", chatHistory, max_tokens_task);
-        case "CodeLlama-7b":
-          return get_chat_together("togethercomputer/CodeLlama-7b-Instruct", chatHistory, max_tokens_task);
+        case "gpt-4":
+            return get_openai_chat_response("gpt-4", chatHistory, max_tokens_task);
         default:
-          return get_chat_together("togethercomputer/CodeLlama-34b-Instruct", chatHistory, max_tokens_task);
+          return get_openai_chat_response("gpt-4", chatHistory, max_tokens_task);
         }
 }
 
 
 export const trackSuggestionAccept = async (accessor, editor, args) => {
-  console.log("This is on suggestion acceptance");
   //FIXME: setTelemetry.
   setTelemetry((prev) => [
     ...prev,

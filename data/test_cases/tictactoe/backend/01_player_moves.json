@@ -1,0 +1,97 @@
+[
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Valid Move - Center",
+    "description": "Verify play_move accepts valid move to center",
+    "public": true,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["", "", ""], ["", "", ""], ["", "", ""]],
+      "row": 1,
+      "col": 1
+    },
+    "expected": {
+      "is_valid": true,
+      "board": [["", "", ""], ["", "X", ""], ["", "", ""]]
+    }
+  },
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Valid Move - Corner",
+    "description": "Verify play_move accepts valid move to corner",
+    "public": true,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["", "", ""], ["", "", ""], ["", "", ""]],
+      "row": 0,
+      "col": 0
+    },
+    "expected": {
+      "is_valid": true,
+      "board": [["X", "", ""], ["", "", ""], ["", "", ""]]
+    }
+  },
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Invalid Move - Occupied Cell",
+    "description": "Verify play_move rejects moves to occupied cells",
+    "public": true,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["X", "", ""], ["", "", ""], ["", "", ""]],
+      "row": 0,
+      "col": 0
+    },
+    "expected": {
+      "is_valid": false,
+      "board": [["X", "", ""], ["", "", ""], ["", "", ""]]
+    }
+  },
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Invalid Move - Negative Coordinates",
+    "description": "Verify play_move rejects negative coordinates",
+    "public": false,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["", "", ""], ["", "", ""], ["", "", ""]],
+      "row": -1,
+      "col": 0
+    },
+    "expected": {
+      "is_valid": false
+    }
+  },
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Invalid Move - Out of Bounds",
+    "description": "Verify play_move rejects coordinates >= 3",
+    "public": false,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["", "", ""], ["", "", ""], ["", "", ""]],
+      "row": 3,
+      "col": 2
+    },
+    "expected": {
+      "is_valid": false
+    }
+  },
+  {
+    "title": "Player Moves (/play_move)",
+    "name": "Move Preserves Board State",
+    "description": "Verify play_move preserves existing pieces",
+    "public": false,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["X", "O", ""], ["", "", ""], ["", "", ""]],
+      "row": 2,
+      "col": 2
+    },
+    "expected": {
+      "is_valid": true,
+      "board": [["X", "O", ""], ["", "", ""], ["", "", "X"]]
+    }
+  }
+]
+

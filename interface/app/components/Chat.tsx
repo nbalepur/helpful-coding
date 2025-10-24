@@ -2,18 +2,18 @@
 import { useState, Dispatch, SetStateAction, use, useImperativeHandle } from "react";
 // import Message from "./Message";
 import { MessageData, ProactiveMessageData } from "./Message";
-import "../style.css";
+// CSS imported via globals.css
 import ChatWindow from "./ChatWindow";
 import { useEffect, useRef, forwardRef, useCallback } from "react";
 import TextInput from "./TextInput";
 import { send } from "process";
 import {
   get_openai_chat_response,
-  get_chat_together,
-  get_chat_groq,
+  get_openai_chat_response_streaming,
 } from "../functions/cloud_functions_helper";
+import { streamChatResponse } from "../functions/websocket_helper";
 
-import { loadlocalstorage, loadTaskData } from "../functions/task_logic";
+import { loadlocalstorage } from "../functions/task_logic";
 
 import { Message } from "postcss";
 import { getAIResponse } from "../functions/chat_logic";
@@ -106,7 +106,9 @@ const Chat: React.FC<ChatProps> = forwardRef(({
   const awaitingRef = useRef(awaitingResponse);
   const [awaitingSuggestions, setAwaitingSuggestions] = useState(false);
   const awaitingSuggestionsRef = useRef(awaitingSuggestions);
-  const openai_models = ["gpt-3.5-turbo", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini"];
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState(null);
+  const openai_models = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini"];
   const groq_models = ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma-7b-it"];
   // const insert_cursor = true;
   // const suggestion_max_options = 3;
@@ -124,7 +126,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
       throttleRef.current.timer = null;
     }
     throttleRef.current.inThrottle = false;
-    console.log('Throttle cleared');
   }, []);
 
   const startThrottle = useCallback(() => {
@@ -133,7 +134,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     }
     throttleRef.current.inThrottle = true;
     throttleRef.current.timer = setTimeout(clearThrottle, proactive_refresh_time);
-    console.log('Throttle started');
   }, []);
 
   const clearTyping = useCallback(() => {
@@ -143,7 +143,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     }
     if (typingRef.current.isTyping) {
       typingRef.current.isTyping = false;
-      console.log('Typing cleared');
     }
   }, []);
 
@@ -186,7 +185,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
 
   useEffect(() => {
     // proactive_refresh_time changed
-    console.log("proactive_refresh_time changed", proactive_refresh_time);
     clearThrottle();
   }, [proactive_refresh_time]);
 
@@ -200,7 +198,11 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     setTyping();
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      submitMessage();
+      // Store the message before clearing input
+      const messageText = inputValue;
+      // Clear input immediately when Enter is pressed
+      setInputValue("");
+      submitMessage(messageText);
     }
   }
 
@@ -213,28 +215,23 @@ const Chat: React.FC<ChatProps> = forwardRef(({
   async function autoMessage({ replaceHash = null, err = null, source = "active", cancel = false }: any) {
 
     if (awaitingSuggestions) {
-      console.log("Already awaiting suggestions");
       return false;
     }
 
     if (cancel && !awaitingManualSuggestions) {
-      console.log("Cancelling proactive suggestions");
       setAwaitingSuggestions(false);
       awaitingSuggestionsRef.current = false;
       return false;
     }
 
     if (modelChat == "Off") {
-      console.log("Chat Model has been disabled.");
       return false;
     }
     if (!proactive) {
-      console.log("Proactive suggestions is disabled.");
       return false;
     }
 
 
-    console.log("Proactively sending chat");
     // setAwaitingResponse(true);
     // awaitingRef.current = true;
     setAwaitingSuggestions(true);
@@ -246,29 +243,23 @@ const Chat: React.FC<ChatProps> = forwardRef(({
 
 
     let message = "";
-    let code = editorRef.current.getValue();
+    let code = editorRef?.current?.getValue?.() ?? "";
     if (insert_cursor) {
-      let position = editorRef.current.getPosition();
-      // position.column = 0;
-      const offset = editorRef.current.getModel().getOffsetAt(position);
-      code = code.slice(0, offset) +
-        " {cursor} " +
-        code.slice(offset);
-      console.log(code);
+      const model = editorRef?.current?.getModel?.();
+      const position = editorRef?.current?.getPosition?.();
+      if (model && position) {
+        const offset = model.getOffsetAt(position);
+        code = code.slice(0, offset) + " {cursor} " + code.slice(offset);
+      }
     }
 
     if (err) {
-      console.log("Proactive debugging suggestions", err);
-      console.log("stdout:", err.stdout);
-      console.log("stderr:", err.stderr);
       message = eval('`' + prompt.debug_prompt.replace(/`/g, '\\`') + '`');
 
     }
     else {
       message = eval('`' + prompt.chat_prompt.replace(/`/g, '\\`') + '`');
     }
-    console.log('system prompt', prompt.system_prompt);
-    console.log('message', message);
 
     let systemPrompt = prompt.system_prompt;
     let proactiveResponse: any[] = [];
@@ -279,10 +270,8 @@ const Chat: React.FC<ChatProps> = forwardRef(({
 
     while (modelChat != "Off" && count < maxTries) {
       try {
-        console.log(modelChat);
         let response = "";
         if (openai_models.includes(modelChat)) {
-          console.log("openai model");
           response = await get_openai_chat_response(modelChat,
             [...chatHistory, { role: "system", content: systemPrompt }, { role: "user", content: message }],
             max_tokens,
@@ -290,7 +279,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           );
         }
         else if (groq_models.includes(modelChat)) {
-          console.log("groq model");
           response = await get_chat_groq(modelChat,
             [...chatHistory, { role: "system", content: systemPrompt }, { role: "user", content: message }],
             max_tokens,
@@ -298,15 +286,13 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           );
         }
         else {
-          console.log("together model");
-          response = await get_chat_together(modelChat,
+          response = await get_openai_chat_response("gpt-4",
             [...chatHistory, { role: "system", content: systemPrompt }, { role: "user", content: message }],
             max_tokens,
             setChatLogProbs
           );
         }
 
-        console.log(response);
 
         let lines = response.split("\n");
         proactiveResponse = [];
@@ -326,7 +312,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           if (optionMatch) {
             // line = line.replace(/^\p{P}+|\p{P}+$/gu, '');
             line = line.replaceAll('**', '');
-            console.log(line.split(optionRegex));
             full_text = currlines.join("\n");
             proactiveResponse.push({ short_text: short_text, full_text: full_text });
             // short_text = line.split(/(?:Option\s*\d+:|\d+\.|\d+\))/)[1].trim();
@@ -352,12 +337,10 @@ const Chat: React.FC<ChatProps> = forwardRef(({
         // messageIndex = messageIndex || last_message && last_message.messageAIIndex;
         replaceHash = replaceHash || last_message && last_message.hash;
         const messageHash = await handleHash(response);
-        console.log('hash', messageHash);
         const currIndex = messageAIIndex;
 
         // condition: suggestion not cancelled and not awaiting regular response
         if (source != "manual" && !awaitingSuggestionsRef.current || awaitingRef.current) {
-          console.log("Suggestions cancelled");
           // clearThrottle();
           // throttleRef.current.timer = setTimeout(clearThrottle, 10);
           setAwaitingSuggestions(false);
@@ -368,7 +351,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
         }
 
         if (replaceHash === undefined) {
-          console.log("Adding proactive response", currIndex);
           setMessages((prevMessages: MessageData[]) => {
             return [
               ...prevMessages,
@@ -380,7 +362,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           });
           setMessageAIIndex((prevMessageAIIndex) => prevMessageAIIndex + 1);
         } else {
-          console.log("Updating proactive response", currIndex);
           setMessages((prevMessages) => {
             let newMessages = [...prevMessages];
             newMessages = newMessages.filter(message => message.hash !== replaceHash);
@@ -395,14 +376,11 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           setMessageAIIndex((prevMessageAIIndex) => prevMessageAIIndex + 1);
         }
 
-        console.log(messages);
-        console.log(proactiveResponse);
         trackProactiveSuggestion(setTelemetry, proactiveResponse, source, modelChat, task_index, message, messageHash);
         break;
       }
       catch (e) {
         if (++count === maxTries) throw e;
-        else console.log(e, "Retrying", count);
 
         // setAwaitingResponse(false);
         setAwaitingSuggestions(false);
@@ -421,8 +399,7 @@ const Chat: React.FC<ChatProps> = forwardRef(({
   }
 
 
-  async function submitMessage() {
-    console.log("Submitting message");
+  async function submitMessage(messageText: string = inputValue) {
     setTyping();
 
     if (awaitingResponse) {
@@ -452,8 +429,8 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     setMessages((prevMessages: MessageData[]) => {
       return [
         ...prevMessages,
-        { text: inputValue, sender: "user" } as MessageData,
-      ]; // { text: inputValue, sender: "user" }];
+        { text: messageText, sender: "user" } as MessageData,
+      ]; // { text: messageText, sender: "user" }];
     });
 
     setTelemetry((prevTelemetry: any[]) => {
@@ -462,20 +439,19 @@ const Chat: React.FC<ChatProps> = forwardRef(({
         {
           event_type: "user_message",
           task_index: task_index,
-          message: inputValue,
+          message: messageText,
           timestamp: Date.now(),
         },
       ];
     });
 
     setChatHistory((prevChatHistory) => {
-      return [...prevChatHistory, { role: "user", content: inputValue }];
+      return [...prevChatHistory, { role: "user", content: messageText }];
     });
 
     setAwaitingResponse(true);
     awaitingRef.current = true;
 
-    console.log(modelChat);
     let response = "";
     if (modelChat == "Off") {
       response = "Chat Model has been disabled.";
@@ -483,20 +459,119 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     else if (openai_models.includes(modelChat)) {
       let current_code = actualEditorRef.current.getCodeValue();
 
-      console.log("openai model");
-      if (proactive) {
-        response = await get_openai_chat_response(modelChat,
-          [...chatHistory, { role: "user", content: "Code:\n" + current_code + "\n" + "Message:\n" + inputValue }],
+      
+      // Create a streaming message first
+      const streamingMessageId = Date.now().toString();
+      setStreamingMessageId(streamingMessageId);
+      setIsStreaming(true);
+      
+      setMessages((prevMessages) => {
+        return [
+          ...prevMessages,
+          { 
+            text: "", 
+            sender: "bot", 
+            id: streamingMessageId,
+            isStreaming: true 
+          } as MessageData,
+        ];
+      });
+
+      const messagesToSend = proactive 
+        ? [...chatHistory, { role: "user", content: "Code:\n" + current_code + "\n" + "Message:\n" + messageText }]
+        : [...chatHistory, { role: "user", content: messageText }];
+
+      try {
+        await streamChatResponse(
+          messagesToSend,
+          modelChat,
           max_tokens,
-          setChatLogProbs
+          proactive,
+          current_code,
+          // onChunk callback
+          (chunk: string) => {
+            // Throttle updates to prevent excessive re-renders
+            requestAnimationFrame(() => {
+              setMessages((prevMessages) => {
+                return prevMessages.map(message => 
+                  message.id === streamingMessageId 
+                    ? { ...message, text: message.text + chunk }
+                    : message
+                );
+              });
+            });
+          },
+          // onComplete callback
+          (fullResponse: string, generatedCode?: string) => {
+            setIsStreaming(false);
+            setStreamingMessageId(null);
+            setMessages((prevMessages) => {
+              return prevMessages.map(message => 
+                message.id === streamingMessageId 
+                  ? { ...message, text: fullResponse, isStreaming: false, keep: true }
+                  : message
+              );
+            });
+            
+            // Update chat history and telemetry
+            let currChatHistory: any = null;
+            setChatHistory((prevChatHistory) => {
+              currChatHistory = prevChatHistory;
+              return [...prevChatHistory, { role: "assistant", content: fullResponse }];
+            });
+
+            setTelemetry((prevTelemetry) => {
+              return [
+                ...prevTelemetry,
+                {
+                  event_type: "assistant_response",
+                  task_index: task_index,
+                  chatHistory: currChatHistory,
+                  response: fullResponse,
+                  generated_code: generatedCode || "",
+                  logprob: logprob,
+                  timestamp: Date.now(),
+                  messageAIIndex: messageAIIndex,
+                },
+              ];
+            });
+
+            setMessageAIIndex((prevMessageAIIndex) => prevMessageAIIndex + 1);
+          },
+          // onError callback
+          (error: string) => {
+            setIsStreaming(false);
+            setStreamingMessageId(null);
+            setMessages((prevMessages) => {
+              return prevMessages.map(message => 
+                message.id === streamingMessageId 
+                  ? { ...message, text: "Error: " + error, isStreaming: false }
+                  : message
+              );
+            });
+          },
+          // onCodeReady callback - apply code immediately when ready
+          (generatedCode: string) => {
+            const currentCode = actualEditorRef.current.getCodeValue();
+    actualEditorRef.current?.setEditorType(true, currentCode, generatedCode);
+    actualEditorRef.current?.setEditorReadOnly(false);
+          }
         );
-      }
-      else {
-        response = await get_openai_chat_response(modelChat,
-          [...chatHistory, { role: "user", content: inputValue }],
-          max_tokens,
-          setChatLogProbs
-        );
+        
+        // Don't set response for streaming, let the completion callback handle everything
+        response = null;
+      } catch (error) {
+        console.error('WebSocket streaming error:', error);
+        setIsStreaming(false);
+        setStreamingMessageId(null);
+        setMessages((prevMessages) => {
+          return prevMessages.map(message => 
+            message.id === streamingMessageId 
+              ? { ...message, text: "Error: Failed to connect to backend", isStreaming: false }
+              : message
+          );
+        });
+        response = null;
       }
 
       // let prompt = integrate_suggestion_into_code_chat.replace("${code}", code).replace("${suggestion}", response).replace("${question}", inputValue);
@@ -515,22 +590,19 @@ const Chat: React.FC<ChatProps> = forwardRef(({
 
     }
     else if (groq_models.includes(modelChat)) {
-      console.log("groq model");
       response = await get_chat_groq(modelChat,
-        [...chatHistory, { role: "user", content: inputValue }],
+        [...chatHistory, { role: "user", content: messageText }],
         max_tokens,
         setChatLogProbs
       );
     }
     else {
-      console.log("together model");
-      response = await get_chat_together(modelChat,
-        [...chatHistory, { role: "user", content: inputValue }],
+      response = await get_openai_chat_response("gpt-4",
+        [...chatHistory, { role: "user", content: messageText }],
         max_tokens,
         setChatLogProbs
       );
     }
-    setInputValue("");
 
     // Return "Dummy response for development ```def foo(bar): ```" after 5 seconds.
 
@@ -538,40 +610,38 @@ const Chat: React.FC<ChatProps> = forwardRef(({
     //let response = "Dummy response for development ```def foo(bar): ```";
 
     if (response != null && awaitingRef.current) {
-      // setMessages((prevMessages) => {
-      //   return [...prevMessages, { text: response, sender: "bot" }];
-      // });
+      // For non-streaming responses (like when model is "Off" or other models)
+      if (!isStreaming) {
+        setMessages((prevMessages) => {
+          let newMessages = [...prevMessages, { text: response, sender: "bot" } as MessageData];
+          newMessages = newMessages.map(message => ({ ...message, keep: true }));
+          return newMessages;
+        });
+        
+        let currChatHistory: any = null;
+        setChatHistory((prevChatHistory) => {
+          currChatHistory = prevChatHistory;
+          return [...prevChatHistory, { role: "assistant", content: response }];
+        });
 
-      setMessages((prevMessages) => {
-        let newMessages = [...prevMessages, { text: response, sender: "bot" } as MessageData];
-        newMessages = newMessages.map(message => ({ ...message, keep: true }));
-        return newMessages;
+        setTelemetry((prevTelemetry) => {
+          return [
+            ...prevTelemetry,
+            {
+              event_type: "assistant_response",
+              task_index: task_index,
+              chatHistory: currChatHistory,
+              response: response,
+              logprob: logprob,
+              timestamp: Date.now(),
+              messageAIIndex: messageAIIndex,
+            },
+          ];
+        });
+
+        setMessageAIIndex((prevMessageAIIndex) => prevMessageAIIndex + 1);
       }
-      );
-      let currChatHistory: any = null;
-      setChatHistory((prevChatHistory) => {
-        currChatHistory = prevChatHistory;
-        return [...prevChatHistory, { role: "assistant", content: response }];
-      });
-
-      setTelemetry((prevTelemetry) => {
-        return [
-          ...prevTelemetry,
-          {
-            event_type: "assistant_response",
-            task_index: task_index,
-            chatHistory: currChatHistory,
-            response: response,
-            logprob: logprob,
-            timestamp: Date.now(),
-            messageAIIndex: messageAIIndex,
-          },
-        ];
-      });
-
-      setMessageAIIndex((prevMessageAIIndex) => prevMessageAIIndex + 1);
-
-      // Update AI response idx,
+      // For streaming responses, the completion callback handles everything
     }
     setAwaitingResponse(false);
 
@@ -651,7 +721,6 @@ const Chat: React.FC<ChatProps> = forwardRef(({
       new_code = new_code.slice(3, new_code.length - 3).replace(/^python\n/, '');
     }
     if (new_code.length < 3) {
-      console.log("RESPONSE TOO SMALL")
       // remove the preview button and set the editor to read only
     }
     else {
@@ -677,54 +746,18 @@ const Chat: React.FC<ChatProps> = forwardRef(({
   useImperativeHandle(ref, () => {
     return {
       async getProactiveSuggestions({ id = null, manual = false, source = "active" }) {
-        if (!manual && throttleRef.current.inThrottle) {
-          console.log("suggestion in throttle");
-          console.log(proactive_refresh_time);
-          return;
-        }
-        if (!manual && typingRef.current.isTyping) {
-          console.log("suggestion typing");
-          return;
-        }
-        if (manual) source = "manual";
-        console.log(manual, throttleRef.current.inThrottle)
-        console.log("getting proactive suggestions", id, messageAIIndex);
-        var success = false;
-        try {
-          throttleRef.current.inThrottle = true;
-          success = await autoMessage({ replaceHash: id, source: source });
-          console.log("success", success);
-        } finally {
-          if (success) {
-            throttleRef.current.timer = setTimeout(clearThrottle, proactive_refresh_time);
-          } else if (!throttleRef.current.timer) {
-            console.log('getting suggestion unsuccessful / cancelled. no throttling set.');
-            throttleRef.current.inThrottle = false;
-          } else {
-            console.log('getting suggestion unsuccessful / cancelled. resume throttling.');
-          }
-        }
+        // Proactive suggestions disabled
+        return;
       },
       async cancelProactiveSuggestions() {
-        await autoMessage({ cancel: true });
+        // Proactive suggestions disabled
+        return;
       },
       async getProactiveDebuggingSuggestions(err: any, id = null) {
-        console.log("getting proactive debugging suggestions", err);
-        console.log("stdout:", err.stdout);
-        console.log("stderr:", err.stderr);
-        console.log("exception:", err.exception);
-
-        try {
-          throttleRef.current.inThrottle = true;
-          const c = await autoMessage({ replaceHash: id, err: err, source: "debug" });
-          console.log("donec", c);
-        } finally {
-          throttleRef.current.timer = setTimeout(clearThrottle, proactive_refresh_time);
-        }
-
+        // Proactive debugging suggestions disabled
+        return;
       },
       async acceptMessage(id: string, option: number, text: string) {
-        console.log("accepting message", id, option);
         setMessages((prevMessages) => {
           let newMessages = [...prevMessages];
           newMessages = [...prevMessages, { text: text, sender: "bot" }];
@@ -744,13 +777,11 @@ const Chat: React.FC<ChatProps> = forwardRef(({
           return [...prevChatHistory, { role: "assistant", content: text }];
         });
 
-        console.log(chatHistory);
       },
       async previewMessage(id: string, option: number, text: string) {
         await getDiff(text)
       },
       deleteMessage(id: string, all: boolean, option: number) {
-        console.log("deleting message", id);
         setMessages((prevMessages) => {
           let newMessages = [...prevMessages];
           newMessages = all ? newMessages.filter(message => message.hash !== id)
@@ -771,10 +802,8 @@ const Chat: React.FC<ChatProps> = forwardRef(({
         //   return newMessages;
         // });
         setRefreshState(refreshState + 1);
-        console.log(messages);
       },
       updateMessageKeep(id: string, isKeep = true) {
-        console.log("updating message keep", id);
         setMessages((prevMessages) => {
           let newMessages = [...prevMessages];
           newMessages = newMessages.map(message => (
@@ -818,7 +847,11 @@ const Chat: React.FC<ChatProps> = forwardRef(({
         {/* </div> */}
         <TextInput
           onChange={handleChange}
-          submitMessage={submitMessage}
+          submitMessage={(messageText) => {
+            // Clear input immediately when button is clicked
+            setInputValue("");
+            submitMessage(messageText);
+          }}
           onKeyDown={handleKeydown}
           onKeyUp={handleKeyup}
           text_value={inputValue}

@@ -21,7 +21,6 @@ appCheck.activate(
   ),
   true // Set to true to allow auto-refresh.
 );
-console.log("user logged in", firebase.auth().currentUser);
 
 // remove endTime and code from local storage to reset
 localStorage.removeItem("endTime");
@@ -64,7 +63,6 @@ function loadlocalstorage() {
   worker_id = myData[3];
 
   if (task_id.includes("nomodel")) {
-    console.log(task_id);
     hideAIQuestions();
   }
   // mark user entered
@@ -79,10 +77,8 @@ function mark_user_entered(){
       entered_exit_survey: time_now_string,
     })
     .then(() => {
-      console.log("Document successfully written!");
     })
     .catch((error) => {
-      console.error("Error writing document: ", error);
     });
 }
 
@@ -140,7 +136,6 @@ function submit(event) {
           task_completed: 1,
         })
         .then(() => {
-          console.log("Document successfully written!");
 
           document.getElementById("survey").style.display = "none";
           document.getElementById("end_task").style.display = "block";
@@ -148,20 +143,16 @@ function submit(event) {
             .auth()
             .signOut()
             .then(() => {
-              console.log("signed out");
             })
             .catch((error) => {
-              console.log(error);
             });
           // clear all local storage
           localStorage.clear();
         })
         .catch((error) => {
-          console.error("Error writing document: ", error);
         });
     })
     .catch((error) => {
-      console.error("Error writing document: ", error);
     });
 }
 

@@ -31,7 +31,6 @@ import { localVersion, OPENAI_API_KEY, RAPID_API_KEY, TOGETHER_API_KEY } from ".
 // Make API endpoints instead of js functions.
 export function get_openai_chat_response(model, messages, max_tokens, setLogprobs) {
   return new Promise((resolve, reject) => {
-    console.log(httpsCallable(functions, "get_openai_chat"));
     httpsCallable(functions, "get_openai_chat")({ model: model, messages: messages, max_tokens: max_tokens })
       .then((result) => {
         const text_response = result.data.data.choices[0].message.content;
@@ -41,7 +40,6 @@ export function get_openai_chat_response(model, messages, max_tokens, setLogprob
         resolve(text_response);
       })
       .catch((error) => {
-        console.error("Error calling the getcompletion function:", error);
       });
   });
 }
@@ -51,7 +49,6 @@ export function get_chat_together(model, messages, max_tokens, setLogprobs) {
   return new Promise((resolve, reject) => {
       httpsCallable(functions, "get_together_chat")({ model: model, messages: messages, max_tokens: max_tokens })
       .then((result) => {
-        console.log(result);
         const text_response = result.data.data.choices[0].message.content;
         let chat_logprobs = result.data.data.choices[0].logprobs.token_logprobs;
         //chat_logprobs = get_summary_statistics(chat_logprobs);
@@ -59,7 +56,6 @@ export function get_chat_together(model, messages, max_tokens, setLogprobs) {
         resolve(text_response);
       })
       .catch((error) => {
-        console.error("Error calling the get_chat_together function:", error);
       });
     
 
@@ -79,7 +75,6 @@ export function get_openai_response(prefix, suffix, max_tokens, setLogprobs) {
         resolve(text_response);
       })
       .catch((error) => {
-        console.error("Error calling the getcompletion function:", error);
       });
   });
 }
@@ -100,7 +95,6 @@ export function get_completion_together(model, prompt, max_tokens, setLogprobs) 
         resolve(text_response);
       })
       .catch((error) => {
-        console.error("Error calling the getcompletion function:", error);
       });
   });
 }
@@ -108,7 +102,6 @@ export function get_completion_together(model, prompt, max_tokens, setLogprobs) 
 
 
 export async function submitCode(editor, setOutput, setTelemetry, task_index) {
-  console.log("submitting code");
   let runcode = httpsCallable(functions, "runcode");
 
   setOutput("Running...");
@@ -117,7 +110,6 @@ export async function submitCode(editor, setOutput, setTelemetry, task_index) {
     .then((result) => {
       // check if stderr is null, if so, hide the error message
       var log = "";
-      console.log(result);
       if (result.data.data.stderr == null && result.data.data.exception == null) {
         log = result.data.data.stdout;
       } else {
@@ -136,11 +128,9 @@ export async function submitCode(editor, setOutput, setTelemetry, task_index) {
         ];
       })
 
-      console.log("Got response on runcode");
       setOutput(log);
     })
     .catch((error) => {
-      console.error("Error calling the submit function:", error);
     });
 }
 
@@ -164,7 +154,6 @@ export async function runCodeTest(editor, task_index,  unit_tests) {
     return result;
 
   } catch (error) {
-    console.error("Error in runCodeTest function:", error);
     alert("Error running the code test.");
   }
 }

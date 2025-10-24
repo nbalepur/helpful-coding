@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sync-env": "node ../scripts/sync-env.js"
   },
   "dependencies": {
     "@mantine/core": "^6.0.19",
@@ -18,10 +19,11 @@
     "firebase": "^10.14.1",
     "firebase-functions": "^4.8.0",
     "fs": "^0.0.1-security",
+    "html2canvas": "^1.4.1",
     "https": "^1.0.0",
     "ldrs": "^1.0.1",
+    "lucide-react": "^0.546.0",
     "next": "^14.2.16",
-    "openai": "^4.69.0",
     "pyodide": "^0.26.3",
     "react": "^18.3.1",
     "react-ace": "^10.1.0",
@@ -29,7 +31,8 @@
     "react-dom": "^18.3.1",
     "react-dropdown": "^1.11.0",
     "react-icons": "^4.12.0",
-    "react-markdown": "^9.0.1"
+    "react-markdown": "^9.0.1",
+    "react-syntax-highlighter": "^15.6.6"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -1,0 +1,350 @@
+[
+  {
+    "title": "Game Completion (Mock User)",
+    "name": "Game ends and status shows game over",
+    "description": "Play enough moves to guarantee game ends, verify status and play-again button appear",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "action": "click",
+        "selector": "#cell-0-0",
+        "description": "Move 1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-1",
+        "description": "Move 2 (might be occupied, that's ok)"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-2",
+        "description": "Move 3"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-0",
+        "description": "Move 4"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-1",
+        "description": "Move 5"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-2",
+        "description": "Move 6"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-0",
+        "description": "Move 7"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-1",
+        "description": "Move 8"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-2",
+        "description": "Move 9 - board should be full or game over"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementTextContains",
+        "selector": "#game-status",
+        "expected": "Game Over",
+        "description": "Status contains 'Game Over' (could be 'wins' or 'Tie')"
+      },
+      {
+        "assert": "elementVisible",
+        "selector": "#play-again-btn",
+        "expected": true,
+        "description": "Play again button is visible when game ends"
+      }
+    ]
+  },
+  {
+    "title": "Game Completion (Mock User)",
+    "name": "Play again resets the board",
+    "description": "After game ends, play again should clear all cells and reset status",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "action": "click",
+        "selector": "#cell-0-0",
+        "description": "Play through game"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-0"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-0"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000,
+        "description": "Game should be over now"
+      },
+      {
+        "assert": "elementVisible",
+        "selector": "#play-again-btn",
+        "expected": true,
+        "description": "Play again button visible"
+      },
+      {
+        "action": "click",
+        "selector": "#play-again-btn",
+        "description": "Click play again to reset"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-0",
+        "expected": "",
+        "description": "Cell 0-0 is empty after reset"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-1-1",
+        "expected": "",
+        "description": "Cell 1-1 (center) is empty after reset"
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-2-2",
+        "expected": "",
+        "description": "Cell 2-2 is empty after reset"
+      },
+      {
+        "assert": "elementTextContains",
+        "selector": "#game-status",
+        "expected": "Human Turn",
+        "description": "Status reset to Human Turn"
+      },
+      {
+        "assert": "elementVisible",
+        "selector": "#play-again-btn",
+        "expected": false,
+        "description": "Play again button hidden after reset"
+      }
+    ]
+  },
+  {
+    "title": "Game Completion (Mock User)",
+    "name": "Can play new game after reset",
+    "description": "After reset, verify a new game can be started",
+    "public": true,
+    "type": "frontend_interactive",
+    "steps": [
+      {
+        "action": "click",
+        "selector": "#cell-1-1",
+        "description": "Play a few moves to end first game"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-0"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-0"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-1-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-0"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-1"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-2-2"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#play-again-btn",
+        "description": "Reset after first game"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "action": "click",
+        "selector": "#cell-0-0",
+        "description": "Start second game"
+      },
+      {
+        "action": "wait",
+        "duration": 1000
+      },
+      {
+        "assert": "elementText",
+        "selector": "#cell-0-0",
+        "expected": "X",
+        "description": "Second game: human's move appears"
+      },
+      {
+        "action": "wait",
+        "duration": 1000,
+        "description": "Wait for AI to respond"
+      },
+      {
+        "assert": "elementTextContains",
+        "selector": "#game-status",
+        "expected": "Human Turn",
+        "description": "After AI plays, it's human's turn again"
+      }
+    ]
+  }
+]
+

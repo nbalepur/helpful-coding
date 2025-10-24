@@ -50,7 +50,64 @@ The data released consists of four parts (can also be found in the folder [./dat
 - study (study_data.csv and study_data.pkl): a dataframe of processed information for each participant (e.g., how many tasks they completed, their code history, how many suggestions they accepted ...). Use the pickle version of this file for the most accurate representation of the data.
 
 
+# Quick Start
+
+## 🚀 Running the Application
+
+The easiest way to get started is using the provided scripts:
+
+### First Time Setup
+```bash
+# 1. Run setup script
+./scripts/setup.sh
+
+# 2. Configure environment (optional - defaults work for local dev)
+cd backend
+cp env.example .env
+# Edit .env with your settings if needed
+
+# 3. Sync environment to frontend
+cd ../interface
+npm run sync-env
+```
+
+### Start the Application
+```bash
+# Start both frontend and backend (auto-syncs environment)
+./scripts/start-all.sh
+
+# Or start individually:
+./scripts/start-backend.sh   # Backend only
+./scripts/start-frontend.sh  # Frontend only
+```
+
+### URLs
+- **Frontend**: http://localhost:3000
+- **Backend**: http://localhost:8000
+- **Health Check**: http://localhost:8000/health
+
+For detailed setup instructions, see [scripts/README.md](scripts/README.md).
+
+## 🔧 Environment Configuration
+
+The application uses environment variables for configuration. All variables are defined in `backend/.env` (single source of truth) and automatically synced to the frontend.
+
+**Quick Setup:**
+1. Copy `backend/env.example` to `backend/.env`
+2. Run `npm run sync-env` from the `interface/` directory
+3. Restart servers
+
+See [ENV_SETUP.md](ENV_SETUP.md) for detailed configuration options.
+
 # Installation
+
+## For Development
+
+The application consists of two parts:
+- **Backend**: Python FastAPI server (see [backend/README.md](backend/README.md))
+- **Frontend**: Next.js React application (see [interface/README.md](interface/README.md))
+
+## For Analysis
 
 Analysis code is in Python, you will need the following packages: pandas, numpy, matplotlib, seaborn, sklearn, statsmodels, datasets (huggingface).
 

@@ -24,7 +24,7 @@ const { getDatabase } = require("firebase-admin/database");
 initializeApp();
 
 // Example usage:
-// runCode('your_rapidapi_key', 'print("Hello, world!")').then(stdout => console.log(stdout));
+// runCode('your_rapidapi_key', 'print("Hello, world!")').then(stdout => /* console.log(stdout) */);
 
 // https://codewithandrea.com/articles/api-keys-2ndgen-cloud-functions-firebase/
 // , enforceAppCheck: true
@@ -114,7 +114,6 @@ exports.get_together_completion = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log("Error calling the API: ", error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",
@@ -161,7 +160,6 @@ exports.get_together_chat = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log("Error calling the API: ", error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",
@@ -262,7 +260,6 @@ exports.get_openai_chat = onCall(
       })
       .catch((error) => {
         // Handle error
-        console.log(error);
         throw new HttpsError(
           "unknown",
           "Error calling the API",

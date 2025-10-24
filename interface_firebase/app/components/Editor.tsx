@@ -143,7 +143,6 @@ const Editor: React.FC<EditorProps> = ({
       return Promise.resolve({ items: [] });
     }
 
-    console.log("Calling api");
     // Replace with tabs.
     full_code = full_code.replace(new RegExp(" ".repeat(4), "g"), "\t");
 
@@ -185,8 +184,6 @@ const Editor: React.FC<EditorProps> = ({
     }
     setIsSpinning(false);
 
-    console.log("Got suggestion");
-    console.log(suggestion);
     // Split full_code into each word/whitesapce
 
     // Clean up suggestion, leading spaces if new line
@@ -253,7 +250,6 @@ const Editor: React.FC<EditorProps> = ({
             timestamp: Date.now(),
           },
         ]);
-        console.log("accepted suggestion");
       },
     });
 

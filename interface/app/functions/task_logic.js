@@ -1,44 +1,35 @@
-// Mock database handling
-const mockDb = {
-  responses: {},
-  tasks: {
-    // Add default task data here if needed
-    "default_task": {
-      function_signatures: ["def plus_one(x):"],
-      unit_tests: ["assert plus_one(1) == 2"],
-      task_descriptions: ["Write a function that adds one to the input."],
-      exp_condition: "default"
-    }
+import { ENV } from '../config/env';
+
+// Settings for the application
+const defaultSettings = {
+  prompts: {
+    system_prompt: "default system prompt",
+    prompt: "default chat prompt",
+    debug_prompt: "default debug prompt"
   },
-  settings: [{
-    prompts: {
-      system_prompt: "default system prompt",
-      prompt: "default chat prompt",
-      debug_prompt: "default debug prompt"
-    },
-    model_settings: {
-      chat_model: "Off",
-      autocomplete_model: "Off",
-      max_tokens: 512,
-      active_refresh_time_seconds: 30,
-      inactive_refresh_time_seconds: 30,
-      suggestion_max_options: 3,
-      insert_cursor: false,
-      proactive_delete_time_seconds: 60
-    },
-    task_settings: {
-      duration_minutes: 60,
-      proactive_available_start: null,
-      proactive_switch_minutes: 20,
-      show_ai_settings: false,
-      tasks_id: "default_task",
-      skip_task_minutes: 1
-    }
-  }]
+  model_settings: {
+    chat_model: "Off",
+    autocomplete_model: "Off",
+    max_tokens: 512,
+    active_refresh_time_seconds: 30,
+    inactive_refresh_time_seconds: 30,
+    suggestion_max_options: 3,
+    insert_cursor: false,
+    proactive_delete_time_seconds: 60
+  },
+  task_settings: {
+    duration_minutes: 60,
+    proactive_available_start: null,
+    proactive_switch_minutes: 20,
+    show_ai_settings: false,
+    tasks_id: "Personal Website",
+    skip_task_minutes: 1
+  }
 };
 
 export async function writeUserData(response_id, telemetry) {
-  mockDb.responses[response_id] = { telemetry_data: telemetry };
+  // Store telemetry data locally (can be extended to send to backend later)
+  // localStorage.setItem(`telemetry_${response_id}`, JSON.stringify(telemetry));
 }
 
 export function loadlocalstorage(setResponseId, setTaskId, setExpCondition, setWorkerId) {
@@ -49,43 +40,7 @@ export function loadlocalstorage(setResponseId, setTaskId, setExpCondition, setW
   setWorkerId(myData[3] || "");
 }
 
-export async function loadTaskData(
-  task_id,
-  setFunctionSignatures,
-  setUnitTests,
-  setTaskDescriptions,
-  setModel,
-  setMaxTokensTask,
-  setExpCondition,
-  editor,
-  setMessages,
-  exp_condition,
-  task_index,
-  response_id,
-  worker_id,
-  telemetry,
-  setTelemetry
-) {
-  const taskData = mockDb.tasks[task_id] || mockDb.tasks.default_task;
-  
-  setFunctionSignatures(taskData.function_signatures);
-  setUnitTests(taskData.unit_tests);
-  setTaskDescriptions(taskData.task_descriptions);
-  setExpCondition(taskData.exp_condition);
-
-  loadCurrentTask(
-    task_index,
-    response_id,
-    task_id,
-    exp_condition,
-    worker_id,
-    editor,
-    setMessages,
-    taskData.function_signatures,
-    telemetry,
-    setTelemetry
-  );
-}
+// loadTaskData function removed - we now use load_next_task directly
 
 export async function loadSettings(
   setTaskId,
@@ -105,10 +60,9 @@ export async function loadSettings(
   setProactiveDeleteTime,
   setSkipTime,
 ) {
-  const settings = mockDb.settings[0];
-  const { model_settings, task_settings, prompts } = settings;
+  const { model_settings, task_settings, prompts } = defaultSettings;
 
-  setTaskId(task_settings.tasks_id || "default_task");
+  setTaskId(task_settings.tasks_id);
   setDurationMinutes(task_settings.duration_minutes);
   
   const proactiveStart = task_settings.proactive_available_start === null 
@@ -120,7 +74,7 @@ export async function loadSettings(
   
   setProactiveSwitchMinutes(task_settings.proactive_switch_minutes);
   setShowAIOptions(task_settings.show_ai_settings);
-  setSkipTime(task_settings.skip_task_minutes * 60_000 || 0);
+  setSkipTime(task_settings.skip_task_minutes * 60_000);
 
   setModelChat(model_settings.chat_model);
   setModelAutocomplete(model_settings.autocomplete_model);
@@ -138,8 +92,26 @@ export async function loadSettings(
     debug_prompt: prompts.debug_prompt,
   }));
 
-  return "mock_settings_id";
+  return "settings_loaded";
 }
+
+// Load next task definition from a static JSON by name and return file nodes
+export async function load_next_task(task_name) {
+  try {
+    const res = await fetch(`${ENV.BACKEND_URL}/tasks/${encodeURIComponent(task_name)}`);
+    if (!res.ok) {
+      console.error('Failed to fetch task from backend', res.status, res.statusText);
+      return { files: [], task: null };
+    }
+    const data = await res.json();
+    return { files: data.files || [], task: data.task || null };
+  } catch (e) {
+    console.error('Error loading next task:', e);
+    return { files: [], task: null };
+  }
+}
+
+// inferLanguageFromName no longer needed on frontend for backend mode
 
 export async function loadCurrentTask(
   task_index,
@@ -155,9 +127,9 @@ export async function loadCurrentTask(
   actualEditorRef
 ) {
   if (task_index >= function_signatures.length) {
-    localStorage.setItem("code", "");
+    // localStorage.setItem("code", "");
     if (response_id) {
-      localStorage.setItem("objectToPass", JSON.stringify([response_id, task_id, exp_condition, worker_id]));
+      // localStorage.setItem("objectToPass", JSON.stringify([response_id, task_id, exp_condition, worker_id]));
     }
     return;
   }

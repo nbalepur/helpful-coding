@@ -63,7 +63,6 @@ export function getAIResponse(model, chatHistory, max_tokens_task) {
 
 
 export const trackSuggestionAccept = async (accessor, editor, args) => {
-  console.log("This is on suggestion acceptance");
   //FIXME: setTelemetry.
   setTelemetry((prev) => [
     ...prev,

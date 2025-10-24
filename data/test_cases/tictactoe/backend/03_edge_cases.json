@@ -1,0 +1,52 @@
+[
+  {
+    "title": "Game Reset (/reset)",
+    "name": "Reset Returns Empty Board",
+    "description": "Verify reset endpoint returns clean board",
+    "public": true,
+    "endpoint": "/reset",
+    "input": {},
+    "expected": {
+      "board": [["", "", ""], ["", "", ""], ["", "", ""]]
+    }
+  },
+  {
+    "title": "Edge Cases (Multiple APIs)",
+    "name": "Winner Check Doesn't Modify Board",
+    "description": "Verify check_winner is read-only operation",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "X", "X"], ["O", "O", ""], ["", "", ""]]
+    },
+    "expected": "X"
+  },
+  {
+    "title": "Edge Cases (Multiple APIs)",
+    "name": "Invalid Move Preserves Board",
+    "description": "Verify invalid moves don't modify game state",
+    "public": false,
+    "endpoint": "/play_move",
+    "input": {
+      "board": [["X", "", ""], ["", "", ""], ["", "", ""]],
+      "row": 0,
+      "col": 0
+    },
+    "expected": {
+      "is_valid": false,
+      "board": [["X", "", ""], ["", "", ""], ["", "", ""]]
+    }
+  },
+  {
+    "title": "Edge Cases (Multiple APIs)",
+    "name": "Multiple Winning Lines",
+    "description": "Verify winner detection with multiple winning lines",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "X", "X"], ["O", "X", "O"], ["O", "O", "X"]]
+    },
+    "expected": "X"
+  }
+]
+

@@ -7,7 +7,6 @@ import { localVersion, OPENAI_API_KEY, RAPID_API_KEY, TOGETHER_API_KEY } from ".
 
 let db = null;
 if (!localVersion) {
-console.log("not local version");
 db = getFirestore(app);
 }
 
@@ -59,11 +58,9 @@ export async function loadTaskData(
 
   const docSnap = await getDoc(taskDoc);
   if (!docSnap.exists()) {
-    console.log("No such document!");
   }
 
   let query_snapshot = docSnap;
-  console.log("Document data:", query_snapshot.data());
   let function_signatures = query_snapshot.data().function_signatures;
   setFunctionSignatures(query_snapshot.data().function_signatures);
   setUnitTests(query_snapshot.data().unit_tests);
@@ -121,7 +118,6 @@ export async function loadCurrentTask(
     });
 
     if (!docSnap.exists()) {
-      console.log("No such document!");
     }
   }
 

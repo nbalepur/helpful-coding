@@ -15,6 +15,8 @@ export interface MessageData {
   keep?: boolean;
   notify?: boolean;
   hash?: string;
+  id?: string;
+  isStreaming?: boolean;
 }
 
 export interface MessageProps {

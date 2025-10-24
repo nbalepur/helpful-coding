@@ -1,0 +1,113 @@
+[
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "X Wins - Top Row",
+    "description": "Verify check_winner detects X winning with top row",
+    "public": true,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "X", "X"], ["", "O", ""], ["", "O", ""]]
+    },
+    "expected": "X"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "X Wins - Middle Row",
+    "description": "Verify check_winner detects X winning with middle row",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["O", "", "O"], ["X", "X", "X"], ["", "", ""]]
+    },
+    "expected": "X"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "X Wins - Bottom Row",
+    "description": "Verify check_winner detects X winning with bottom row",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["O", "O", ""], ["", "", ""], ["X", "X", "X"]]
+    },
+    "expected": "X"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "O Wins - Left Column",
+    "description": "Verify check_winner detects O winning with left column",
+    "public": true,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["O", "X", ""], ["O", "X", ""], ["O", "", ""]]
+    },
+    "expected": "O"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "O Wins - Middle Column",
+    "description": "Verify check_winner detects O winning with middle column",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "O", ""], ["X", "O", ""], ["", "O", ""]]
+    },
+    "expected": "O"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "O Wins - Right Column",
+    "description": "Verify check_winner detects O winning with right column",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["", "X", "O"], ["", "X", "O"], ["", "", "O"]]
+    },
+    "expected": "O"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "X Wins - Main Diagonal",
+    "description": "Verify check_winner detects X winning with main diagonal",
+    "public": true,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "O", ""], ["", "X", "O"], ["", "", "X"]]
+    },
+    "expected": "X"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "O Wins - Anti Diagonal",
+    "description": "Verify check_winner detects O winning with anti-diagonal",
+    "public": false,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "X", "O"], ["", "O", ""], ["O", "", "X"]]
+    },
+    "expected": "O"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "No Winner - Tie Game",
+    "description": "Verify check_winner returns None for a tied game",
+    "public": true,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "O", "X"], ["O", "X", "O"], ["O", "X", "O"]]
+    },
+    "expected": "Tie"
+  },
+  {
+    "title": "Winner Detection (/check_winner)",
+    "name": "No Winner - Incomplete Game",
+    "description": "Verify check_winner returns None for incomplete game with no winner",
+    "public": true,
+    "endpoint": "/check_winner",
+    "input": {
+      "board": [["X", "O", ""], ["O", "X", ""], ["", "", ""]]
+    },
+    "expected": null
+  }
+]
+

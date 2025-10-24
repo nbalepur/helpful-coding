@@ -1,0 +1,16 @@
+# Database dependencies for the helpful-coding project
+
+# Core database framework
+sqlalchemy==2.0.23
+alembic==1.13.1
+
+# PostgreSQL driver (synchronous)
+psycopg2-binary==2.9.9
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+faker==20.1.0  # For generating test datafunctionality

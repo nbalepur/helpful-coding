@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { MessageData } from "./Message";
-import { loadTaskData, loadCurrentTask } from "../functions/task_logic";
+import { loadCurrentTask } from "../functions/task_logic";
 import { submitCode, runCodeTest } from "../functions/cloud_functions_helper";
 import { trackSubmitCode } from "../functions/telemetry";
 
@@ -88,10 +88,11 @@ const TaskBar: React.FC<TaskBarProps> = ({
 
     if (true) {
       setOutput("Output will be shown here when Run is pressed.");
-      console.log('skiptime', task_index, skipTime);
       skipTimer = setTimeout(() => setShowTimer(true), skipTime);
       setShowTimer(false);
-      chatRef.current.clearThrottle();
+      if (chatRef.current) {
+        chatRef.current.clearThrottle();
+      }
 
       return () => clearTimeout(skipTimer);
     }
@@ -117,13 +118,13 @@ const TaskBar: React.FC<TaskBarProps> = ({
       // disabling unit tests for now
       res = await submitCode(editor, setOutput, setTelemetry, task_index);
 
-      console.log("Finished run code");
       displayResult(res); // this also updates the task index
     }
 
     if (res.data.stderr != null || res.data.exception != null) {
-      console.log('run code output', res.data);
-      chatRef.current.getProactiveDebuggingSuggestions(res?.data);
+      if (chatRef.current) {
+        chatRef.current.getProactiveDebuggingSuggestions(res?.data);
+      }
     }
   }
 
@@ -187,7 +188,7 @@ const TaskBar: React.FC<TaskBarProps> = ({
 
   return (
     <>
-      <div className="custom-container justify-center items-center mb-0">
+      <div className="custom-container taskbar-container">
         <button
           onClick={() => {
             runCode(editor, task_index, [], false);
