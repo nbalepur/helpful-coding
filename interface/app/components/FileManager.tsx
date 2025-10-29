@@ -4,10 +4,6 @@ import {
   BsFileEarmarkCode, 
   BsFileEarmarkText, 
   BsFileEarmark, 
-  BsFolderPlus, 
-  BsFilePlus, 
-  BsTrash3, 
-  BsPencilSquare,
   BsChevronRight,
   BsChevronDown,
   BsFolder,
@@ -29,9 +25,6 @@ interface FileManagerProps {
   files: FileNode[];
   activeFileId: string | null;
   onFileSelect: (fileId: string) => void;
-  onFileCreate: (name: string, type: 'file' | 'folder', parentId?: string) => void;
-  onFileDelete: (fileId: string) => void;
-  onFileRename: (fileId: string, newName: string) => void;
   onFileContentChange: (fileId: string, content: string) => void;
   onFolderToggle: (folderId: string) => void;
   readOnly?: boolean;
@@ -43,9 +36,6 @@ const FileManager: React.FC<FileManagerProps> = ({
   files,
   activeFileId,
   onFileSelect,
-  onFileCreate,
-  onFileDelete,
-  onFileRename,
   onFileContentChange,
   onFolderToggle,
   readOnly = false,
@@ -57,12 +47,6 @@ const FileManager: React.FC<FileManagerProps> = ({
     y: number;
     fileId: string;
     type: 'file' | 'folder' | 'root';
-  } | null>(null);
-  const [renamingFile, setRenamingFile] = useState<string | null>(null);
-  const [newFileName, setNewFileName] = useState('');
-  const [showCreateDialog, setShowCreateDialog] = useState<{
-    type: 'file' | 'folder';
-    parentId?: string;
   } | null>(null);
 
   const getFileIcon = (fileName: string, type: 'file' | 'folder') => {
@@ -128,26 +112,9 @@ const FileManager: React.FC<FileManagerProps> = ({
     });
   };
 
-  const handleCreateFile = () => {
-    if (newFileName.trim()) {
-      const parentId = showCreateDialog?.parentId;
-      onFileCreate(newFileName.trim(), showCreateDialog!.type, parentId);
-      setShowCreateDialog(null);
-      setNewFileName('');
-    }
-  };
-
-  const handleRename = () => {
-    if (newFileName.trim() && renamingFile) {
-      onFileRename(renamingFile, newFileName.trim());
-      setRenamingFile(null);
-      setNewFileName('');
-    }
-  };
 
   const renderFileNode = (file: FileNode, depth: number = 0, hideText: boolean = false) => {
     const isActive = activeFileId === file.id;
-    const isRenaming = renamingFile === file.id;
 
     return (
       <div key={file.id}>
@@ -172,25 +139,7 @@ const FileManager: React.FC<FileManagerProps> = ({
                   {file.isOpen ? <BsChevronDown className="w-3 h-3" /> : <BsChevronRight className="w-3 h-3" />}
                 </span>
               )}
-              {isRenaming ? (
-                <input
-                  type="text"
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  onBlur={handleRename}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRename();
-                    if (e.key === 'Escape') {
-                      setRenamingFile(null);
-                      setNewFileName('');
-                    }
-                  }}
-                  className="bg-gray-600 text-white px-1 py-0 text-sm border-none outline-none flex-1 min-w-0"
-                  autoFocus
-                />
-              ) : (
-                <span className="text-sm text-gray-200 flex-1 min-w-0 truncate">{file.name}</span>
-              )}
+              <span className="text-sm text-gray-200 flex-1 min-w-0 truncate">{file.name}</span>
             </div>
           ) : null}
 
@@ -229,24 +178,6 @@ const FileManager: React.FC<FileManagerProps> = ({
             )}
             <h3 className={`ml-2 text-sm font-semibold text-gray-200 ${!isSidebarOpen ? 'hidden' : ''}`}>Files (⌘B)</h3>
           </div>
-          {!readOnly && (
-            <div className={`flex gap-1 ${!isSidebarOpen ? 'hidden' : ''}`}>
-              <button
-                onClick={() => setShowCreateDialog({ type: 'file' })}
-                className="p-2 rounded-lg bg-gray-900 hover:bg-gray-800 transition-colors"
-                title="New File"
-              >
-                <BsFilePlus className="w-4 h-4 text-gray-400" />
-              </button>
-              <button
-                onClick={() => setShowCreateDialog({ type: 'folder' })}
-                className="p-2 rounded-lg bg-gray-900 hover:bg-gray-800 transition-colors"
-                title="New Folder"
-              >
-                <BsFolderPlus className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -254,26 +185,6 @@ const FileManager: React.FC<FileManagerProps> = ({
         {files.map(file => renderFileNode(file, 0, !isSidebarOpen))}
       </div>
 
-      {/* Create File/Folder Dialog */}
-      {showCreateDialog && !readOnly && (
-        <div className="py-2 px-3 border-t border-gray-700">
-          <input
-            type="text"
-            placeholder={`New ${showCreateDialog.type} name`}
-            value={newFileName}
-            onChange={(e) => setNewFileName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreateFile();
-              if (e.key === 'Escape') {
-                setShowCreateDialog(null);
-                setNewFileName('');
-              }
-            }}
-            className="w-full bg-gray-700 text-white px-2 py-1 text-sm border border-gray-600 rounded focus:outline-none focus:border-blue-500"
-            autoFocus
-          />
-        </div>
-      )}
 
       {/* Context Menu */}
       {contextMenu && !readOnly && (
@@ -288,85 +199,14 @@ const FileManager: React.FC<FileManagerProps> = ({
           <div className="py-1">
             {contextMenu.type === 'file' && (
               <>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-gray-200 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    setRenamingFile(contextMenu.fileId);
-                    setNewFileName('');
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsPencilSquare className="w-3 h-3" />
-                  Rename
-                </button>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-red-400 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    onFileDelete(contextMenu.fileId);
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsTrash3 className="w-3 h-3" />
-                  Delete
-                </button>
               </>
             )}
             {contextMenu.type === 'folder' && (
               <>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-gray-200 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    setShowCreateDialog({ type: 'file', parentId: contextMenu.fileId });
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsFilePlus className="w-3 h-3" />
-                  New File
-                </button>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-gray-200 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    setShowCreateDialog({ type: 'folder', parentId: contextMenu.fileId });
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsFolderPlus className="w-3 h-3" />
-                  New Folder
-                </button>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-red-400 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    onFileDelete(contextMenu.fileId);
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsTrash3 className="w-3 h-3" />
-                  Delete
-                </button>
               </>
             )}
             {contextMenu.type === 'root' && (
               <>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-gray-200 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    setShowCreateDialog({ type: 'file' });
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsFilePlus className="w-3 h-3" />
-                  New File
-                </button>
-                <button
-                  className="w-full px-3 py-1 text-left text-sm text-gray-200 hover:bg-gray-600 flex items-center gap-2"
-                  onClick={() => {
-                    setShowCreateDialog({ type: 'folder' });
-                    setContextMenu(null);
-                  }}
-                >
-                  <BsFolderPlus className="w-3 h-3" />
-                  New Folder
-                </button>
               </>
             )}
           </div>

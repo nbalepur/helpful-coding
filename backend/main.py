@@ -1,6 +1,7 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import asyncio
 import json
 import os
@@ -9,13 +10,24 @@ import tempfile
 import signal
 import psutil
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import openai
 from strategies.base import BaseStrategy
 from models.chat import ChatModel
 from parsers.endpoint_parser import EndpointParser
 from services.onecompiler_service import OneCompilerService
+from auth import verify_password, get_password_hash, create_access_token, verify_token, generate_reset_token, send_password_reset_email
+from agent import OpenAIAgent
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from database.config import get_db
+from database.sqlalchemy_models import User, PasswordResetToken
+from database.models import UserCreate, UserResponse, PasswordResetRequest, PasswordResetConfirm, PasswordResetTokenCreate
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from datetime import datetime, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,6 +52,10 @@ def setup_environment():
         env_content = f"""# OpenAI API Configuration
 OPENAI_API_KEY={api_key}
 
+# AI Agent Configuration (optional)
+# Model to use for the AI agent (default: gpt-4o)
+AGENT_MODEL=gpt-4o
+
 # RapidAPI Configuration (optional)
 # Get your API key from: https://rapidapi.com/onecompiler/api/onecompiler-apis
 RAPIDAPI_KEY=
@@ -53,6 +69,17 @@ USE_LOCAL_EXECUTION=True
 HOST=0.0.0.0
 PORT=8000
 DEBUG=True
+
+# Email Configuration (Brevo)
+# Get your API key from: https://app.brevo.com/settings/keys/api
+BREVO_API_KEY=
+FROM_EMAIL=noreply@helpfulcoding.com
+FROM_NAME=Helpful Coding
+RESET_LINK_BASE_URL=http://localhost:3000/reset-password
+
+# Authentication Configuration
+SECRET_KEY=your-secret-key-change-this-in-production
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 """
         
         try:
@@ -68,7 +95,29 @@ DEBUG=True
 # Set up environment if needed
 setup_environment()
 
-app = FastAPI(title="AI Coding Assistant Backend")
+app = FastAPI(
+    title="AI Coding Assistant Backend",
+    description="Backend API for the AI Coding Assistant with authentication and code execution capabilities",
+    version="1.0.0",
+    tags_metadata=[
+        {
+            "name": "Authentication",
+            "description": "User authentication endpoints for signup and login",
+        },
+        {
+            "name": "Code Execution",
+            "description": "Endpoints for executing and validating Python code",
+        },
+        {
+            "name": "Tasks",
+            "description": "Endpoints for managing coding tasks and test cases",
+        },
+        {
+            "name": "Chat",
+            "description": "AI chat endpoints for code assistance",
+        },
+    ]
+)
 # Serve repository assets (e.g., images) with a stable URL: /assets/{path}
 @app.get("/assets/{file_path:path}")
 async def serve_asset(file_path: str):
@@ -120,6 +169,15 @@ except ValueError as e:
     print(f"❌ Error: {e}")
     print("Please create a .env file in the backend directory with your OpenAI API key")
     exit(1)
+
+# Initialize AI agent
+try:
+    agent_model = os.getenv("AGENT_MODEL", "gpt-4o")
+    ai_agent = OpenAIAgent(model_name=agent_model)
+    print(f"✅ AI Agent initialized successfully with model: {agent_model}")
+except Exception as e:
+    print(f"❌ Error initializing AI agent: {e}")
+    ai_agent = None
 
 # Store active Python processes
 active_processes = {}
@@ -189,7 +247,7 @@ async def root():
 async def health_check():
     return {"status": "healthy", "message": "Backend is operational"}
 
-@app.post("/api/execute-endpoint")
+@app.post("/api/execute-endpoint", tags=["Code Execution"])
 async def execute_endpoint(request_data: dict):
     """Execute Python code and optionally call a specific endpoint function using RapidAPI OneCompiler."""
     try:
@@ -402,7 +460,7 @@ except Exception as e:
             "error_type": "unexpected_error"
         })
 
-@app.post("/api/validate-python")
+@app.post("/api/validate-python", tags=["Code Execution"])
 async def validate_python(request_data: dict):
     """Validate Python code syntax using RapidAPI OneCompiler."""
     try:
@@ -577,7 +635,7 @@ async def list_python_servers():
     
     return {"servers": servers}
 
-@app.post("/api/chat")
+@app.post("/api/chat", tags=["Chat"])
 async def chat_endpoint(request_data: dict):
     """REST API endpoint for non-streaming chat requests."""
     try:
@@ -622,7 +680,90 @@ async def chat_endpoint(request_data: dict):
     except Exception as e:
         return {"error": str(e)}, 500
 
-@app.get("/tasks/{task_name}")
+@app.post("/api/agent-chat", tags=["Chat"])
+async def agent_chat_endpoint(request_data: dict):
+    """AI Agent endpoint for interactive coding assistance."""
+    try:
+        if not ai_agent:
+            return JSONResponse(
+                status_code=500, 
+                content={"error": "AI Agent not initialized"}
+            )
+        
+        prompt = request_data.get("prompt", "")
+        files = request_data.get("files", {})
+        
+        if not prompt:
+            return JSONResponse(
+                status_code=400, 
+                content={"error": "Prompt is required"}
+            )
+        
+        # Run the agent workflow
+        result = ai_agent.agent_workflow(prompt, files)
+        
+        # Parse the final files into a renderable page
+        combined_html = ai_agent.parse_files(result.get("final_files", {}))
+        
+        return {
+            "restate": result.get("restate", ""),
+            "steps": result.get("steps", []),
+            "summary": result.get("summary", ""),
+            "suggestions": result.get("suggestions", []),
+            "combined_html": combined_html,
+            "final_files": result.get("final_files", {})
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500, 
+            content={"error": f"Agent error: {str(e)}"}
+        )
+
+
+@app.post("/api/agent-chat/stream", tags=["Chat"])
+async def agent_chat_stream(request_data: dict):
+    """AI Agent streaming endpoint that yields incremental workflow updates."""
+    try:
+        if not ai_agent:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "AI Agent not initialized"}
+            )
+
+        prompt = request_data.get("prompt", "")
+        files = request_data.get("files", {})
+
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Prompt is required"}
+            )
+
+        def event_generator():
+            try:
+                for chunk in ai_agent.agent_workflow_stream(prompt, files):
+                    yield (json.dumps(chunk) + "\n").encode("utf-8")
+            except Exception as stream_error:
+                error_payload = {
+                    "state": "error",
+                    "data": {"message": str(stream_error)},
+                }
+                yield (json.dumps(error_payload) + "\n").encode("utf-8")
+
+        return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Agent stream error: {str(e)}"}
+        )
+
+@app.get("/tasks/{task_name}", tags=["Tasks"])
 async def get_task(task_name: str):
     try:
         backend_dir = os.path.dirname(__file__)
@@ -962,6 +1103,283 @@ Be strict but fair in your evaluation. If the requirement is met, even if not pe
         return JSONResponse(status_code=500, content={
             "error": f"Failed to judge screenshot: {str(e)}"
         })
+
+# Authentication endpoints
+@app.post("/signup", tags=["Authentication"])
+async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Create a new user account."""
+    try:
+        # Check if user already exists
+        existing_user = db.query(User).filter(
+            or_(User.username == user_data.username, User.email == user_data.email)
+        ).first()
+        
+        if existing_user:
+            if existing_user.username == user_data.username:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already registered"
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered"
+                )
+        
+        # Hash the password
+        hashed_password = get_password_hash(user_data.password)
+        
+        # Create new user
+        db_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            password=hashed_password,
+            settings=user_data.settings or {}
+        )
+        
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": str(db_user.id)})
+        
+        return {
+            "message": "User created successfully",
+            "user": {
+                "id": db_user.id,
+                "username": db_user.username,
+                "email": db_user.email,
+                "created_at": db_user.created_at
+            },
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating user: {str(e)}"
+        )
+
+
+@app.post("/login", tags=["Authentication"])
+async def login(credentials: dict, db: Session = Depends(get_db)):
+    """Authenticate user and return access token."""
+    try:
+        username_or_email = credentials.get("username_or_email")
+        password = credentials.get("password")
+        
+        if not username_or_email or not password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username/email and password are required"
+            )
+        
+        # Find user by username or email
+        user = db.query(User).filter(
+            or_(User.username == username_or_email, User.email == username_or_email)
+        ).first()
+
+        # Provide clearer error messages
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Username or email not found"
+            )
+
+        if not verify_password(password, user.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password"
+            )
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": str(user.id)})
+        
+        return {
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "created_at": user.created_at
+            },
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error during login: {str(e)}"
+        )
+
+
+@app.post("/send-password-reset", tags=["Authentication"])
+async def send_password_reset(request: PasswordResetRequest, db: Session = Depends(get_db)):
+    """Send password reset email to user."""
+    try:
+        username_or_email = request.username_or_email
+        
+        # Find user by username or email
+        user = db.query(User).filter(
+            or_(User.username == username_or_email, User.email == username_or_email)
+        ).first()
+        
+        if not user:
+            # Return specific error for better UX
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": "No account found with that username or email address"
+                }
+            )
+        
+        # Generate reset token
+        reset_token = generate_reset_token()
+        expires_at = datetime.utcnow() + timedelta(minutes=30)
+        
+        # Invalidate any existing reset tokens for this user
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False
+        ).update({"used": True})
+        
+        # Create new reset token
+        reset_token_data = PasswordResetTokenCreate(
+            user_id=user.id,
+            token=reset_token,
+            expires_at=expires_at,
+            used=False
+        )
+        
+        reset_token_record = PasswordResetToken(**reset_token_data.dict())
+        
+        db.add(reset_token_record)
+        db.commit()
+        
+        # Send email
+        email_sent = send_password_reset_email(user.email, user.username, reset_token)
+        
+        if email_sent:
+            return {
+                "message": "Password reset email sent successfully",
+                "user_exists": True
+            }
+        else:
+            return {
+                "message": "Password reset email could not be sent, but reset token generated",
+                "reset_token": reset_token,  # For development/testing
+                "user_exists": True
+            }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error sending password reset: {str(e)}"
+        )
+
+
+@app.get("/validate-reset-token", tags=["Authentication"])
+async def validate_reset_token(token: str, db: Session = Depends(get_db)):
+    """Validate reset token and return username if valid."""
+    try:
+        # Find valid reset token
+        reset_token_record = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token == token,
+            PasswordResetToken.used == False,
+            PasswordResetToken.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not reset_token_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token"
+            )
+        
+        # Get user
+        user = db.query(User).filter(User.id == reset_token_record.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User not found"
+            )
+        
+        return {
+            "valid": True,
+            "username": user.username,
+            "expires_at": reset_token_record.expires_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error validating token: {str(e)}"
+        )
+
+
+@app.post("/reset-password", tags=["Authentication"])
+async def reset_password(request: PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Reset user password using reset token."""
+    try:
+        token = request.token
+        new_password = request.new_password
+        
+        # Find valid reset token
+        reset_token_record = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token == token,
+            PasswordResetToken.used == False,
+            PasswordResetToken.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not reset_token_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token"
+            )
+        
+        # Get user
+        user = db.query(User).filter(User.id == reset_token_record.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User not found"
+            )
+        
+        # Hash new password
+        hashed_password = get_password_hash(new_password)
+        
+        # Update user password
+        user.password = hashed_password
+        user.updated_at = datetime.utcnow()
+        
+        # Mark token as used
+        reset_token_record.used = True
+        
+        db.commit()
+        
+        return {
+            "message": "Password reset successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error resetting password: {str(e)}"
+        )
+
 
 @app.post("/api/execute-test-cases")
 async def execute_test_cases(request: dict):

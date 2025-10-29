@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouteProtection, useAuth } from "./utils/auth";
 import {
   Grid3X3, 
   Plus, 
@@ -28,17 +29,24 @@ import Sidebar from "./components/Sidebar";
 import MinimalTaskList from "./components/MinimalTaskList";
 import TaskInstructionNew from "./components/TaskInstructionNew";
 import CodingEditor from "./components/CodingEditor";
-import PreviewTab from "./components/PreviewTab";
+import PreviewTab, { PreviewTabRef } from "./components/PreviewTab";
 import { MessageData } from "./components/Message";
-import ChatbotPane from "./components/ChatbotPane";
-import AssistantTerminalPane from "./components/AssistantTerminalPane";
+import AssistantTerminalPane, { AssistantItem } from "./components/AssistantTerminalPane";
+import IRBIframe from "./components/IRBIframe";
 import { load_next_task } from "./functions/task_logic";
 import { ENV } from "./config/env";
+import { DiffEditor } from "@monaco-editor/react";
 
 export default function Home() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  
+  // Use route protection hook
+  const { isAuthenticated, isLoading } = useRouteProtection();
+  const { user } = useAuth();
+  
+  // All hooks must be called before any conditional returns
   const [isPending, startTransition] = useTransition();
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -66,6 +74,7 @@ export default function Home() {
   const [logProbs, setLogProbs] = useState<any>(null);
   const [messageAIIndex, setMessageAIIndex] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [summaryGenerated, setSummaryGenerated] = useState(false);
   const editorRef = useRef<any>(null);
   const actualEditorRef = useRef<any>(null);
   const chatRef = useRef<any>(null);
@@ -86,7 +95,7 @@ export default function Home() {
   
   // Pane visibility
   const [showTaskInstructions, setShowTaskInstructions] = useState(true);
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(true);
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [showTerminal, setShowTerminal] = useState(true);
   
@@ -95,7 +104,7 @@ export default function Home() {
   const [initialFiles, setInitialFiles] = useState<any[]>([]);
   const [currentFiles, setCurrentFiles] = useState<any[]>([]);
   const [testCases, setTestCases] = useState<any[]>([]);
-  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const previewTabRef = useRef<PreviewTabRef>(null);
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   
@@ -108,36 +117,14 @@ export default function Home() {
   ]);
   
   // Assistant terminal state
-  const [assistantMessages, setAssistantMessages] = useState<any[]>([
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-    { type: 'assistant', message: 'Analyzing your latest edits…' },
-    { type: 'user', message: 'Please run all tests.' },
-    { type: 'tool', message: 'tools/run-tests {"all": true}' },
-    { type: 'assistant', message: 'All tests passed! 🎉' },
-  ]);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantItem[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [assistantInputValue, setAssistantInputValue] = useState("");
   const [awaitingResponse, setAwaitingResponse] = useState(false);
   const [awaitingManualSuggestions, setAwaitingManualSuggestions] = useState(false);
+  
+  // Agent changes state
+  const [pendingAgentChanges, setPendingAgentChanges] = useState<any>(null);
   
   // Task state
   const [responseId, setResponseId] = useState("");
@@ -269,57 +256,289 @@ export default function Home() {
     };
   }, []);
 
-  // Function to handle file save and update current files
-  const handleFileSave = (fileId: string) => {
-    // Get current file contents from the editor
-    if (actualEditorRef?.current?.getAllFileContents) {
-      const allContents = actualEditorRef.current.getAllFileContents();
-      
-      // Update currentFiles with the latest contents
-      setCurrentFiles(prevFiles => {
-        const updateFileContent = (files: any[]): any[] => {
-          return files.map(file => {
-            if (file.id === fileId && allContents[fileId] !== undefined) {
-              return { ...file, content: allContents[fileId] };
-            }
-            if (file.children && Array.isArray(file.children)) {
-              return { ...file, children: updateFileContent(file.children) };
-            }
-            return file;
-          });
-        };
-        
-        return updateFileContent(prevFiles);
-      });
-      
-      // Trigger preview refresh if the saved file is a web file
-      // Find the file by ID to get its name
-      const findFileById = (files: any[], id: string): any => {
-        for (const file of files) {
-          if (file.id === id) return file;
-          if (file.children) {
-            const found = findFileById(file.children, id);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      
-      const savedFile = findFileById(currentFiles, fileId);
-      if (savedFile && (
-        savedFile.name.toLowerCase().endsWith('.html') || 
-        savedFile.name.toLowerCase().endsWith('.htm') || 
-        savedFile.name.toLowerCase().endsWith('.css') || 
-        savedFile.name.toLowerCase().endsWith('.js')
-      )) {
-        // Force a re-render of the preview by updating a refresh key
-        setPreviewRefreshKey(prev => prev + 1);
-      }
+  // Handle Cmd/Ctrl+S from the editor - refresh preview if it's visible
+  const handleSaveShortcut = (fileId?: string) => {
+    const isPreviewVisible = showCodingTerminal && selectedTask && leftTab === 'preview';
+    if (!isPreviewVisible) {
+      return;
+    }
+
+    // Best-effort refresh of the active preview iframe
+    try {
+      previewTabRef.current?.refreshPreview();
+    } catch (error) {
+      console.warn('Failed to refresh preview on save shortcut:', error);
     }
   };
 
   // Ignore live content changes for preview; only refresh on save
   const handleFileContentChange = () => {};
+
+  const defaultFileName = (type: string): string => {
+    switch (type) {
+      case 'html':
+        return 'index.html';
+      case 'css':
+        return 'styles.css';
+      case 'js':
+        return 'script.js';
+      default:
+        return `${type}.txt`;
+    }
+  };
+
+  // Handler for AI Assistant submit
+  const handleAssistantSubmit = async (message: string) => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      return;
+    }
+
+    const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const appendMessage = (item: AssistantItem) => {
+      setAssistantMessages(prev => [...prev, { ...item, id: item.id ?? createMessageId() }]);
+    };
+    const updateMessage = (id: string, updates: Partial<AssistantItem>) => {
+      setAssistantMessages(prev => prev.map(msg => (msg.id === id ? { ...msg, ...updates } : msg)));
+    };
+
+    // Clear all suggestions when user submits a new query
+    setAssistantMessages(prev => prev.filter(msg => msg.type !== 'suggestions'));
+    
+    setSummaryGenerated(false);
+    
+    appendMessage({ type: 'user', message: trimmedMessage });
+    setAwaitingResponse(true);
+
+    // Get current files from editor
+    const files = { html: '', css: '', js: '' };
+    const fileIdsByType: Record<string, string> = {};
+    const fileNamesByType: Record<string, string> = {};
+    let allContents: Record<string, string> = {};
+
+    if (actualEditorRef?.current?.getAllFileContents) {
+      allContents = actualEditorRef.current.getAllFileContents();
+
+      Object.entries(allContents).forEach(([fileId, content]) => {
+        const file = currentFiles.find(f => f.id === fileId || f.name === fileId);
+        const fileNameRaw = file?.name || fileId || '';
+        const fileName = fileNameRaw.toLowerCase();
+        const contentStr = String(content || '');
+
+        const assignIfEmpty = (type: 'html' | 'css' | 'js') => {
+          if (!files[type]) {
+            files[type] = contentStr;
+            fileIdsByType[type] = fileId;
+            fileNamesByType[type] = file?.name || fileId || defaultFileName(type);
+          }
+        };
+
+        if (fileName.endsWith('.html') || file?.language === 'html') {
+          assignIfEmpty('html');
+        } else if (fileName.endsWith('.css') || file?.language === 'css') {
+          assignIfEmpty('css');
+        } else if (
+          ((fileName.endsWith('.js') || fileName.endsWith('.javascript')) && !fileName.endsWith('.json')) ||
+          file?.language === 'javascript'
+        ) {
+          assignIfEmpty('js');
+        }
+      });
+    }
+
+    const fallbackNames: Record<string, string> = {
+      html: fileNamesByType['html'] || 'index.html',
+      css: fileNamesByType['css'] || 'styles.css',
+      js: fileNamesByType['js'] || 'script.js',
+    };
+
+    const toolMessageIds = new Map<string, string>();
+    let finalPayload: any = null;
+
+    try {
+      console.log('Files being sent to agent (stream):', {
+        html_length: files.html.length,
+        css_length: files.css.length,
+        js_length: files.js.length,
+        fileIdsByType,
+        currentFiles: currentFiles.map(f => ({ id: f.id, name: f.name, language: f.language })),
+      });
+
+      const response = await fetch(`${ENV.BACKEND_URL}/api/agent-chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: trimmedMessage,
+          files,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start agent stream');
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Streaming response not supported');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const maybeHandleChunk = (rawLine: string) => {
+        const line = rawLine.trim();
+        if (!line) return;
+        let payload: any;
+        try {
+          payload = JSON.parse(line);
+        } catch (err) {
+          console.warn('Failed to parse agent stream chunk:', line, err);
+          return;
+        }
+
+        const state = payload?.state;
+        const data = payload?.data ?? {};
+
+        switch (state) {
+          case 'restate': {
+            if (data.restate) {
+              appendMessage({ type: 'assistant', message: data.restate });
+            }
+            break;
+          }
+          case 'plan': {
+            // Currently unused in UI
+            break;
+          }
+          case 'signpost': {
+            const signpost = data.signpost;
+            const targetFiles: string[] = data.target_files ?? [];
+            if (signpost) {
+              appendMessage({ type: 'assistant', message: signpost });
+            }
+            targetFiles.forEach((fileType: string) => {
+              const key = `${data.index ?? ''}-${fileType}`;
+              if (!toolMessageIds.has(key)) {
+                const displayName = fallbackNames[fileType] || defaultFileName(fileType);
+                const id = createMessageId();
+                toolMessageIds.set(key, id);
+                appendMessage({
+                  id,
+                  type: 'tool',
+                  message: `Editing ${displayName}`,
+                  status: 'pending',
+                });
+              }
+            });
+            break;
+          }
+          case 'tool_result': {
+            const targetFiles: string[] = data.target_files ?? [];
+            const diffStats: Record<string, { additions?: number; deletions?: number }> = data.diff_stats ?? {};
+            targetFiles.forEach((fileType: string) => {
+              const key = `${data.index ?? ''}-${fileType}`;
+              const messageId = toolMessageIds.get(key);
+              if (messageId) {
+                updateMessage(messageId, {
+                  status: 'done',
+                  diff: {
+                    additions: diffStats?.[fileType]?.additions ?? 0,
+                    deletions: diffStats?.[fileType]?.deletions ?? 0,
+                  },
+                });
+              }
+            });
+            break;
+          }
+          case 'summary': {
+            if (data.summary) {
+              appendMessage({ type: 'assistant', message: data.summary });
+              setSummaryGenerated(true);
+            }
+            break;
+          }
+          case 'suggestions': {
+            const suggestions: string[] = Array.isArray(data.suggestions) ? data.suggestions : [];
+            if (suggestions.length) {
+              appendMessage({ type: 'suggestions', suggestions });
+            }
+            break;
+          }
+          case 'error': {
+            const messageText = data.message || 'Unknown error';
+            appendMessage({ type: 'assistant', message: `Error: ${messageText}` });
+            break;
+          }
+          case 'complete': {
+            finalPayload = data;
+            break;
+          }
+          default: {
+            break;
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        lines.forEach(maybeHandleChunk);
+      }
+
+      if (buffer) {
+        maybeHandleChunk(buffer);
+      }
+
+    } catch (error) {
+      console.error('Error during agent stream:', error);
+      toolMessageIds.forEach((msgId) => {
+        if (msgId) {
+          updateMessage(msgId, { status: 'done' });
+        }
+      });
+      appendMessage({ type: 'assistant', message: `Error: ${(error as Error).message}` });
+    } finally {
+      setAwaitingResponse(false);
+    }
+
+    if (finalPayload && finalPayload.final_files && Object.keys(finalPayload.final_files).length > 0) {
+      const originalFiles: Record<string, string> = {};
+      const modifiedFilesByFileId: Record<string, string> = {};
+
+      ['html', 'css', 'js'].forEach(type => {
+        const fileId = fileIdsByType[type];
+        const modifiedContent = finalPayload.final_files[type];
+        if (fileId && typeof modifiedContent === 'string') {
+          const originalContent =
+            (allContents && typeof allContents[fileId] === 'string')
+              ? allContents[fileId]
+              : (currentFiles.find(f => f.id === fileId)?.content ?? '');
+          originalFiles[fileId] = String(originalContent ?? '');
+          modifiedFilesByFileId[fileId] = modifiedContent;
+        }
+      });
+
+      if (Object.keys(modifiedFilesByFileId).length > 0) {
+        console.log('Storing pending agent changes (stream):', {
+          originalFileIds: Object.keys(originalFiles),
+          modifiedFileIds: Object.keys(modifiedFilesByFileId),
+        });
+        setPendingAgentChanges({
+          original: originalFiles,
+          modified: modifiedFilesByFileId,
+          summary: finalPayload.summary,
+          steps: finalPayload.steps,
+        });
+      }
+    }
+  };
 
   // Resize handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -458,6 +677,206 @@ export default function Home() {
     };
   }, [isResizing, isVerticalResizing, isEditorResizing]);
 
+  // Filter tasks based on search query
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setFilteredTasks(allTasks);
+    } else {
+      const filtered = allTasks.filter(task =>
+        task.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.tags.some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+      setFilteredTasks(filtered);
+    }
+  }, [searchQuery, allTasks]);
+
+  // Full task list now loaded from /api/tasks into allTasks state
+  useEffect(() => {
+    setFilteredTasks(allTasks);
+  }, [allTasks]);
+
+  // Keyboard shortcuts for sidebar toggle and AI assistant toggle
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const tag = activeEl?.tagName?.toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || activeEl?.isContentEditable;
+      if (isTyping) return;
+
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+      const key = (event.key || '').toLowerCase();
+
+      // Tab: Toggle sidebar whenever user isn't typing (prevents focus navigation)
+      if (key === 'tab') {
+        event.preventDefault();
+        setSidebarOpen(prev => !prev);
+        return;
+      }
+
+      // Cmd/Ctrl + K: Toggle AI assistant
+      if (isCmdOrCtrl && key === 'k') {
+        event.preventDefault();
+        setShowAIAssistant(prev => !prev);
+        return;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Handle task parameter from URL
+  useEffect(() => {
+    const handleTaskParam = async () => {
+      const taskParam = searchParams.get('task');
+      
+      if (taskParam && allTasks.length > 0) {
+        const task = allTasks.find(t => t.id === taskParam);
+        if (task && selectedTask !== task.id) {
+          // Use startTask to properly initialize everything
+          await startTask(task.id, false); // false = don't update URL since we're already there
+        }
+      } else if (!taskParam && (pathname === '/browse' || pathname === '/vibe' || pathname === '/') && showCodingTerminal) {
+        // No task param and we're in coding terminal mode, exit it
+        setShowCodingTerminal(false);
+        setSelectedTask(null);
+        setActiveTab('tasks');
+      }
+    };
+
+    handleTaskParam();
+  }, [searchParams, allTasks, selectedTask, pathname, showCodingTerminal]);
+
+  // Force hide tooltips when activeTab changes
+  useEffect(() => {
+    // Hide React state-based tooltips immediately
+    setTooltipVisible(false);
+    setTooltipText("");
+    
+    // Hide all CSS-based tooltips by adding a class that forces them to be hidden
+    document.body.classList.add('force-hide-tooltips');
+    
+    // Remove the class after a delay to allow normal tooltip behavior
+    const timer = setTimeout(() => {
+      document.body.classList.remove('force-hide-tooltips');
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      document.body.classList.remove('force-hide-tooltips');
+    };
+  }, [activeTab]);
+
+  // Force hide tooltips when activeTab changes
+  useEffect(() => {
+    setTooltipVisible(false);
+    setTooltipText("");
+  }, [activeTab]);
+
+  // Force hide tooltips when showCodingTerminal changes (when entering/exiting task mode)
+  useEffect(() => {
+    setTooltipVisible(false);
+    setTooltipText("");
+  }, [showCodingTerminal]);
+
+  // Sync activeTab with pathname
+  useEffect(() => {
+    const path = pathname;
+    if (path === '/leaderboard' || path === '/leaderboard/') {
+      setActiveTab('leaderboard');
+    } else if (path === '/stats' || path === '/stats/') {
+      setActiveTab('stats');
+    } else if (path === '/skill-check' || path === '/skill-check/') {
+      setActiveTab('skill-check');
+    } else if (path === '/about' || path === '/about/') {
+      setActiveTab('about');
+    } else if (path === '/browse' || path === '/' || path === '/vibe') {
+      setActiveTab('tasks');
+    }
+  }, [pathname]);
+
+  // When switching to Tasks tab, ensure URL and state reflect the list view
+  // But only if there's no task parameter in the URL
+  useEffect(() => {
+    const taskParam = searchParams.get('task');
+    // List of valid routes that should not be redirected
+    const validRoutes = ['/browse', '/', '/vibe', '/leaderboard', '/stats', '/skill-check', '/about'];
+    const currentPath = pathname;
+    
+    // If we're on a valid route that's not the tasks route, don't redirect
+    // (This handles navigation to leaderboard, stats, etc.)
+    if (validRoutes.includes(currentPath) && !['/browse', '/', '/vibe'].includes(currentPath)) {
+      return; // Let the pathname sync effect handle setting the correct activeTab
+    }
+    
+    if (activeTab === 'tasks' && !taskParam) {
+      setExpandedTask(null);
+      setShowCodingTerminal(false);
+      setSelectedTask(null);
+      try {
+        // Only redirect to /browse if we're not already on a valid route
+        if (!validRoutes.includes(currentPath)) {
+          window.history.pushState(null, '', '/browse');
+        }
+      } catch (e) {
+        // no-op
+      }
+    }
+  }, [activeTab, searchParams, pathname]);
+
+  // Handle browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = async () => {
+      try {
+        const path = window.location.pathname;
+        const urlParams = new URLSearchParams(window.location.search);
+        const taskParam = urlParams.get('task');
+        
+        if (path === '/browse' || path === '/vibe' || path === '/') {
+          if (taskParam) {
+            const taskExists = allTasks.some(t => t.id === taskParam);
+            if (taskExists) {
+              await startTask(taskParam, false);
+            } else {
+              // Task doesn't exist, clear the URL
+              window.history.pushState(null, '', '/browse');
+              setExpandedTask(null);
+              setShowCodingTerminal(false);
+              setSelectedTask(null);
+            }
+          } else {
+            // No task param, ensure we're in list view
+            setExpandedTask(null);
+            setShowCodingTerminal(false);
+            setSelectedTask(null);
+          }
+        }
+      } catch (e) {
+        // no-op
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render anything if not authenticated - will redirect via useRouteProtection
+  if (!isAuthenticated) {
+    return null;
+  }
+
   // Generate initial files for each task type
   const getInitialFilesForTask = async (taskId: string, abortSignal?: AbortSignal) => {
     try {
@@ -534,153 +953,7 @@ export default function Home() {
     }
   };
 
-  // Filter tasks based on search query
-  useEffect(() => {
-    if (searchQuery.trim() === "") {
-      setFilteredTasks(allTasks);
-    } else {
-      const filtered = allTasks.filter(task =>
-        task.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.tags.some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
-      setFilteredTasks(filtered);
-    }
-  }, [searchQuery, allTasks]);
-
-  // Full task list now loaded from /api/tasks into allTasks state
-
-  // Initialize filtered tasks
-  useEffect(() => {
-    setFilteredTasks(allTasks);
-  }, [allTasks]);
-
-  // Keyboard shortcuts for sidebar toggle and AI assistant toggle
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const activeEl = document.activeElement as HTMLElement | null;
-      const tag = activeEl?.tagName?.toLowerCase();
-      const isTyping = tag === 'input' || tag === 'textarea' || activeEl?.isContentEditable;
-      if (isTyping) return;
-
-      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
-      const key = (event.key || '').toLowerCase();
-
-      // Tab: Toggle sidebar whenever user isn't typing (prevents focus navigation)
-      if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'Tab') {
-        event.preventDefault();
-        setSidebarOpen(prev => !prev);
-        return;
-      }
-
-      // Cmd/Ctrl + I: Toggle AI assistant visibility
-      if (isCmdOrCtrl && key === 'i') {
-        event.preventDefault();
-        setShowAIAssistant(prev => !prev);
-        return;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Handle URL query parameters to auto-select tasks (only when URL actually changes)
-  useEffect(() => {
-    const handleTaskParam = async () => {
-      const taskParam = searchParams.get('task');
-      
-      if (taskParam && allTasks.length > 0) {
-        const task = allTasks.find(t => t.id === taskParam);
-        if (task && selectedTask !== task.id) {
-          // Use startTask to properly initialize everything
-          await startTask(task.id, false); // false = don't update URL since we're already there
-        }
-      } else if (!taskParam && (pathname === '/browse' || pathname === '/vibe' || pathname === '/') && showCodingTerminal) {
-        // Reset when navigating back to browse without a task
-        setExpandedTask(null);
-        setShowCodingTerminal(false);
-        setSelectedTask(null);
-      }
-    };
-    
-    handleTaskParam();
-  }, [searchParams.get('task'), allTasks.length, pathname, showCodingTerminal, selectedTask]);
-
-  // Hide all tooltips when arriving at any page
-  useEffect(() => {
-    // Hide React state-based tooltips immediately
-    setTooltipVisible(false);
-    setTooltipText("");
-    
-    // Hide all CSS-based tooltips by adding a class that forces them to be hidden
-    document.body.classList.add('force-hide-tooltips');
-    
-    // Remove the class after a delay to allow normal tooltip behavior
-    const timer = setTimeout(() => {
-      document.body.classList.remove('force-hide-tooltips');
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, [pathname]);
-
-  // Also hide tooltips when activeTab changes (additional navigation trigger)
-  useEffect(() => {
-    setTooltipVisible(false);
-    setTooltipText("");
-  }, [activeTab]);
-
-  // Force hide tooltips when showCodingTerminal changes (when entering/exiting task mode)
-  useEffect(() => {
-    setTooltipVisible(false);
-    setTooltipText("");
-  }, [showCodingTerminal]);
-
-  // When switching to Tasks tab, ensure URL and state reflect the list view
-  // But only if there's no task parameter in the URL
-  useEffect(() => {
-    const taskParam = searchParams.get('task');
-    if (activeTab === 'tasks' && !taskParam) {
-      setExpandedTask(null);
-      setShowCodingTerminal(false);
-      setSelectedTask(null);
-      try {
-        if (window.location.pathname !== '/browse') {
-          window.history.pushState(null, '', '/browse');
-        }
-      } catch (e) {
-        // no-op
-      }
-    }
-  }, [activeTab, searchParams]);
-
-  // Keep UI in sync with browser back/forward
-  useEffect(() => {
-    const handlePopState = async () => {
-      try {
-        const path = window.location.pathname;
-        const urlParams = new URLSearchParams(window.location.search);
-        const taskParam = urlParams.get('task');
-        
-        if (path === '/browse' || path === '/vibe' || path === '/') {
-          if (taskParam) {
-            const taskExists = allTasks.some(t => t.id === taskParam);
-            if (taskExists) {
-              await startTask(taskParam, false);
-              return;
-            }
-          }
-          setExpandedTask(null);
-          setShowCodingTerminal(false);
-          setSelectedTask(null);
-        }
-      } catch (e) {
-        // no-op
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  // (removed duplicate useEffects that were placed after auth guards)
 
   const handleTaskClick = (taskId: string) => {
     try {
@@ -719,8 +992,6 @@ export default function Home() {
     startTransition(() => {
       setSelectedTask(taskId);
       setShowCodingTerminal(true);
-      // Keep AI assistant hidden for now
-      setShowAIAssistant(false);
       // Default left pane to Task tab
       setLeftTab('task');
       setIsTransitioning(false);
@@ -791,7 +1062,6 @@ export default function Home() {
   // Editor mount handler
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
-    actualEditorRef.current = editor;
   };
 
   // Helper function to get status icon (LeetCode style)
@@ -929,112 +1199,248 @@ export default function Home() {
           {/* Header, Search Bar, and Content Container - keep visible unless coding terminal is active */}
           {!showCodingTerminal && (
             <div className="px-40 pt-16 pb-6 w-full max-w-full flex flex-col h-full">
-              {/* Header */}
-              <div className="text-center mb-6 w-full">
+              {/* Greeting - Only show on tasks tab */}
+              {activeTab === 'tasks' && (
                 <h1 className="text-4xl font-light mb-2 text-center">
-                  What do you want to build on {" "}
-                  <span className="animated-gradient font-semibold">
-                    Vibe Code Arena
-                  </span>
-                  ?
+                  Hi <span className="font-medium">{user?.username}</span>,
                 </h1>
-              </div>
+              )}
+              {/* Header - Only show for tasks tab */}
+              {activeTab === 'tasks' && (
+                <div className="text-center mb-16 w-full">
+                  <h1 className="text-4xl font-light mb-2 text-center">
+                    What do you want to build on {" "}
+                    <span className="animated-gradient font-semibold">
+                      Vibe Code Arena
+                    </span>
+                    ?
+                  </h1>
+                </div>
+              )}
 
-              {/* Search Bar */}
-              <div className="flex items-center justify-between w-full mb-6">
-                {/* Left side - Search questions, Filter button, Sort button */}
-                <div className="flex items-center space-x-3">
-                  {/* Search bar */}
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Search className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Search questions"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="block w-80 pl-10 pr-3 py-1 border-gray-600 rounded-lg bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  
-                  {/* Filter button */}
-                  <button className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors">
-                    <Filter className="h-4 w-4 text-gray-400" />
-                  </button>
-                  
-                  {/* Sort button */}
-                  <button className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors">
-                    <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-                    </svg>
-                  </button>
-                </div>
-                
-                {/* Right side - Number of problems and Random button */}
-                <div className="flex items-center space-x-4">
-                  {/* Number of problems */}
-                  <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-1">
-                      <div className="w-4 h-4 rounded-full border-2 border-gray-600 bg-gray-800 relative">
-                        <div className="absolute inset-0 rounded-full bg-green-500" style={{clipPath: 'circle(50% at 50% 50%)'}}></div>
+              {/* Search Bar - Only show for tasks tab */}
+              {activeTab === 'tasks' && (
+                <div className="flex items-center justify-between w-full mb-6">
+                  {/* Left side - Search questions, Filter button, Sort button */}
+                  <div className="flex items-center space-x-3">
+                    {/* Search bar */}
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Search className="h-5 w-5 text-gray-400" />
                       </div>
-                      <span className="text-sm text-gray-400">
-                        {filteredTasks.length} problems
-                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search questions"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="block w-80 pl-10 pr-3 py-1 border-gray-600 rounded-lg bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
                     </div>
+                    
+                    {/* Filter button */}
+                    <button className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                    </button>
+                    
+                    {/* Sort button */}
+                    <button className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors">
+                      <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                      </svg>
+                    </button>
                   </div>
                   
-                  {/* Random button */}
-                  <button 
-                    onClick={handleRandomTask}
-                    className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors"
-                  >
-                    <Shuffle className="h-4 w-4 text-gray-400" />
-                  </button>
+                  {/* Right side - Number of problems and Random button */}
+                  <div className="flex items-center space-x-4">
+                    {/* Number of problems */}
+                    <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-1">
+                        <div className="w-4 h-4 rounded-full border-2 border-gray-600 bg-gray-800 relative">
+                          <div className="absolute inset-0 rounded-full bg-green-500" style={{clipPath: 'circle(50% at 50% 50%)'}}></div>
+                        </div>
+                        <span className="text-sm text-gray-400">
+                          {filteredTasks.length} problems
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Random button */}
+                    <button 
+                      onClick={handleRandomTask}
+                      className="p-2 rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors"
+                    >
+                      <Shuffle className="h-4 w-4 text-gray-400" />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Content Area */}
               <div className="flex-1 flex flex-col min-h-0">
-                {/* Task List */}
-                {filteredTasks.length > 0 && (
-                  <div className="flex-1 overflow-visible">
-                    <MinimalTaskList
-                      tasks={filteredTasks}
-                      onSaveToggle={handleSaveToggle}
-                      onGetStarted={handleGetStarted}
-                      expandedTask={expandedTask}
-                      onTaskExpand={handleTaskExpand}
-                      onGoBack={handleGoBack}
-                      hasStartedTask={false}
-                      disableHover={false}
-                    />
+                {/* Leaderboard Page */}
+                {activeTab === 'leaderboard' && (
+                  <div className="flex-1 flex flex-col items-center justify-start pt-8">
+                    <h1 className="text-4xl font-semibold text-white mb-8">Leaderboard</h1>
+                    <div className="w-full max-w-4xl">
+                      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-gray-900">
+                            <tr>
+                              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider">Rank</th>
+                              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider">Player</th>
+                              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider">Score</th>
+                              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider">Tasks Completed</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-700">
+                            {[
+                              { rank: 1, player: 'CodeMaster99', score: 9820, tasks: 47 },
+                              { rank: 2, player: 'DevNinja', score: 9450, tasks: 45 },
+                              { rank: 3, player: 'AlgoKing', score: 9120, tasks: 43 },
+                              { rank: 4, player: 'ScriptWizard', score: 8890, tasks: 42 },
+                              { rank: 5, player: 'ByteBender', score: 8560, tasks: 40 },
+                              { rank: 6, player: 'SyntaxHero', score: 8230, tasks: 39 },
+                              { rank: 7, player: 'FunctionFury', score: 7940, tasks: 37 },
+                              { rank: 8, player: 'LoopLegend', score: 7610, tasks: 36 },
+                              { rank: 9, player: 'ArrayAce', score: 7280, tasks: 34 },
+                              { rank: 10, player: 'VarVanguard', score: 6950, tasks: 33 },
+                            ].map((entry) => (
+                              <tr key={entry.rank} className="hover:bg-gray-750 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`text-lg font-bold ${
+                                    entry.rank === 1 ? 'text-yellow-400' :
+                                    entry.rank === 2 ? 'text-gray-300' :
+                                    entry.rank === 3 ? 'text-amber-600' :
+                                    'text-gray-400'
+                                  }`}>
+                                    #{entry.rank}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="text-white font-medium">{entry.player}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="text-blue-400 font-semibold">{entry.score.toLocaleString()}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="text-gray-300">{entry.tasks}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
                 )}
 
-                {/* No results or loading state */}
-                {filteredTasks.length === 0 && (
-                  <div className="py-12 w-full">
-                    <div className="text-center">
-                      {searchQuery.trim() === "" ? (
-                        <div className="flex items-center justify-center space-x-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
-                          <p className="text-gray-400 text-lg">Loading tasks...</p>
+                {/* My Stats Page */}
+                {activeTab === 'stats' && (
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <h1 className="text-4xl font-semibold text-white">My Stats</h1>
+                  </div>
+                )}
+
+                {/* Skill Check Page */}
+                {activeTab === 'skill-check' && (
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <h1 className="text-4xl font-semibold text-white">Skill Check</h1>
+                  </div>
+                )}
+
+                {/* About Page */}
+                {activeTab === 'about' && (
+                  <div className="flex-1 flex flex-col items-start justify-start pt-8 pb-8 max-w-5xl mx-auto w-full">
+                    <h1 className="text-4xl font-semibold text-white mb-8">About</h1>
+                    <div className="flex flex-col gap-8 w-full">
+                      {/* About Content */}
+                      <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
+                        <h2 className="text-2xl font-semibold text-white mb-4">What We're Doing</h2>
+                        <div className="text-gray-300 space-y-4 leading-relaxed">
+                          <p>
+                            Welcome to Vibe Code Arena! We're conducting research to understand how artificial intelligence (AI) tools 
+                            affect coding practices, learning outcomes, and developer productivity. Our platform allows you to build 
+                            fun projects while helping us study how developers interact with AI-powered coding assistants.
+                          </p>
+                          <p>
+                            By participating in our study, you'll have access to advanced AI coding tools and may learn new programming 
+                            techniques. Your participation will contribute to important research about the future of software development.
+                          </p>
+                          <p>
+                            We collect data about your coding interactions and patterns to help improve AI-assisted development tools 
+                            for everyone. Your participation is confidential, and all data will be anonymized in any publications.
+                          </p>
                         </div>
-                      ) : (
-                        <>
-                          <p className="text-gray-400 text-lg">No tasks found matching your search.</p>
-                          <button 
-                            onClick={() => setSearchQuery("")}
-                            className="mt-4 text-base font-medium transition-all duration-200 relative bg-transparent border-none outline-none py-2 hover:bg-transparent hover:-translate-y-0.5 text-gray-400 hover:text-blue-400 after:content-[''] after:absolute after:bottom-1 after:left-0 after:w-full after:h-px after:bg-blue-400 after:opacity-0 hover:after:opacity-100 after:transition-opacity after:duration-200"
-                          >
-                            Clear search
-                          </button>
-                        </>
-                      )}
+                      </div>
+
+                      {/* Compensation */}
+                      <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
+                        <h2 className="text-2xl font-semibold text-white mb-4">Compensation</h2>
+                        <div className="text-gray-300 space-y-4 leading-relaxed">
+                          <p>
+                            Participants who complete the study tasks will be eligible for compensation based on their performance 
+                            and completion rate. Detailed compensation information will be provided upon enrollment.
+                          </p>
+                          <p>
+                            If you have any questions about compensation or the study, please contact the research team.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* IRB Consent Form in iframe */}
+                      <div className="bg-gray-800 rounded-lg border border-gray-700 p-8">
+                        <h2 className="text-2xl font-semibold text-white mb-4">Research Consent Form</h2>
+                        <div className="w-full" style={{ height: '600px' }}>
+                          <IRBIframe className="w-full h-full" />
+                        </div>
+                      </div>
                     </div>
                   </div>
+                )}
+
+                {/* Tasks Page */}
+                {activeTab === 'tasks' && (
+                  <>
+                    {/* Task List */}
+                    {filteredTasks.length > 0 && (
+                      <div className="flex-1 overflow-visible">
+                        <MinimalTaskList
+                          tasks={filteredTasks}
+                          onSaveToggle={handleSaveToggle}
+                          onGetStarted={handleGetStarted}
+                          expandedTask={expandedTask}
+                          onTaskExpand={handleTaskExpand}
+                          onGoBack={handleGoBack}
+                          hasStartedTask={false}
+                          disableHover={false}
+                        />
+                      </div>
+                    )}
+
+                    {/* No results or loading state */}
+                    {filteredTasks.length === 0 && (
+                      <div className="py-12 w-full">
+                        <div className="text-center">
+                          {searchQuery.trim() === "" ? (
+                            <div className="flex items-center justify-center space-x-3">
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+                              <p className="text-gray-400 text-lg">Loading tasks...</p>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="text-gray-400 text-lg">No tasks found matching your search.</p>
+                              <button 
+                                onClick={() => setSearchQuery("")}
+                                className="mt-4 text-base font-medium transition-all duration-200 relative bg-transparent border-none outline-none py-2 hover:bg-transparent hover:-translate-y-0.5 text-gray-400 hover:text-blue-400 after:content-[''] after:absolute after:bottom-1 after:left-0 after:w-full after:h-px after:bg-blue-400 after:opacity-0 hover:after:opacity-100 after:transition-opacity after:duration-200"
+                              >
+                                Clear search
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1090,7 +1496,7 @@ export default function Home() {
                           const spaceBelow = vh - rect.bottom;
                           const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
                           const top = placeAbove ? rect.top : rect.bottom;
-                          setTooltipText('Go back to browse tasks');
+                          setTooltipText('Back to tasks');
                           setTooltipLeft(left);
                           setTooltipTop(top);
                           setTooltipPlaceAbove(placeAbove);
@@ -1175,10 +1581,10 @@ export default function Home() {
                   {leftTab === 'preview' && (
                     <div className="h-full">
                       <PreviewTab 
+                        ref={previewTabRef}
                         files={currentFiles}
                         className="h-full"
                         taskName={allTasks.find(t => t.id === selectedTask)?.name || 'preview'}
-                        refreshKey={previewRefreshKey}
                         actualEditorRef={actualEditorRef}
                       />
                     </div>
@@ -1341,7 +1747,7 @@ export default function Home() {
                       // Enable multi-file UI with dummy files in read-only navigation mode
                       enableMultiFile={true}
                       initialFiles={initialFiles}
-                      readOnlyFiles={true}
+                      readOnlyFiles={false}
                       testCases={testCases}
                       // Pane visibility
                       showCodeEditor={showCodeEditor}
@@ -1360,12 +1766,46 @@ export default function Home() {
                           onClearMessages={() => setAssistantMessages([])}
                           inputValue={assistantInputValue}
                           onInputChange={setAssistantInputValue}
+                          onSubmit={handleAssistantSubmit}
+                          awaitingResponse={awaitingResponse}
+                          summaryGenerated={summaryGenerated}
+                          isEditorLoading={isSpinning}
                         />
                       )}
-                      // File save callback for preview updates
-                      onFileSave={handleFileSave}
+                      // Save shortcut callback for preview updates
+                      onSaveShortcut={handleSaveShortcut}
                       // File content change callback for real-time preview updates
                       onFileContentChange={handleFileContentChange}
+                      // Agent changes for diff view
+                      pendingAgentChanges={pendingAgentChanges}
+                      onAcceptAgentChanges={(fileType?: string, content?: string) => {
+                        // Changes are already applied in real-time, just clear pending state
+                        if (fileType && content) {
+                          // Remove this file type from pending changes
+                          setPendingAgentChanges((prev: any) => {
+                            if (!prev) return null;
+                            const newModified = { ...(prev.modified || {}) };
+                            const newOriginal = { ...(prev.original || {}) };
+                            delete newModified[fileType];
+                            delete newOriginal[fileType];
+                            // If no more files, clear everything
+                            if (Object.keys(newModified).length === 0) {
+                              return null;
+                            }
+                            return { ...prev, modified: newModified, original: newOriginal };
+                          });
+                        } else {
+                          // Accept all remaining changes (fallback - shouldn't be used in new workflow)
+                          setPendingAgentChanges(null);
+                        }
+
+                        try {
+                          previewTabRef.current?.refreshPreview();
+                        } catch (error) {
+                          console.warn('Failed to refresh preview after accepting agent changes:', error);
+                        }
+                      }}
+                      onRejectAgentChanges={() => setPendingAgentChanges(null)}
                     />
                     </div>
                   </div>
@@ -1416,6 +1856,7 @@ export default function Home() {
         </div>,
         document.body
       )}
+      
     </div>
   );
 }

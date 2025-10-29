@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAuth } from "../utils/auth";
 
 // Mock Firebase functionality
 const mockUpdateDoc = async (data: any) => {
@@ -19,6 +20,7 @@ const ExitSurvey = ({
   response_id: string;
   app: any;
 }) => {
+  const { logout } = useAuth();
   // Remove Firebase initialization
   const [formData, setFormData] = useState({
     aiToolTypicalUsage: "",
@@ -51,7 +53,8 @@ const ExitSurvey = ({
       localStorage.clear();
       await mockSignOut();
       alert("Survey submitted successfully!");
-      window.location.reload();
+      // Use the auth context logout method
+      logout();
     } catch (error) {
       console.error("Error writing document: ", error);
       alert("There was an error submitting the survey.");

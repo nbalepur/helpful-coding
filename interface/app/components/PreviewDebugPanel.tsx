@@ -30,7 +30,7 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
   onConsoleLog,
   className = '',
   taskName = 'preview',
-  placement = 'side',
+  placement = 'bottom',
   onTogglePlacement
 }, ref) => {
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([]);

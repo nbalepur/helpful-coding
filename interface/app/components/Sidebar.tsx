@@ -17,8 +17,10 @@ import {
   Coffee,
   Smile,
   PanelBottom,
-  PanelRight
+  PanelRight,
+  User
 } from "lucide-react";
+import { useAuth } from "../utils/auth";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -47,6 +49,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     setMounted(true);
@@ -58,7 +61,7 @@ export default function Sidebar({
     { id: 'stats', icon: BarChart3, label: 'My Stats' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
     { id: 'about', icon: Info, label: 'About' },
-  ];
+  ] as const;
 
   // Feedback removed; About moved into navigation
 
@@ -66,12 +69,12 @@ export default function Sidebar({
     { id: 'native', icon: Monitor, label: 'Native' },
     { id: 'light', icon: Sun, label: 'Light' },
     { id: 'dark', icon: Moon, label: 'Dark' },
-  ];
+  ] as const;
 
   const assistantOptions = [
     { id: 'bottom', icon: PanelBottom, label: 'Bottom' },
     { id: 'side', icon: PanelRight, label: 'Side' },
-  ];
+  ] as const;
 
   const ChillLogo = () => (
     <div className="relative w-8 h-8">
@@ -105,15 +108,18 @@ export default function Sidebar({
 
   const getSidebarShortcutLabel = () => 'Tab';
 
-  // if (!mounted) {
-  //   return null;
-  // }
+  // Prevent flicker by not rendering until mounted
+  if (!mounted) {
+    return (
+      <div className="fixed top-0 left-0 h-full w-12 bg-gray-950 border-r border-gray-800 z-40" />
+    );
+  }
 
   return (
     <>
       {/* Sidebar */}
       <div className={`fixed top-0 left-0 h-full bg-gray-950 border-r border-gray-800 transition-all duration-300 ease-in-out z-40 ${
-        isOpen ? 'w-64' : 'w-12'
+        isOpen ? 'w-60' : 'w-12'
       }`}>
         <div className="flex flex-col h-full">
           {/* Top Toggle Button */}
@@ -124,11 +130,11 @@ export default function Sidebar({
                 className={`w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg bg-gray-900 hover:bg-gray-800 transition-colors`}
               >
                 {isOpen ? <X size={16} /> : <Menu size={16} />}
-                {isOpen && (
-                  <span className="transition-opacity duration-300">
-                    Collapse
-                  </span>
-                )}
+                <span className={`transition-all duration-300 ${
+                  isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0 overflow-hidden'
+                }`}>
+                  Collapse
+                </span>
               </button>
             </Tooltip>
           </div>
@@ -136,36 +142,51 @@ export default function Sidebar({
           {/* Navigation */}
           <div className="flex-1 py-6">
             <div className={`${isOpen ? 'px-2' : 'px-1'}`}>
-              {isOpen && (
-                <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3 px-2">
-                  Navigation
-                </h2>
-              )}
+              <h2 className={`text-sm font-medium text-gray-400 uppercase tracking-wider mb-3 px-2 transition-all duration-300 ${
+                isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
+              }`}>
+                Navigation
+              </h2>
               <div className="space-y-1">
-                {navigationItems.map((item) => (
-                  <Tooltip key={item.id} text={item.label}>
-                      <button
-                        onClick={() => {
-                          onTabChange(item.id);
-                          if (item.id === 'tasks') {
-                            router.push('/browse');
+                {navigationItems.map((item) => {
+                  const routeMap: Record<string, string> = {
+                    'tasks': '/browse',
+                    'leaderboard': '/leaderboard',
+                    'stats': '/stats',
+                    'skill-check': '/skill-check',
+                    'about': '/about',
+                  };
+                  const route = routeMap[item.id] || '/browse';
+                  
+                  return (
+                    <Tooltip key={item.id} text={item.label}>
+                      <a
+                        href={route}
+                        onClick={(e) => {
+                          // Allow default behavior for command/ctrl clicks (open in new tab)
+                          if (e.metaKey || e.ctrlKey) {
+                            return;
                           }
+                          // Prevent default and navigate programmatically for normal clicks
+                          e.preventDefault();
+                          window.location.href = route;
                         }}
-                      className={`w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg transition-colors ${
-                        activeTab === item.id
-                          ? 'bg-gray-900 text-white'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
-                      }`}
-                    >
-                      <item.icon size={16} />
-                      {isOpen && (
-                        <span className="transition-opacity duration-300">
+                        className={`w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg transition-colors cursor-pointer ${
+                          activeTab === item.id
+                            ? 'bg-gray-900 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
+                        }`}
+                      >
+                        <item.icon size={16} />
+                        <span className={`transition-all duration-300 ${
+                          isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0 overflow-hidden'
+                        }`}>
                           {item.label}
                         </span>
-                      )}
-                    </button>
-                  </Tooltip>
-                ))}
+                      </a>
+                    </Tooltip>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -173,12 +194,12 @@ export default function Sidebar({
           {/* Bottom Section */}
           <div className={`border-t border-gray-800 ${isOpen ? 'p-2' : 'p-1'}`}>
             {/* AI Assistant Placement */}
-            <div className="mb-4">
-              {isOpen && (
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2">
-                  AI Placement
-                </h3>
-              )}
+            <div className="mb-4 mt-2">
+              <h3 className={`text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2 transition-all duration-300 ${
+                isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
+              }`}>
+                AI Placement
+              </h3>
               <div className={`flex ${isOpen ? 'space-x-1' : 'flex-col space-y-1'}`}>
                 {assistantOptions.map((option) => (
                   <Tooltip key={option.id} text={option.label} always={isOpen} placement={isOpen ? 'bottom' : 'right'}>
@@ -202,12 +223,12 @@ export default function Sidebar({
 
             {/* Theme Selector */}
             <div className="mb-4">
-              <div className="border-t border-gray-800 mb-4"></div>
-              {isOpen && (
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2">
-                  Theme
-                </h3>
-              )}
+              <div className={`border-t border-gray-800 mb-4 ${isOpen ? 'mx-[-8px]' : 'mx-[-4px]'}`}></div>
+              <h3 className={`text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2 transition-all duration-300 ${
+                isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
+              }`}>
+                Theme
+              </h3>
               <div className={`flex ${isOpen ? 'space-x-1' : 'flex-col space-y-1'}`}>
                 {themeOptions.map((option) => (
                   <Tooltip key={option.id} text={option.label} always={isOpen} placement={isOpen ? 'bottom' : 'right'}>
@@ -228,18 +249,27 @@ export default function Sidebar({
             </div>
 
 
-            {/* Bottom Logo/Branding */}
-            <div className="mt-4 pt-4 border-t border-gray-800">
-              <div className="flex items-center justify-center">
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <ChillLogo />
+            {/* User Profile / Logout */}
+            <div>
+              <div className={`border-t border-gray-800 ${isOpen ? 'mx-[-8px]' : 'mx-[-4px]'}`}></div>
+              <div className="pt-4 mb-2">
+                <div className={`flex items-center w-full ${isOpen ? 'justify-start' : 'justify-center'}`}>
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                  <User size={16} className="text-white" />
                 </div>
-                {isOpen && (
-                  <div className="ml-3 transition-opacity duration-300">
-                    <h1 className="text-xl font-bold text-white">VibeCode Arena</h1>
-                    <p className="text-sm text-gray-400">A Nishant Project</p>
-                  </div>
-                )}
+                <div className={`${isOpen ? 'ml-3' : 'ml-0'} transition-all duration-300 leading-tight overflow-hidden ${
+                  isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0'
+                }`}>
+                  <h1 className="text-sm font-semibold text-white">{user?.username || 'User'}</h1>
+                  <button
+                    type="button"
+                    onClick={() => { logout(); }}
+                    className="text-xs text-gray-300 hover:text-blue-400 bg-transparent hover:bg-transparent focus:bg-transparent active:bg-transparent p-0 m-0 border-0 focus:outline-none cursor-pointer"
+                  >
+                    Log out
+                  </button>
+                </div>
+              </div>
               </div>
             </div>
           </div>
