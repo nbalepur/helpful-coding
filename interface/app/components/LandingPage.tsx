@@ -1,10 +1,25 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import LoginForm from "./LoginForm";
+import SignupForm from "./SignupForm";
+import IRBConsentForm from "./IRBConsentForm";
+import { useAuth } from "../utils/auth";
 
 export default function LandingPage() {
   const router = useRouter();
+  const { isAuthenticated, isLoading, login } = useAuth();
   const [videosLoaded, setVideosLoaded] = useState(false);
+  const [showLoginForm, setShowLoginForm] = useState(false);
+  const [showSignupForm, setShowSignupForm] = useState(false);
+  const [showIRBForm, setShowIRBForm] = useState(false);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.push('/browse');
+    }
+  }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
     // Wait for videos to load before showing carousel
@@ -16,11 +31,46 @@ export default function LandingPage() {
   }, []);
 
   const handleLogin = () => {
-    router.push('/browse');
+    setShowLoginForm(true);
+    setShowSignupForm(false);
   };
 
   const handleSignUp = () => {
+    setShowIRBForm(true);
+    setShowLoginForm(false);
+    setShowSignupForm(false);
+  };
+
+  const handleAuthSuccess = (user: any, token: string) => {
+    // Use the auth context login method
+    login(user, token);
+    // Redirect to browse page
     router.push('/browse');
+  };
+
+  const handleSwitchToSignup = () => {
+    setShowSignupForm(true);
+    setShowLoginForm(false);
+  };
+
+  const handleSwitchToLogin = () => {
+    setShowLoginForm(true);
+    setShowSignupForm(false);
+  };
+
+  const handleCancelAuth = () => {
+    setShowLoginForm(false);
+    setShowSignupForm(false);
+    setShowIRBForm(false);
+  };
+
+  const handleIRBAgree = () => {
+    setShowIRBForm(false);
+    setShowSignupForm(true);
+  };
+
+  const handleIRBCancel = () => {
+    setShowIRBForm(false);
   };
 
   // Create demo items data
@@ -38,12 +88,50 @@ export default function LandingPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-gray-900 text-white">
-      {/* Main Content */}
-      <div className="flex flex-col items-center h-full px-4 text-center justify-center py-8">
+      {/* Show loading state while checking authentication */}
+      {isLoading && (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show IRB Consent Form */}
+      {!isLoading && showIRBForm && (
+        <IRBConsentForm
+          onAgree={handleIRBAgree}
+          onCancel={handleIRBCancel}
+        />
+      )}
+
+      {/* Show Login Form */}
+      {!isLoading && showLoginForm && (
+        <LoginForm
+          onSuccess={handleAuthSuccess}
+          onSwitchToSignup={handleSwitchToSignup}
+          onCancel={handleCancelAuth}
+        />
+      )}
+
+      {/* Show Signup Form */}
+      {!isLoading && showSignupForm && (
+        <SignupForm
+          onSuccess={handleAuthSuccess}
+          onSwitchToLogin={handleSwitchToLogin}
+          onCancel={handleCancelAuth}
+        />
+      )}
+
+      {/* Show Landing Page Content */}
+      {!isLoading && !showLoginForm && !showSignupForm && !showIRBForm && (
+        <>
+          {/* Main Content */}
+          <div className="flex flex-col items-center h-full px-4 text-center justify-center py-8">
         {/* Header */}
         <div className="text-center w-full mb-6">
           <h1 className="text-6xl font-light mb-4 w-full text-center">
-            Welcome to{" "}
             <span className="font-semibold" style={{
               background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
               backgroundSize: '400% 400%',
@@ -193,8 +281,9 @@ export default function LandingPage() {
           </button>
         </div>
 
-
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

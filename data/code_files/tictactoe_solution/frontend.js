@@ -7,7 +7,7 @@ all game logic directly in the frontend.
 
 // Console logging helpers (pass-through to native console to preserve objects)
 function log(...args) {
-    console.log(...args
+    console.log(...args);
 }
 
 function logError(...args) {

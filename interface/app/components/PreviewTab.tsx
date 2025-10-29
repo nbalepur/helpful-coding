@@ -9,7 +9,6 @@ interface PreviewTabProps {
   files: FileNode[];
   className?: string;
   taskName?: string;
-  refreshKey?: number;
   actualEditorRef?: React.RefObject<any>;
 }
 
@@ -18,7 +17,7 @@ export interface PreviewTabRef {
   addConsoleMessage: (message: any, level: string) => void;
 }
 
-const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', refreshKey = 0, actualEditorRef }, ref) => {
+const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef }, ref) => {
   const previewRef = useRef<any>(null);
   const debugPanelRef = useRef<PreviewDebugPanelRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,7 +26,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
   const [url, setUrl] = useState(`https://vibecode.io/${taskName.toLowerCase().replace(/\s+/g, '-')}`);
   
   // Console placement and dragging state
-  const [consolePlacement, setConsolePlacement] = useState<'side' | 'bottom'>('side');
+  const [consolePlacement, setConsolePlacement] = useState<'side' | 'bottom'>('bottom');
   const [splitterPosition, setSplitterPosition] = useState(50); // Percentage for side placement
   const [consoleHeight, setConsoleHeight] = useState(200); // Pixels for bottom placement
   const [isDragging, setIsDragging] = useState(false);
@@ -49,81 +48,102 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
     }
   }));
 
-  // Extract HTML, CSS, and JS content; prefer live editor contents when available
+  // Extract HTML, CSS, and JS content from saved files
   const { htmlContent, cssContent, jsContent } = useMemo(() => {
     let html = '';
     let css = '';
     let js = '';
 
-    // Attempt to read live contents from the active editor (if provided)
+    // Try to get content from editor first (includes edited content from DiffEditor)
+    let allFileContents: Record<string, string> = {};
     if (actualEditorRef?.current?.getAllFileContents) {
       try {
-        const live = actualEditorRef.current.getAllFileContents() as Record<string, string>;
-        const entries = Object.entries(live);
-        const findByExt = (exts: string[]) => entries.find(([id]) => exts.some(ext => id.toLowerCase().endsWith(ext)));
-        const htmlLive = findByExt(['.html', 'index.html']);
-        const cssLive = findByExt(['.css', 'style.css', 'styles.css']);
-        const jsLive = findByExt(['.js', 'script.js', 'frontend.js']);
-        if (htmlLive && String(htmlLive[1]).trim()) html = String(htmlLive[1]);
-        if (cssLive && String(cssLive[1]).trim()) css = String(cssLive[1]);
-        if (jsLive && String(jsLive[1]).trim()) js = String(jsLive[1]);
-      } catch (_) {}
-    }
-
-    // Helper function to flatten file tree
-    const flattenFiles = (nodes: FileNode[]): FileNode[] => {
-      const result: FileNode[] = [];
-      const stack = [...nodes];
-      
-      while (stack.length > 0) {
-        const node = stack.shift();
-        if (!node) continue;
-        
-        if (node.type === 'file') {
-          result.push(node);
-        }
-        
-        if (node.children && Array.isArray(node.children)) {
-          stack.unshift(...node.children);
-        }
+        allFileContents = actualEditorRef.current.getAllFileContents() || {};
+      } catch (error) {
+        console.error('Error getting file contents from editor:', error);
       }
+    }
+
+    // If we got content from editor, use it
+    if (Object.keys(allFileContents).length > 0) {
+      // Find files by matching content IDs to file names
+      Object.entries(allFileContents).forEach(([fileId, content]) => {
+        // Try to match fileId to a file name, or use fileId as-is if it's a path
+        const matchingFile = files.find(f => f.id === fileId);
+        const fileName = matchingFile?.name || fileId || '';
+        
+        if (fileName.toLowerCase().endsWith('.html') || 
+            fileName.toLowerCase() === 'index.html' ||
+            fileId.toLowerCase().endsWith('.html')) {
+          html = String(content);
+        } else if (fileName.toLowerCase().endsWith('.css') ||
+                   fileName.toLowerCase() === 'style.css' ||
+                   fileName.toLowerCase() === 'styles.css' ||
+                   fileId.toLowerCase().endsWith('.css')) {
+          css = String(content);
+        } else if (fileName.toLowerCase().endsWith('.js') ||
+                   fileName.toLowerCase() === 'script.js' ||
+                   fileName.toLowerCase() === 'frontend.js' ||
+                   fileId.toLowerCase().endsWith('.js')) {
+          js = String(content);
+        }
+      });
+    } else {
+      // Fallback to reading from files array if editor ref is not available
+      const flattenFiles = (nodes: FileNode[]): FileNode[] => {
+        const result: FileNode[] = [];
+        const stack = [...nodes];
+        
+        while (stack.length > 0) {
+          const node = stack.shift();
+          if (!node) continue;
+          
+          if (node.type === 'file') {
+            result.push(node);
+          }
+          
+          if (node.children && Array.isArray(node.children)) {
+            stack.unshift(...node.children);
+          }
+        }
+        
+        return result;
+      };
+
+      const flatFiles = flattenFiles(files);
+
+      // Find files by name patterns
+      const htmlFile = flatFiles.find(file => 
+        file.name.toLowerCase().endsWith('.html') || 
+        file.name.toLowerCase() === 'index.html'
+      );
       
-      return result;
-    };
+      const cssFile = flatFiles.find(file => 
+        file.name.toLowerCase().endsWith('.css') || 
+        file.name.toLowerCase() === 'style.css' ||
+        file.name.toLowerCase() === 'styles.css'
+      );
+      
+      const jsFile = flatFiles.find(file => 
+        file.name.toLowerCase().endsWith('.js') || 
+        file.name.toLowerCase() === 'script.js' ||
+        file.name.toLowerCase() === 'frontend.js'
+      );
 
-    const flatFiles = flattenFiles(files);
-
-    // If live content not found, fall back to saved files by name patterns
-    const htmlFile = html ? null : flatFiles.find(file => 
-      file.name.toLowerCase().endsWith('.html') || 
-      file.name.toLowerCase() === 'index.html'
-    );
-    
-    const cssFile = css ? null : flatFiles.find(file => 
-      file.name.toLowerCase().endsWith('.css') || 
-      file.name.toLowerCase() === 'style.css' ||
-      file.name.toLowerCase() === 'styles.css'
-    );
-    
-    const jsFile = js ? null : flatFiles.find(file => 
-      file.name.toLowerCase().endsWith('.js') || 
-      file.name.toLowerCase() === 'script.js' ||
-      file.name.toLowerCase() === 'frontend.js'
-    );
-
-    // Extract content (saved) only if not already filled from live
-    if (htmlFile) {
-      html = htmlFile.content || '';
-    }
-    if (cssFile) {
-      css = cssFile.content || '';
-    }
-    if (jsFile) {
-      js = jsFile.content || '';
+      // Extract content from saved files
+      if (htmlFile) {
+        html = htmlFile.content || '';
+      }
+      if (cssFile) {
+        css = cssFile.content || '';
+      }
+      if (jsFile) {
+        js = jsFile.content || '';
+      }
     }
 
     return { htmlContent: html, cssContent: css, jsContent: js };
-  }, [files, refreshKey, actualEditorRef]);
+  }, [files, internalRefreshKey, actualEditorRef]);
 
   // Handle console logs from the iframe
   const handleConsoleLog = (message: any, level: string = 'log', source?: string) => {
@@ -213,7 +233,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
   };
 
   return (
-    <div ref={containerRef} className={`preview-tab h-full w-full flex flex-col bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 overflow-hidden ${className}`}>
+    <div ref={containerRef} className={`preview-tab h-full w-full flex flex-col bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 overflow-visible ${className}`}>
       {/* Drag overlay to capture mouse events over iframe */}
       {isDragging && (
         <div 
@@ -225,13 +245,19 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
       {/* Horizontal Toolbar */}
       <div className="bg-gray-800/30 border-b border-gray-700/50 px-4 py-2 flex items-center space-x-3 flex-shrink-0">
         {/* Refresh Button */}
-        <button
-          onClick={handleRefresh}
-          className="p-2 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
-          title="Refresh Preview"
-        >
-          <RefreshCw size={16} className="text-gray-300" />
-        </button>
+        <div className="relative group">
+          <button
+            onClick={handleRefresh}
+            className="p-2 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
+
+          >
+            <RefreshCw size={16} className="text-gray-300" />
+          </button>
+          <div className="absolute left-1/2 top-full mt-2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+            Refresh (⌘+S)
+            <div className="absolute left-1/2 -top-2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-gray-900"></div>
+          </div>
+        </div>
         
         {/* URL Bar */}
         <div className="flex-1 flex items-center bg-gray-700 rounded-md px-3 py-1.5">
@@ -303,7 +329,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                   jsContent={jsContent}
                   onConsoleLog={handleConsoleLog}
                   className="w-full"
-                  key={`${refreshKey}-${internalRefreshKey}`}
+                  key={internalRefreshKey}
                 />
               </div>
             ) : (
@@ -364,7 +390,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                   jsContent={jsContent}
                   onConsoleLog={handleConsoleLog}
                   className="w-full"
-                  key={`${refreshKey}-${internalRefreshKey}`}
+                  key={internalRefreshKey}
                 />
               </div>
             ) : (

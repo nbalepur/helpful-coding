@@ -1,32 +1,25 @@
 // Shared utility for building complete HTML documents from HTML/CSS/JS fragments
 // Used by PreviewIframe, TestCasesPanel, and popup windows for consistency
 
-import { prependCallAPIFunction } from './callAPIHelper';
-
 export interface BuildHTMLOptions {
   htmlCode: string;
   cssCode?: string;
   jsCode?: string;
-  backendPort?: number | null;
-  backendCode?: string;
 }
 
 /**
  * Builds a complete HTML document from HTML/CSS/JS code fragments.
  * Handles both full HTML documents and HTML fragments.
- * Injects CSS, JS, and callAPI function in the correct locations.
+ * Injects CSS and JS in the correct locations.
  */
 export const buildFullHTMLDocument = (options: BuildHTMLOptions): string => {
   const {
     htmlCode,
     cssCode = '',
-    jsCode = '',
-    backendPort = null,
-    backendCode = ''
+    jsCode = ''
   } = options;
 
-  // Prepend callAPI function to JavaScript
-  const processedJs = prependCallAPIFunction(jsCode, backendPort, backendCode);
+  const processedJs = jsCode;
 
   let fullHtml = '';
 

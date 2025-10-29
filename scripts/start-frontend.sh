@@ -10,12 +10,25 @@ echo "🚀 Starting AI Coding Assistant Frontend..."
 # Change to the interface directory
 cd "$(dirname "$0")/../interface"
 
-# Use Node.js 18+ via nvm
-if command -v nvm &> /dev/null; then
-    echo "🔄 Switching to Node.js 18..."
-    nvm use 18
-else
-    echo "⚠️  nvm not found, using system Node.js"
+# Load nvm if it exists (for non-interactive shells)
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck source=/dev/null
+    . "$NVM_DIR/nvm.sh"
+elif [ -s "$HOME/.bashrc" ] && grep -q "nvm" "$HOME/.bashrc"; then
+    # shellcheck source=/dev/null
+    . "$HOME/.bashrc"
+elif [ -s "$HOME/.zshrc" ] && grep -q "nvm" "$HOME/.zshrc"; then
+    # shellcheck source=/dev/null
+    . "$HOME/.zshrc"
+fi
+
+# Use Node.js 18 if nvm is available
+if command -v nvm &> /dev/null || type nvm &> /dev/null; then
+    nvm use 18 2>/dev/null || true
+elif [ -f "$NVM_DIR/nvm.sh" ]; then
+    # Try to use nvm directly
+    source "$NVM_DIR/nvm.sh" && nvm use 18 2>/dev/null || true
 fi
 
 # Check if Node.js is installed
@@ -43,13 +56,7 @@ if [ "$node_version" -lt 18 ]; then
     exit 1
 fi
 
-# Install dependencies if node_modules doesn't exist
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing dependencies..."
-    npm install
-else
-    echo "📦 Dependencies already installed"
-fi
+npm install
 
 # Start the development server
 echo "🌟 Starting Next.js development server on http://localhost:3000"

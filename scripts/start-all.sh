@@ -40,7 +40,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Start backend in background
-echo "🔧 Starting backend server (in virtual environment)..."
+echo "🔧 Starting backend server (in conda environment)..."
 cd "$PROJECT_ROOT"
 "$SCRIPT_DIR/start-backend.sh" &
 BACKEND_PID=$!
