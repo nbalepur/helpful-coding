@@ -74,7 +74,6 @@ export interface TestResult {
 interface TestCasesPanelProps {
   testCases: TestCaseGroup[];
   backendCode: string;
-  backendPort?: number | null; // Backend port for callAPI
   htmlCode?: string | (() => string); // HTML code for frontend tests (or getter function)
   cssCode?: string | (() => string); // CSS code for frontend tests (or getter function)
   jsCode?: string | (() => string); // JavaScript code for frontend tests (or getter function)
@@ -105,7 +104,7 @@ const isFrontendInteractiveTest = (test: TestCase): boolean => {
 };
 
 // Capture screenshot by rendering HTML/CSS/JS in an iframe (same as PreviewIframe)
-const captureHTMLScreenshot = async (htmlCode: string, cssCode: string, jsCode: string = '', backendPort: number | null = null, backendCode: string = ''): Promise<string | null> => {
+const captureHTMLScreenshot = async (htmlCode: string, cssCode: string, jsCode: string = ''): Promise<string | null> => {
   let tempIframe: HTMLIFrameElement | null = null;
   
   try {
@@ -125,9 +124,7 @@ const captureHTMLScreenshot = async (htmlCode: string, cssCode: string, jsCode: 
     const fullHtml = buildFullHTMLDocument({
       htmlCode,
       cssCode,
-      jsCode,
-      backendPort,
-      backendCode
+      jsCode
     });
     
     // Write content to iframe
@@ -224,7 +221,7 @@ const callLLMJudge = async (testCase: TestCase, screenshot: string | null, htmlC
   }
 };
 
-const TestCasesPanel = forwardRef<TestCasesPanelRef, TestCasesPanelProps>(({ testCases, backendCode, backendPort, htmlCode, cssCode, jsCode, onTestsExecuted, onSelectedCountChange, onRunningStateChange, onAllTestsPassedChange, onTestResultsChange }, ref) => {
+const TestCasesPanel = forwardRef<TestCasesPanelRef, TestCasesPanelProps>(({ testCases, backendCode, htmlCode, cssCode, jsCode, onTestsExecuted, onSelectedCountChange, onRunningStateChange, onAllTestsPassedChange, onTestResultsChange }, ref) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Map<string, TestResult>>(new Map());
@@ -1086,14 +1083,11 @@ const TestCasesPanel = forwardRef<TestCasesPanelRef, TestCasesPanelProps>(({ tes
             const css = typeof cssCode === 'function' ? cssCode() : (cssCode || '');
             const js = typeof jsCode === 'function' ? jsCode() : (jsCode || '');
             
-            
             const result = await executeInteractiveTest(
               test,
               html,
               css,
-              js,
-              backendPort !== undefined && backendPort !== null ? backendPort : null,
-              backendCode
+              js
             );
             
             const status: 'pass' | 'fail' = result.success ? 'pass' : 'fail';
@@ -1127,7 +1121,7 @@ const TestCasesPanel = forwardRef<TestCasesPanelRef, TestCasesPanelProps>(({ tes
             // Capture screenshot for this test
             let screenshot: string | null = null;
             if (html) {
-              screenshot = await captureHTMLScreenshot(html, css, js, backendPort, backendCode);
+              screenshot = await captureHTMLScreenshot(html, css, js);
             }
             
             // Call LLM judge with screenshot and HTML code

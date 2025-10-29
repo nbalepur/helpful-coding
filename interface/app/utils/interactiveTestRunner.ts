@@ -3,8 +3,6 @@
  * Executes test steps (actions and assertions) in an iframe
  */
 
-import { ENV } from '../config/env';
-
 // Global configuration for test execution
 export const DEFAULT_WAIT_DURATION = 500; // Default wait duration in milliseconds
 
@@ -63,9 +61,7 @@ export async function executeInteractiveTest(
   testCase: TestCase,
   htmlCode: string,
   cssCode: string,
-  jsCode: string,
-  backendPort: number | null,
-  backendCode: string
+  jsCode: string
 ): Promise<TestResult> {
   let iframe: HTMLIFrameElement | null = null;
   
@@ -83,11 +79,8 @@ export async function executeInteractiveTest(
       throw new Error('Could not access iframe document');
     }
     
-    // Set up mocks in the iframe
-    const mockState = setupMocks(iframeDoc, testCase.setup?.mocks || []);
-    
     // Build and inject the HTML document
-    const fullHtml = buildTestDocument(htmlCode, cssCode, jsCode, backendPort, backendCode, mockState);
+    const fullHtml = buildTestDocument(htmlCode, cssCode, jsCode);
     iframeDoc.open();
     iframeDoc.write(fullHtml);
     iframeDoc.close();
@@ -195,87 +188,13 @@ function waitForIframeLoad(iframe: HTMLIFrameElement): Promise<void> {
 }
 
 /**
- * Set up API mocks and return the mock state to inject
- * NOTE: Mocks are now deprecated in favor of using student's real backend code
- */
-function setupMocks(iframeDoc: Document, mocks: MockConfig[]): {
-  mocks: Record<string, any>;
-  sequences: Record<string, { responses: any[]; currentIndex: number }>;
-} {
-  // Return empty mock state - we'll use real backend instead
-  return {
-    mocks: {},
-    sequences: {}
-  };
-}
-
-/**
- * Build the complete HTML document with real backend integration
+ * Build the complete HTML document executed inside the test iframe
  */
 function buildTestDocument(
   htmlCode: string,
   cssCode: string,
-  jsCode: string,
-  backendPort: number | null,
-  backendCode: string,
-  mockState: { mocks: Record<string, any>; sequences: Record<string, any> }
+  jsCode: string
 ): string {
-  // Create the real callAPI function (same as PreviewIframe.tsx)
-  const realCallAPIScript = `
-    <script>
-      // Real callAPI function that executes student's backend code
-      window.callAPI = function(endpoint, args = {}) {
-        
-        const xhr = new XMLHttpRequest();
-        const url = '${ENV.EXECUTE_ENDPOINT_URL}';
-        
-        xhr.open('POST', url, false); // false = synchronous for simplicity
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        
-        const requestData = {
-          endpoint: endpoint,
-          args: args,
-          pythonCode: \`${backendCode.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`
-        };
-        
-        try {
-          xhr.send(JSON.stringify(requestData));
-          
-          if (xhr.status >= 200 && xhr.status < 300) {
-            const data = JSON.parse(xhr.responseText);
-            
-            // Return consistent format with success, data, and error fields
-            if (data.error) {
-              return { success: false, data: null, error: data.error };
-            }
-            return { success: true, data: data.result, error: null };
-          } else {
-            // Try to get detailed error from response body
-            let errorMsg = \`HTTP \${xhr.status}: \${xhr.statusText}\`;
-            try {
-              const errorData = JSON.parse(xhr.responseText);
-              if (errorData.error) {
-                errorMsg = errorData.error;
-              }
-            } catch (e) {
-              // If parsing fails, use the default error message
-            }
-            return { success: false, data: null, error: errorMsg };
-          }
-        } catch (error) {
-          const errorMsg = 'Backend server not available: ' + error.message;
-          return { success: false, data: null, error: errorMsg };
-        }
-      };
-      
-      // Provide showError helper if not defined
-      if (typeof showError === 'undefined') {
-        window.showError = function(message) {
-        };
-      }
-    </script>
-  `;
-  
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -287,7 +206,6 @@ function buildTestDocument(
     </head>
     <body>
       ${htmlCode}
-      ${realCallAPIScript}
       <script>${jsCode}</script>
     </body>
     </html>

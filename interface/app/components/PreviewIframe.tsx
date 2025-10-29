@@ -8,8 +8,6 @@ interface PreviewIframeProps {
   jsContent?: string;
   className?: string;
   onConsoleLog?: (message: string | any[], level?: string, source?: string) => void;
-  backendCode?: string;
-  backendPort?: number | null;
 }
 
 export interface PreviewIframeRef {
@@ -42,82 +40,7 @@ const sanitizeJs = (js: string): string => {
     .replace(/window\.parent/gi, '') // Remove parent window access
     .replace(/window\.top/gi, '') // Remove top window access
     .replace(/parent\./gi, '') // Remove parent references
-    .replace(/top\./gi, '') // Remove top references
-};
-
-// Function to prepend the callAPI function definition to the frontend code
-const prependCallAPI = (js: string, backendPort: number | null, backendCode: string = ''): { code: string; injectedLines: number } => {
-  let callAPIDefinition;
-  
-  if (!backendPort) {
-    // If no backend port, provide a mock implementation
-    callAPIDefinition = `function callAPI(endpoint, args = {}) {
-  return {
-    result: null,
-    error: 'Backend server not connected'
-  };
-}`;
-  } else {
-    // If backend is available, provide the real implementation
-    callAPIDefinition = `function callAPI(endpoint, args = {}) {
-  // SECURITY: This is the ONLY allowed network access
-  // CSP restricts all other network requests to this endpoint only
-  const xhr = new XMLHttpRequest();
-  const url = '${ENV.EXECUTE_ENDPOINT_URL}';
-  
-  xhr.open('POST', url, false); // false = synchronous
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  
-  const requestData = {
-    endpoint: endpoint,
-    args: args,
-    pythonCode: \`${backendCode.replace(/`/g, '\\`')}\`
-  };
-  
-  try {
-    xhr.send(JSON.stringify(requestData));
-    
-    if (xhr.status >= 200 && xhr.status < 300) {
-      const data = JSON.parse(xhr.responseText);
-      
-      // Return consistent format with success, data, and error fields
-      if (data.error) {
-        return { success: false, data: null, error: data.error };
-      }
-      return { success: true, data: data.result, error: null };
-    } else {
-      // Try to get detailed error from response body
-      let errorMsg = \`HTTP \${xhr.status}: \${xhr.statusText}\`;
-      try {
-        const errorData = JSON.parse(xhr.responseText);
-        if (errorData.error) {
-          errorMsg = errorData.error;
-        }
-      } catch (e) {
-        // If parsing fails, use the default error message
-      }
-      return { success: false, data: null, error: errorMsg };
-    }
-  } catch (error) {
-    const errorMsg = 'Backend server not available';
-    return { success: false, data: null, error: errorMsg };
-  }
-}`;
-  }
-  
-  // Calculate the actual number of lines we're injecting within the JS code itself
-  const errorHandlerCode = `
-// Note: Line number adjustment happens in the global error handler
-// Global handler for unhandled promise rejections
-window.addEventListener('unhandledrejection', function(event) {
-});
-`;
-
-  // Prepend the callAPI function definition and error handling
-  const finalCode = callAPIDefinition + '\n\n' + errorHandlerCode + '\n\n' + js;
-  const injectedLines = callAPIDefinition.split('\n').length + errorHandlerCode.split('\n').length + 4; // +4 for blank lines
-  
-  return { code: finalCode, injectedLines };
+    .replace(/top\./gi, ''); // Remove top references
 };
 
 const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({ 
@@ -125,9 +48,7 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
   cssContent = '', 
   jsContent = '', 
   className = '',
-  onConsoleLog,
-  backendCode = '',
-  backendPort = null
+  onConsoleLog
 }, ref) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
@@ -231,47 +152,29 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
     
     // Inject JavaScript if provided
     if (processedJs) {
-      // Configure API base URL - extract hostname from ENV.BACKEND_URL and use custom port
-      const backendUrl = new URL(ENV.BACKEND_URL);
-      const port = backendPort || ENV.DEFAULT_BACKEND_PORT;
-      const apiBaseUrl = `${backendUrl.protocol}//${backendUrl.hostname}:${port}`;
-      
-      // Build callAPI definition (same behavior as prependCallAPI)
-      const callAPICode = (() => {
-        if (!backendPort) {
-          return `function callAPI(endpoint, args = {}) {\n  return {\n    result: null,\n    error: 'Backend server not connected'\n  };\n}`;
-        } else {
-          return `function callAPI(endpoint, args = {}) {\n  // SECURITY: This is the ONLY allowed network access\n  // CSP restricts all other network requests to this endpoint only\n  const xhr = new XMLHttpRequest();\n  const url = '${ENV.EXECUTE_ENDPOINT_URL}';\n  \n  xhr.open('POST', url, false); // false = synchronous\n  xhr.setRequestHeader('Content-Type', 'application/json');\n  \n  const requestData = {\n    endpoint: endpoint,\n    args: args,\n    pythonCode: \`${backendCode.replace(/`/g, '\\`')}\`\n  };\n  \n  try {\n    xhr.send(JSON.stringify(requestData));\n    \n    if (xhr.status >= 200 && xhr.status < 300) {\n      const data = JSON.parse(xhr.responseText);\n      \n      if (data.error) {\n        return { success: false, data: null, error: data.error };\n      }\n      return { success: true, data: data.result, error: null };\n    } else {\n      let errorMsg = \`HTTP ${'${'}xhr.status${'}'}: ${'${'}xhr.statusText${'}'}\`;\n      try {\n        const errorData = JSON.parse(xhr.responseText);\n        if (errorData.error) {\n          errorMsg = errorData.error;\n        }\n      } catch (e) {}\n      return { success: false, data: null, error: errorMsg };\n    }\n  } catch (error) {\n    const errorMsg = 'Backend server not available';\n    return { success: false, data: null, error: errorMsg };\n  }\n}`;
-        }
-      })();
+      const escapedJs = processedJs
+        .replace(/`/g, '\\`')
+        .replace(/\$\{/g, '\\${');
 
-      // Wrap the JavaScript with console interception and API setup
       const interceptedJs = `
         (function() {
-          // Configure API base URL
-          window.API_BASE_URL = '${apiBaseUrl}';
-          
-          // Store original console methods
           const originalConsole = {
             log: console.log,
             warn: console.warn,
             error: console.error,
             info: console.info
           };
-          
-          // Simple console interception - just pass through to parent
+
           const interceptConsole = (method, type) => {
             console[method] = function(...args) {
-              // Always call original method first
               originalConsole[method].apply(console, args);
-              
-              // Send to parent window
+
               if (window.parent && window.parent !== window) {
                 try {
                   window.parent.postMessage({
                     type: 'console-log',
                     level: type,
-                    args: args
+                    args
                   }, '*');
                 } catch (e) {
                   // Ignore cross-origin errors
@@ -279,17 +182,12 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
               }
             };
           };
-          
-          // Intercept all console methods
+
           interceptConsole('log', 'log');
           interceptConsole('warn', 'warn');
           interceptConsole('error', 'error');
           interceptConsole('info', 'info');
-          
-          // Define callAPI in the global scope
-          ${callAPICode}
 
-          // Execute user JavaScript via Function to get clean sourceURL-based stack traces
           (function(){
             function postErr(name, msg, line, col){
               const lineInfo = line ? (' (L' + line + (col ? ', C' + col : '') + ')') : '';
@@ -307,7 +205,9 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
             }
             let fn;
             try {
-              fn = new Function(` + "`" + `\n${processedJs.replace(/`/g, '\\`')}\n//# sourceURL=frontend.js` + "`" + `);
+              fn = new Function(` + "`" + `
+${escapedJs}
+//# sourceURL=frontend.js` + "`" + `);
             } catch (e) {
               const { line, col } = parseLineCol(e && e.stack);
               postErr((e && e.name) || 'Syntax Error', (e && e.message) ? e.message : String(e), line, col);
@@ -322,31 +222,25 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
           })();
         })();
       `;
-      
-      // Calculate total offset: count all lines that will appear before user's JS code
-      // This includes: HTML structure + CSS + this script tag opening + console wrapper + prepended JS
+
       const htmlBeforeScript = fullHtml.split('</body>')[0];
       const linesBeforeScript = htmlBeforeScript.split('\n').length;
-      const scriptTagLine = 1; // The <script> tag itself
-      const totalOffset = linesBeforeScript + scriptTagLine; // Only account for HTML and tag; syntax errors use sourceURL parsing above
-      
-      // Add a global error handler that runs immediately with accurate line calculation
+      const scriptTagLine = 1;
+      const totalOffset = linesBeforeScript + scriptTagLine;
+
       const globalErrorHandler = `
         <script>
-          // Global error handler that runs immediately to catch syntax errors
           window.addEventListener('error', function(event) {
-            // Check if this is a syntax error or script error
             if (event.type === 'error') {
               let errorMessage = '';
-              
-              // Calculate line number adjustment (all lines injected before user's JS)
+
               const totalInjectedLines = ${totalOffset};
               const lineNo = event.lineno || 0;
               const adjustedLineNo = Math.max(1, lineNo - totalInjectedLines);
               const colNo = event.colno || 0;
               const colInfo = colNo ? ', C' + colNo : '';
               const lineInfo = lineNo > 0 ? ' (L' + adjustedLineNo + colInfo + ')' : '';
-              
+
               if (event.error && event.error.name === 'SyntaxError') {
                 errorMessage = 'Syntax Error' + lineInfo + ': ' + event.error.message;
               } else if (event.message) {
@@ -354,9 +248,7 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
               } else {
                 errorMessage = 'Error' + lineInfo + ': ' + (event.error ? event.error.message : 'Unknown error');
               }
-              
-              
-              // Send to parent window
+
               if (window.parent && window.parent !== window) {
                 try {
                   window.parent.postMessage({
@@ -369,11 +261,10 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
               }
             }
           });
-          
-          // Handle unhandled promise rejections
+
           window.addEventListener('unhandledrejection', function(event) {
-            const errorMessage = \`Unhandled Promise Rejection: \${event.reason}\`;
-            
+            const errorMessage = 'Unhandled Promise Rejection: ' + event.reason;
+
             if (window.parent && window.parent !== window) {
               try {
                 window.parent.postMessage({
@@ -387,7 +278,7 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
           });
         </script>
       `;
-      
+
       fullHtml = fullHtml.replace('</head>', `${globalErrorHandler}</head>`);
       fullHtml = fullHtml.replace('</body>', `<script>${interceptedJs}</script></body>`);
     }

@@ -10,25 +10,20 @@ echo "🚀 Starting AI Coding Assistant Backend..."
 # Change to the backend directory
 cd "$(dirname "$0")/../backend"
 
-# Check if Python is installed
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3.8+ first."
+# Check if conda is installed
+if ! command -v conda &> /dev/null; then
+    echo "❌ Conda is not installed. Please install conda first."
     exit 1
 fi
 
-# Check if virtual environment exists, create if not
-if [ ! -d "venv" ]; then
-    echo "📦 Creating Python virtual environment..."
-    python3 -m venv venv
-fi
-
-# Activate virtual environment
-echo "🔧 Activating virtual environment..."
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-    echo "✅ Virtual environment activated"
+# Initialize conda and activate helpful-coding conda environment
+echo "🔧 Activating helpful-coding conda environment..."
+eval "$(conda shell.bash hook)"
+if conda activate helpful-coding; then
+    echo "✅ Conda environment activated"
 else
-    echo "❌ Virtual environment not found. Run ./scripts/setup.sh first."
+    echo "❌ Failed to activate helpful-coding conda environment."
+    echo "Please make sure the environment exists: conda create -n helpful-coding python=3.11"
     exit 1
 fi
 

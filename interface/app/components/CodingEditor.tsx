@@ -1,38 +1,12 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Editor from './Editor';
+import MonacoEditor from '@monaco-editor/react';
 import MultiFileEditor from './MultiFileEditor';
 import { MessageData } from './Message';
-import { loadCurrentTask } from '../functions/task_logic';
-import { submitCode } from '../functions/cloud_functions_helper';
-import { trackSubmitCode } from '../functions/telemetry';
-import { BsPlayFill, BsSend, BsEye, BsX, BsGlobe, BsGear, BsXCircle, BsExclamationTriangle, BsBoxArrowUpRight, BsTerminal, BsArrowClockwise, BsTrash, BsCheckCircle } from 'react-icons/bs';
-import { FaBug, FaFlask, FaWrench } from 'react-icons/fa';
-import { backendExecutor } from '../functions/backend_executor';
-import APITestingPanel from './APITestingPanel';
-import PreviewIframe from './PreviewIframe';
-import TestCasesPanel, { TestCasesPanelRef, TestResult } from './TestCasesPanel';
+import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_logic';
+import { BsExclamationTriangle } from 'react-icons/bs';
+import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
-
-// Simple JSON syntax highlighting function
-const highlightJSON = (text: string) => {
-  try {
-    // Try to parse as JSON first
-    const parsed = JSON.parse(text);
-    const formatted = JSON.stringify(parsed, null, 2);
-    
-    // Apply basic syntax highlighting
-    return formatted
-      .replace(/(".*?")\s*:/g, '<span style="color: #61dafb;">$1</span>:') // Keys in blue
-      .replace(/:\s*(".*?")/g, ': <span style="color: #98c379;">$1</span>') // String values in green
-      .replace(/:\s*(true|false|null)/g, ': <span style="color: #d19a66;">$1</span>') // Booleans/null in orange
-      .replace(/:\s*(\d+\.?\d*)/g, ': <span style="color: #d19a66;">$1</span>') // Numbers in orange
-      .replace(/([{}[\]])/g, '<span style="color: #e06c75;">$1</span>'); // Brackets in red
-  } catch {
-    // If not valid JSON, return original text
-    return text;
-  }
-};
 
 interface CodingEditorProps {
   // Editor props
@@ -92,13 +66,17 @@ interface CodingEditorProps {
   onShowTerminal?: () => void;
   // File change callbacks
   onFileContentChange?: () => void;
-  onFileSave?: (fileId: string) => void;
+  onSaveShortcut?: (fileId?: string) => void;
   // Assistant placement (optional bottom rendering)
   assistantPlacement?: 'bottom' | 'side';
   showAIAssistantForBottom?: boolean;
   renderAssistantPane?: () => JSX.Element;
   // Assistant visibility for button styling when placement is bottom
   isAIAssistantVisible?: boolean;
+  // Agent changes for diff view
+  pendingAgentChanges?: any;
+  onAcceptAgentChanges?: (fileType?: string, content?: string) => void;
+  onRejectAgentChanges?: () => void;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -151,11 +129,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   onShowCodeEditor,
   onShowTerminal,
   onFileContentChange,
-  onFileSave,
+  onSaveShortcut,
   assistantPlacement,
   showAIAssistantForBottom,
   renderAssistantPane,
   isAIAssistantVisible,
+  pendingAgentChanges,
+  onAcceptAgentChanges,
+  onRejectAgentChanges,
 }: CodingEditorProps) => {
   const [output, setOutput] = useState(
     "Output will be shown here when Run is pressed."
@@ -169,7 +150,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     backend: { passed: 0, total: 2 },
     html: { passed: 0, total: 1 }
   });
-  const [shouldRefreshEndpoints, setShouldRefreshEndpoints] = useState(false);
+  const [, setShouldRefreshEndpoints] = useState(false);
   const [endpoints, setEndpoints] = useState<any[]>([]);
   const [selectedEndpoint, setSelectedEndpoint] = useState<any | null>(null);
   const [previewContent, setPreviewContent] = useState<{
@@ -177,12 +158,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     css: string;
     js: string;
   }>({ html: '', css: '', js: '' });
-  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
-  const [compilationResult, setCompilationResult] = useState<{
-    success: boolean;
-    errors: Array<{file: string; type: 'error' | 'warning'; message: string; line?: number}>;
-    warnings: Array<{file: string; type: 'error' | 'warning'; message: string; line?: number}>;
-  }>({ success: true, errors: [], warnings: [] });
   const [showDebugTerminal, setShowDebugTerminal] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const debugIframeRef = useRef<HTMLIFrameElement>(null);
@@ -752,15 +727,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     return errors;
   };
 
-  const validateFiles = async (files: any[], editorContentsById: Record<string, string>) => {
-    // Syntax validation disabled - always return success
-    return {
-      success: true,
-      errors: [],
-      warnings: []
-    };
-  };
-
   // Function to open preview in new tab
   const openPreviewInNewTab = () => {
     if (!previewContent.html && !previewContent.css && !previewContent.js) {
@@ -840,72 +806,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         .replace(/document\[/gi, '');
     };
 
-    // Prepend callAPI function to JavaScript (same as PreviewIframe)
-    const prependCallAPIForPopup = (js: string, backendPort: number | null, backendCode: string = ''): string => {
-      let callAPIDefinition;
-      
-      if (!backendPort) {
-        callAPIDefinition = `function callAPI(endpoint, args = {}) {
-  console.warn('Backend not connected. callAPI called with:', endpoint, args);
-  return {
-    result: null,
-    error: 'Backend server not connected'
-  };
-}`;
-      } else {
-        callAPIDefinition = `function callAPI(endpoint, args = {}) {
-  // SECURITY: This is the ONLY allowed network access
-  const xhr = new XMLHttpRequest();
-  const url = '${ENV.EXECUTE_ENDPOINT_URL}';
-  
-  xhr.open('POST', url, false); // false = synchronous
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  
-  const requestData = {
-    endpoint: endpoint,
-    args: args,
-    pythonCode: \`${backendCode.replace(/`/g, '\\`')}\`
-  };
-  
-  try {
-    xhr.send(JSON.stringify(requestData));
-    
-    if (xhr.status >= 200 && xhr.status < 300) {
-      const data = JSON.parse(xhr.responseText);
-      
-      if (data.error) {
-        console.error('callAPI Backend Error: ' + data.error);
-        return { success: false, data: null, error: data.error };
-      }
-      return { success: true, data: data.result, error: null };
-    } else {
-      let errorMsg = \`HTTP \${xhr.status}: \${xhr.statusText}\`;
-      try {
-        const errorData = JSON.parse(xhr.responseText);
-        if (errorData.error) {
-          errorMsg = errorData.error;
-        }
-      } catch (e) {}
-      console.error('callAPI Error: ' + errorMsg);
-      return { success: false, data: null, error: errorMsg };
-    }
-  } catch (error) {
-    const errorMsg = 'Backend server not available';
-    console.error('callAPI Network Error: ' + errorMsg);
-    return { success: false, data: null, error: errorMsg };
-  }
-}`;
-      }
-      
-      return callAPIDefinition + '\n\n' + js;
-    };
-
     const sanitizedHtml = sanitizeHtml(previewContent.html || '');
     const sanitizedCss = sanitizeCss(previewContent.css || '');
     const sanitizedJs = sanitizeJs(previewContent.js || '');
-    
-    // Prepend callAPI to the sanitized JavaScript
-    const processedJs = prependCallAPIForPopup(sanitizedJs, 5000, backendCode);
     
     let fullHtml = '';
     
@@ -956,84 +859,13 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       fullHtml = fullHtml.replace('</head>', `<style>${sanitizedCss}</style></head>`);
     }
     
-    // Inject JavaScript if provided (with callAPI prepended)
-    if (processedJs) {
-      fullHtml = fullHtml.replace('</body>', `<script>${processedJs}</script></body>`);
+    if (sanitizedJs) {
+      fullHtml = fullHtml.replace('</body>', `<script>${sanitizedJs}</script></body>`);
     }
 
     // Write the content to the new window
     newWindow.document.write(fullHtml);
     newWindow.document.close();
-  };
-
-  // Function to refresh backend code and preview content when a file is saved
-  const refreshBackendCode = async (savedFileId?: string) => {
-    if (enableMultiFile && initialFiles && initialFiles.length > 0) {
-      // Multi-file mode - get current editor contents and find Python file
-      const getAllEditorContents = () => {
-        try {
-          return (actualEditorRef?.current?.getAllFileContents?.() as Record<string, string>) || {};
-        } catch (e) {
-          return {} as Record<string, string>;
-        }
-      };
-
-      const editorContentsById = getAllEditorContents();
-
-      const flattenFiles = (nodes: any[]): any[] => {
-        const out: any[] = [];
-        const stack = [...nodes];
-        while (stack.length) {
-          const node = stack.shift();
-          if (!node) continue;
-          if (node.type === 'file') out.push(node);
-          if (node.children && Array.isArray(node.children)) {
-            stack.unshift(...node.children);
-          }
-        }
-        return out;
-      };
-
-      const flattened = flattenFiles(initialFiles);
-      const pythonFile = flattened.find(file => 
-        file.name.endsWith('.py') || file.name === 'backend.py'
-      );
-
-      if (pythonFile) {
-        const currentContent = editorContentsById[pythonFile.id];
-        if (currentContent !== undefined) {
-          setBackendCode(currentContent);
-          // Trigger API Testing panel refresh
-          setShouldRefreshEndpoints(true);
-        }
-      }
-
-      // Check if the saved file is a web file and refresh preview
-      if (savedFileId) {
-        const savedFile = flattened.find(file => file.id === savedFileId);
-        if (savedFile && (
-          savedFile.name.endsWith('.html') || 
-          savedFile.name.endsWith('.htm') || 
-          savedFile.name.endsWith('.css') || 
-          savedFile.name.endsWith('.js')
-        )) {
-          generatePreviewContent().then(content => {
-            setPreviewContent(content);
-          });
-        }
-      }
-
-      // Validate files and update compilation result
-      const validationResult = await validateFiles(flattened, editorContentsById);
-      setCompilationResult(validationResult);
-    } else {
-      // Single file mode - use current code
-      if (code.includes('@endpoint') || code.includes('from flask') || code.includes('app = Flask')) {
-        setBackendCode(code);
-        // Trigger API Testing panel refresh
-        setShouldRefreshEndpoints(true);
-      }
-    }
   };
 
 
@@ -1308,12 +1140,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
   }, [terminalTab, onFileContentChange]);
 
-  const handleMultiFileSave = useCallback((fileId: string) => {
-    // Preserve existing behavior
-    refreshBackendCode(fileId);
-    // Also notify parent so outer preview/file state updates
-    try { onFileSave && onFileSave(fileId); } catch (e) {}
-  }, [onFileSave]);
+  const handleSaveShortcut = useCallback((fileId?: string) => {
+    try { onSaveShortcut && onSaveShortcut(fileId); } catch (e) {}
+  }, [onSaveShortcut]);
 
   // Auto-scroll debug iframe to bottom when new logs are added
   useEffect(() => {
@@ -1514,29 +1343,50 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               onEditorMouseDown={onEditorMouseDown}
               initialFiles={initialFiles}
               readOnly={readOnlyFiles}
-              onFileSave={handleMultiFileSave}
+              onSaveShortcut={handleSaveShortcut}
               onContentChange={handleFileContentChange}
               isAIAssistantVisible={isAIAssistantVisible}
+              pendingAgentChanges={pendingAgentChanges}
+              onAcceptAgentChanges={onAcceptAgentChanges}
+              onRejectAgentChanges={onRejectAgentChanges}
             />
           ) : (
-            <Editor
-              onEditorMount={handleEditorMount}
-              contextLength={contextLength}
-              wait_time_for_sug={wait_time_for_sug}
-              setSuggestionIdx={setSuggestionIdx}
-              setTelemetry={setTelemetry}
-              modelAutocomplete={modelAutocomplete}
-              taskIndex={taskIndex}
-              setLogprobsCompletion={setLogprobsCompletion}
-              logProbs={logProbs}
-              suggestionIdx={suggestionIdx}
-              messageAIIndex={messageAIIndex}
-              setIsSpinning={setIsSpinning}
-              proactive_refresh_time_inactive={proactive_refresh_time_inactive}
-              chatRef={chatRef}
-              code={code}
-              setCode={setCode}
-              ref={actualEditorRef}
+            <MonacoEditor
+              height="100%"
+              language="javascript"
+              value={code}
+              onChange={(value) => setCode(value || '')}
+              onMount={(editor, monaco) => {
+                // Set up the editor with proper theme and configuration
+                monaco.editor.setTheme('vs-dark');
+                handleEditorMount(editor, monaco);
+              }}
+              options={{
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                fontSize: 14,
+                lineNumbers: 'on',
+                wordWrap: 'on',
+                automaticLayout: true,
+                readOnly: false,
+                theme: 'vs-dark',
+                cursorBlinking: 'blink',
+                cursorSmoothCaretAnimation: 'on',
+                smoothScrolling: true,
+                mouseWheelZoom: true,
+                contextmenu: true,
+                selectOnLineNumbers: true,
+                roundedSelection: false,
+                renderLineHighlight: 'none',
+                folding: true,
+                foldingStrategy: 'indentation',
+                showFoldingControls: 'always',
+                bracketPairColorization: { enabled: true },
+                guides: {
+                  bracketPairs: 'active',
+                  indentation: true,
+                },
+              }}
             />
           )}
           </div>
@@ -1731,50 +1581,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         </div>
       )}
 
-      {/* Hidden Editor for test cases - always mounted even when VS Code tab is closed */}
-      <div style={{ 
-        position: 'absolute', 
-        left: '-9999px', 
-        top: '-9999px', 
-        width: '1px', 
-        height: '1px', 
-        overflow: 'hidden',
-        pointerEvents: 'none'
-      }}>
-        <Editor
-          onEditorMount={(editor, monaco) => {
-            // This hidden editor will always be available for test cases
-            // It will be used when the main editor is not available
-          }}
-          contextLength={contextLength}
-          wait_time_for_sug={wait_time_for_sug}
-          setSuggestionIdx={setSuggestionIdx}
-          setTelemetry={setTelemetry}
-          modelAutocomplete={modelAutocomplete}
-          taskIndex={taskIndex}
-          setLogprobsCompletion={setLogprobsCompletion}
-          logProbs={logProbs}
-          suggestionIdx={suggestionIdx}
-          messageAIIndex={messageAIIndex}
-          setIsSpinning={setIsSpinning}
-          proactive_refresh_time_inactive={proactive_refresh_time_inactive}
-          chatRef={chatRef}
-          code={code}
-          setCode={setCode}
-          files={initialFiles}
-          activeFileId={initialFiles?.[0]?.id}
-          onFileContentChange={() => {}}
-          enableMultiFile={true}
-          onFileSave={() => {}}
-          onContentChange={() => {}}
-          ref={(editor) => {
-            // Store the hidden editor ref for test cases
-            if (editor && !showCodeEditor) {
-              actualEditorRef.current = editor;
-            }
-          }}
-        />
-      </div>
 
     </div>
   );

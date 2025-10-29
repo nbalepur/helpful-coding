@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { app } from "../functions/initialize_firebase";
 import ExitSurvey from "./ExitSurvey";
 import PromptModal, { PromptProp } from "./PromptModal";
+import { useAuth } from "../utils/auth";
 import {
   default_prompts,
   proactive_tutorial,
@@ -89,6 +90,7 @@ const TopPanel: React.FC<TopPanelProps> = ({
   editorRef,
   actualEditorRef,
 }) => {
+  const { logout, user } = useAuth();
   // const timer_minutes = 180;
   // const timer_minutes = task_duration_minutes;
   const [currTime, setCurrTime] = useState("");
@@ -446,6 +448,35 @@ const TopPanel: React.FC<TopPanelProps> = ({
 
         {/* {showAIOptions && <button ref={optionsAIButtonRef} onClick={toggleDropdownAI}>(debug) AI Settings</button>} */}
         {<button ref={optionsAIButtonRef} onClick={toggleDropdownAI}>AI Settings</button> }
+        
+        {/* User info and logout button */}
+        {user && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ color: '#d4d4d4', fontSize: '14px' }}>
+              Welcome, {user.username}
+            </span>
+            <button 
+              onClick={logout}
+              style={{ 
+                backgroundColor: '#dc3545', 
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '5px 10px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#c82333';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#dc3545';
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
         {dropdownVisibleAI && (
           <div
             className="dropdown-menu"
