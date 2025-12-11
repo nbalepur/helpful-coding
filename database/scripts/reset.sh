@@ -16,17 +16,93 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Check if we're using a non-default database (production)
+DEFAULT_DB_URL="postgresql://postgres:password@localhost:5432/helpful_coding"
+DEFAULT_ASYNC_DB_URL="postgresql+asyncpg://postgres:password@localhost:5432/helpful_coding"
+
+# Load DATABASE_URL from backend/.env if it exists
+# PROJECT_ROOT is database/, so backend is ../backend/
+BACKEND_ENV_FILE="$(dirname "$PROJECT_ROOT")/backend/.env"
+if [ -f "$BACKEND_ENV_FILE" ]; then
+  # Extract DATABASE_URL from .env file
+  DB_URL=$(grep "^DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+  ASYNC_DB_URL=$(grep "^ASYNC_DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+else
+  # Try to get from environment
+  DB_URL="${DATABASE_URL:-}"
+  ASYNC_DB_URL="${ASYNC_DATABASE_URL:-}"
+fi
+
+# Check if database URL is not the default (production database)
+IS_PRODUCTION=false
+if [ -n "$DB_URL" ] && [ "$DB_URL" != "$DEFAULT_DB_URL" ]; then
+  IS_PRODUCTION=true
+fi
+if [ -n "$ASYNC_DB_URL" ] && [ "$ASYNC_DB_URL" != "$DEFAULT_ASYNC_DB_URL" ]; then
+  IS_PRODUCTION=true
+fi
+
 echo -e "${RED}⚠️  DATABASE RESET SCRIPT ⚠️${NC}"
 echo -e "${RED}===========================${NC}"
 echo -e "${YELLOW}This will DROP ALL TABLES and recreate them!${NC}"
 echo -e "${YELLOW}ALL DATA WILL BE LOST!${NC}"
 echo ""
 
-# Confirmation prompt
-read -p "Are you sure you want to continue? (yes/no): " confirm
-if [ "$confirm" != "yes" ]; then
+if [ "$IS_PRODUCTION" = true ]; then
+  echo ""
+  echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${RED}║                    ⚠️  PRODUCTION DATABASE ⚠️                ║${NC}"
+  echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${RED}🚨 WARNING: You are about to RESET a PRODUCTION database!${NC}"
+  echo ""
+  echo -e "${YELLOW}Current DATABASE_URL:${NC}"
+  echo -e "  ${YELLOW}$DB_URL${NC}"
+  if [ -n "$ASYNC_DB_URL" ]; then
+    echo -e "${YELLOW}Current ASYNC_DATABASE_URL:${NC}"
+    echo -e "  ${YELLOW}$ASYNC_DB_URL${NC}"
+  fi
+  echo ""
+  echo -e "${RED}This will DROP ALL TABLES and DELETE ALL DATA!${NC}"
+  echo -e "${RED}This action CANNOT be undone!${NC}"
+  echo ""
+  
+  # Require three confirmations in a row
+  echo -e "${RED}To proceed, you must confirm THREE times in a row:${NC}"
+  echo ""
+  
+  # First confirmation
+  read -p "Type 'RESET PRODUCTION DATABASE' to confirm (1/3): " confirm1
+  if [ "$confirm1" != "RESET PRODUCTION DATABASE" ]; then
+    echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
+    exit 0
+  fi
+  
+  # Second confirmation
+  read -p "Type 'I UNDERSTAND THIS WILL DELETE ALL DATA' to confirm (2/3): " confirm2
+  if [ "$confirm2" != "I UNDERSTAND THIS WILL DELETE ALL DATA" ]; then
+    echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
+    exit 0
+  fi
+  
+  # Third confirmation
+  read -p "Type 'YES DELETE EVERYTHING' to confirm (3/3): " confirm3
+  if [ "$confirm3" != "YES DELETE EVERYTHING" ]; then
+    echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
+    exit 0
+  fi
+  
+  echo ""
+  echo -e "${RED}⚠️  All three confirmations received. Proceeding with production database reset...${NC}"
+  echo ""
+  sleep 2
+else
+  # Default database - normal confirmation
+  read -p "Are you sure you want to continue? (yes/no): " confirm
+  if [ "$confirm" != "yes" ]; then
     echo -e "${BLUE}Operation cancelled.${NC}"
     exit 0
+  fi
 fi
 
 # Check if we're in the right directory
