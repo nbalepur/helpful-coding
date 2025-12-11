@@ -35,27 +35,20 @@ This package provides a complete database solution for the Helpful Coding applic
    - `id` (Primary Key)
    - `user_id` (Foreign Key to Users)
    - `project_id` (Foreign Key to Projects)
-   - `filename`
-   - `code` (Text content)
-   - `has_issue` (Boolean)
+   - `code` (JSON content keyed by language)
+   - `mode` (String: `regular` or `diff`)
+   - `metadata` (JSON metadata for the code entry)
    - `created_at`, `updated_at`
 
 4. **Submissions** - User project submissions
    - `id` (Primary Key)
    - `user_id` (Foreign Key to Users)
    - `project_id` (Foreign Key to Projects)
-   - `name`
+   - `code` (JSON body of submitted files)
+   - `title`
    - `description`
-   - `frontend_file`
-   - `html_file`
-   - `css_file`
-   - `created_at`, `updated_at`
-
-5. **SubmissionFeedback** - Feedback on submissions
-   - `id` (Primary Key)
-   - `user_id` (Foreign Key to Users)
-   - `submission_id` (Foreign Key to Submissions)
-   - `rating` (Integer 1-5)
+   - `scores` (JSON evaluation metrics)
+   - `image` (Preview image stored as URL or encoded data)
    - `created_at`, `updated_at`
 
 ## Quick Start

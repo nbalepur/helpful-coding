@@ -64,11 +64,11 @@ kill_by_pattern() {
 # Stop services by port (more reliable)
 echo "🔍 Checking for running services..."
 
-# Stop backend (FastAPI/Uvicorn on port 8000)
-kill_by_port 8000 "Backend server"
+# Stop backend (FastAPI/Uvicorn on port 4828)
+kill_by_port 4828 "Backend server"
 
-# Stop frontend (Next.js on port 3000)
-kill_by_port 3000 "Frontend server"
+# Stop frontend (Next.js on port 4827)
+kill_by_port 4827 "Frontend server"
 
 # Also check for any remaining Python/Node processes related to our project
 echo ""

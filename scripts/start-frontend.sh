@@ -59,7 +59,7 @@ fi
 npm install
 
 # Start the development server
-echo "🌟 Starting Next.js development server on http://localhost:3000"
+echo "🌟 Starting Next.js development server on http://localhost:4827"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""

@@ -48,12 +48,12 @@ export async function loadCurrentTask(
     // Set up the editor with the task's initial files
     if (editor && currentTask.files && currentTask.files.length > 0) {
       // Clear existing models
-      const models = editor.getModels();
-      models.forEach(model => {
-        if (!model.isDisposed()) {
-          model.dispose();
-        }
-      });
+      // const models = editor.getModels();
+      // models.forEach(model => {
+      //   if (!model.isDisposed()) {
+      //     model.dispose();
+      //   }
+      // });
       
       // Create new models for each file
       currentTask.files.forEach((file, index) => {

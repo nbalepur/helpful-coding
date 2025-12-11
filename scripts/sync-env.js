@@ -38,9 +38,9 @@ backendEnvContent.split('\n').forEach(line => {
 
 // Map backend variables to frontend variables
 const frontendEnvVars = {
-  NEXT_PUBLIC_BACKEND_URL: envVars.BACKEND_URL || 'http://localhost:8000',
-  NEXT_PUBLIC_BACKEND_WS_URL: envVars.BACKEND_WS_URL || 'ws://localhost:8000',
-  NEXT_PUBLIC_FRONTEND_URL: envVars.FRONTEND_URL || 'http://localhost:3000',
+  NEXT_PUBLIC_BACKEND_URL: envVars.BACKEND_URL || 'http://localhost:4828',
+  NEXT_PUBLIC_BACKEND_WS_URL: envVars.BACKEND_WS_URL || 'ws://localhost:4828',
+  NEXT_PUBLIC_FRONTEND_URL: envVars.FRONTEND_URL || 'http://localhost:4827',
   NEXT_PUBLIC_DEFAULT_BACKEND_PORT: envVars.DEFAULT_BACKEND_PORT || '5000',
   NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY: envVars.SHOW_PUBLIC_TESTS_ONLY || 'true',
   USE_LOCAL_EXECUTION: envVars.USE_LOCAL_EXECUTION || 'false',

@@ -5,8 +5,8 @@ This file demonstrates how to use the database models and CRUD operations.
 """
 
 from database import (
-    UserCreate, ProjectCreate, CodeCreate, SubmissionCreate, SubmissionFeedbackCreate,
-    UserCRUD, ProjectCRUD, CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD,
+    UserCreate, ProjectCreate, CodeCreate, SubmissionCreate,
+    UserCRUD, ProjectCRUD, CodeCRUD, SubmissionCRUD,
     get_db, create_tables
 )
 
@@ -46,34 +46,33 @@ def example_usage():
         code_data = CodeCreate(
             user_id=user.id,
             project_id=project.id,
-            filename="game.js",
-            code="function playGame() { console.log('Game started!'); }",
-            has_issue=False
+            code={
+                "html": "<div id='game'></div>",
+                "css": "#game { width: 100%; }",
+                "js": "function playGame() { console.log('Game started!'); }"
+            },
+            mode="regular",
+            metadata={"description": "Sample tic tac toe implementation"}
         )
         code = CodeCRUD.create(db, code_data)
-        print(f"Created code file: {code.filename} with ID: {code.id}")
+        print(f"Created code entry with mode '{code.mode}' and ID: {code.id}")
         
         # Create a submission
         submission_data = SubmissionCreate(
             user_id=user.id,
             project_id=project.id,
-            name="My Tic Tac Toe Implementation",
+            code={
+                "html": "<div id='game'><div class='board'></div></div>",
+                "css": ".board { display: grid; grid-template-columns: repeat(3, 1fr); }",
+                "js": "function playGame() { console.log('AI opponent engaged!'); }",
+            },
+            title="My Tic Tac Toe Implementation",
             description="A complete tic tac toe game with AI opponent",
-            frontend_file="// Complete game implementation",
-            html_file="<div id='game'><div class='board'></div></div>",
-            css_file=".board { display: grid; grid-template-columns: repeat(3, 1fr); }"
+            scores={"initial_run": {"passed": True, "score": 0.9}},
+            image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"  # Example preview (truncated)
         )
         submission = SubmissionCRUD.create(db, submission_data)
-        print(f"Created submission: {submission.name} with ID: {submission.id}")
-        
-        # Create feedback for the submission
-        feedback_data = SubmissionFeedbackCreate(
-            user_id=user.id,
-            submission_id=submission.id,
-            rating=4
-        )
-        feedback = SubmissionFeedbackCRUD.create(db, feedback_data)
-        print(f"Created feedback with rating: {feedback.rating} and ID: {feedback.id}")
+        print(f"Created submission: {submission.title} with ID: {submission.id}")
         
         # Retrieve data
         retrieved_user = UserCRUD.get_by_username(db, "john_doe")
@@ -84,9 +83,6 @@ def example_usage():
         
         project_submissions = SubmissionCRUD.get_by_project(db, project.id)
         print(f"Project has {len(project_submissions)} submissions")
-        
-        submission_feedbacks = SubmissionFeedbackCRUD.get_by_submission(db, submission.id)
-        print(f"Submission has {len(submission_feedbacks)} feedback entries")
         
     except Exception as e:
         print(f"Error: {e}")

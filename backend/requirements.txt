@@ -1,11 +1,11 @@
-fastapi==0.104.1
+fastapi==0.115.0
 uvicorn[standard]==0.24.0
 websockets==12.0
-openai==1.3.7
-httpx==0.25.2
+openai==1.99.1
+httpx==0.28.1
 python-multipart==0.0.6
-python-dotenv==1.0.0
-psutil==5.9.6
+python-dotenv==1.1.1
+psutil==7.0.0
 
 # Database dependencies
 sqlalchemy==2.0.23
@@ -13,8 +13,8 @@ alembic==1.13.1
 psycopg2-binary>=2.9.9
 asyncpg>=0.29.0
 sqlalchemy[asyncio]==2.0.23
-pydantic==2.5.0
-pydantic[email]==2.5.0
+pydantic==2.11.7
+pydantic[email]==2.11.7
 
 # Authentication dependencies
 passlib[bcrypt]==1.7.4
@@ -24,3 +24,11 @@ bcrypt==4.0.1
 # Email service
 sendgrid==6.10.0
 sib-api-v3-sdk==7.6.0
+
+# Agent tooling (requires anyio 4.x, ensure FastAPI/OpenAI/httpx are compatible)
+aider-chat==0.86.1
+anyio==4.10.0
+
+# JavaScript parsing
+esprima==4.0.1
+

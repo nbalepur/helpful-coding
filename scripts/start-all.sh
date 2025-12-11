@@ -56,9 +56,9 @@ FRONTEND_PID=$!
 
 echo ""
 echo "✅ Both servers are starting up!"
-echo "🌐 Frontend: http://localhost:3000"
-echo "🔧 Backend: http://localhost:8000"
-echo "📡 WebSocket: ws://localhost:8000/ws/chat"
+echo "🌐 Frontend: http://localhost:4827"
+echo "🔧 Backend: http://localhost:4828"
+echo "📡 WebSocket: ws://localhost:4828/ws/chat"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 echo ""

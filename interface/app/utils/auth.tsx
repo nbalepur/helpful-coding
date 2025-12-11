@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { 
   getUserIdCookie, 
@@ -7,8 +7,9 @@ import {
   setUserIdCookie, 
   setAuthTokenCookie, 
   clearAuthCookies, 
-  isUserAuthenticated 
+  generateUuidV4
 } from '../utils/cookies';
+import { ENV } from '../config/env';
 
 interface User {
   id: string;
@@ -35,100 +36,131 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Initialize loading state based on whether cookies exist (synchronous check)
+  const [isLoading, setIsLoading] = useState(() => {
+    if (typeof window === 'undefined') return true; // SSR safety
+    const userId = getUserIdCookie();
+    const authToken = getAuthTokenCookie();
+    // If no cookies exist, we can immediately set loading to false
+    return !!(userId && authToken);
+  });
   const router = useRouter();
   const pathname = usePathname();
+
+  const clearClientAuthState = useCallback(() => {
+    setUser(null);
+    setToken(null);
+    clearAuthCookies();
+    try {
+      localStorage.removeItem('user');
+      localStorage.removeItem('auth_token');
+    } catch (error) {
+      console.error('Error clearing auth state from storage:', error);
+    }
+  }, []);
+
+  const checkAuthStatus = useCallback(async () => {
+    // Check for cached login info synchronously first
+    const userId = getUserIdCookie();
+    const authToken = getAuthTokenCookie();
+
+    // If no cached login info exists, immediately clear state and stop loading
+    if (!userId || !authToken) {
+      clearClientAuthState();
+      setIsLoading(false);
+      return;
+    }
+
+    // Only perform async validation if we have cached credentials
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`${ENV.BACKEND_URL}/auth/validate`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Token validation failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const validatedUser = data?.user;
+
+      if (!data?.valid || !validatedUser) {
+        throw new Error('Invalid validation response');
+      }
+
+      const normalizedUser: User = {
+        id: String(validatedUser.id),
+        username: validatedUser.username,
+        email: validatedUser.email,
+      };
+
+      setUser(normalizedUser);
+      setToken(authToken);
+
+      try {
+        localStorage.setItem('user', JSON.stringify(normalizedUser));
+        localStorage.setItem('auth_token', authToken);
+      } catch (error) {
+        console.error('Error persisting auth state:', error);
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      clearClientAuthState();
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clearClientAuthState]);
 
   // Check authentication status on mount and when pathname changes
   useEffect(() => {
     checkAuthStatus();
-  }, [pathname]);
+  }, [checkAuthStatus, pathname]);
 
   // Handle route protection logic
   useEffect(() => {
     if (!isLoading) {
       const hasAuth = !!(user && token);
       if (!hasAuth && pathname !== '/landing') {
-        // Not authenticated and not on landing page - redirect immediately
         router.replace('/landing');
       } else if (hasAuth && pathname === '/landing') {
-        // Authenticated but on landing page - redirect to browse
         router.replace('/browse');
       }
     }
   }, [user, token, isLoading, pathname, router]);
 
-  const checkAuthStatus = () => {
-    setIsLoading(true);
-    
+  const login = (userData: User, authToken: string) => {
+    const normalizedUser: User = {
+      id: String(userData.id),
+      username: userData.username,
+      email: userData.email,
+    };
+
+    setUser(normalizedUser);
+    setToken(authToken);
+
+    setUserIdCookie(generateUuidV4());
+    setAuthTokenCookie(authToken);
+
     try {
-      const userId = getUserIdCookie();
-      const authToken = getAuthTokenCookie();
-      
-      if (userId && authToken) {
-        // Try to get user data from localStorage as fallback
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          try {
-            const userData = JSON.parse(storedUser);
-            setUser(userData);
-            setToken(authToken);
-          } catch (error) {
-            console.error('Error parsing stored user data:', error);
-            clearAuthCookies();
-            localStorage.removeItem('user');
-            localStorage.removeItem('auth_token');
-          }
-        } else {
-          // If no user data in localStorage but cookies exist, clear everything
-          clearAuthCookies();
-        }
-      } else {
-        // No valid authentication
-        setUser(null);
-        setToken(null);
-        clearAuthCookies();
-        localStorage.removeItem('user');
-        localStorage.removeItem('auth_token');
-      }
+      localStorage.setItem('user', JSON.stringify(normalizedUser));
+      localStorage.setItem('auth_token', authToken);
     } catch (error) {
-      console.error('Error checking auth status:', error);
-      clearAuthCookies();
-      localStorage.removeItem('user');
-      localStorage.removeItem('auth_token');
-    } finally {
-      setIsLoading(false);
+      console.error('Error persisting auth state:', error);
     }
   };
 
-  const login = (userData: User, authToken: string) => {
-    setUser(userData);
-    setToken(authToken);
-    
-    // Store in cookies
-    setUserIdCookie(userData.id);
-    setAuthTokenCookie(authToken);
-    
-    // Also store in localStorage for backward compatibility
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('auth_token', authToken);
-  };
-
   const logout = () => {
-    setUser(null);
-    setToken(null);
-    
-    // Clear cookies and localStorage
-    clearAuthCookies();
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth_token');
-    
-    // Redirect to landing page
+    clearClientAuthState();
     router.push('/landing');
   };
 
   const checkAuth = () => {
-    return isUserAuthenticated();
+    return !!user && !!token;
   };
 
   const value: AuthContextType = {

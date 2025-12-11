@@ -40,21 +40,31 @@ const TextInput: React.FC<TextInputProps> = ({
     }
   }, [text_value]);
 
+  // Disable input when awaiting a response (no clearing)
+  useEffect(() => {
+    if (awaitingResponse) {
+      try { textareaRef.current?.blur(); } catch {}
+    }
+  }, [awaitingResponse]);
+
   return (
     <div className="flex flex-row w-full justify-around items-center">
       <textarea
-        placeholder={"Type your next instruction..."}
+        placeholder={"Instruction..."}
         value={text_value}
         ref={textareaRef}
         onChange={onChange}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
-        className="px-2 py-1.5 m-2 text-sm overflow-y-auto resize-none border border-black flex-grow leading-6"
+        className="px-2 py-1.5 m-2 text-sm overflow-y-hidden resize-none border border-black flex-grow leading-6"
         style={{ lineHeight: '24px' }}
+        onWheel={(e) => { e.preventDefault(); }}
+        disabled={awaitingResponse}
       ></textarea>
       <button
-        className="ml-0 h-10 w-10 flex items-center justify-center"
-        onClick={() => submitMessage(text_value)}
+        className="ml-0 h-10 w-10 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={() => { if (!awaitingResponse) submitMessage(text_value); }}
+        disabled={awaitingResponse}
       >
         ↑
       </button>

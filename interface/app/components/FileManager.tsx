@@ -144,7 +144,7 @@ const FileManager: React.FC<FileManagerProps> = ({
           ) : null}
 
           {hideText && (
-            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700">
+            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
               {file.name}
             </div>
           )}
@@ -170,7 +170,7 @@ const FileManager: React.FC<FileManagerProps> = ({
               >
                 <BsFolder className={`peer h-5 w-5 ${isSidebarOpen ? 'text-blue-400' : 'text-gray-400'}`} />
                 {!isSidebarOpen && (
-                  <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700">
+                  <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
                     Show Files (⌘B)
                   </div>
                 )}

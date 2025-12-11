@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ENV } from "../config/env";
-import { setUserIdCookie, setAuthTokenCookie } from "../utils/cookies";
+import { setUserIdCookie, setAuthTokenCookie, generateUuidV4 } from "../utils/cookies";
 
 interface SignupFormProps {
   onSuccess: (user: any, token: string) => void;
@@ -85,8 +85,8 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
         localStorage.setItem('auth_token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
         
-        // Store in cookies for persistence
-        setUserIdCookie(data.user.id);
+        // Store in cookies for persistence (use UUID for user_id cookie)
+        setUserIdCookie(generateUuidV4());
         setAuthTokenCookie(data.access_token);
         
         // Call success callback
@@ -119,7 +119,7 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 shadow-lg">
           {/* Header */}
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-semibold text-white mb-2" style={{textAlign: 'center'}}>Join Vibe Code Arena</h2>
+            <h2 className="text-3xl font-semibold text-white mb-2" style={{textAlign: 'center'}}>Join Vibe Jam</h2>
             <p className="text-gray-400">Create your account and start coding</p>
           </div>
           

@@ -60,7 +60,7 @@ A lightweight Python backend using FastAPI and WebSockets for streaming AI respo
 
    Or with uvicorn directly:
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   uvicorn main:app --host 0.0.0.0 --port 4828 --reload
    ```
 
 ## API Endpoints

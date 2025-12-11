@@ -46,16 +46,16 @@ OPENAI_API_KEY=$api_key
 
 # Server Configuration
 HOST=0.0.0.0
-PORT=8000
+PORT=4828
 DEBUG=True
 EOF
     echo "✅ .env file created!"
 fi
 
 # Start the server
-echo "🌟 Starting FastAPI server on http://localhost:8000"
-echo "📡 WebSocket endpoint: ws://localhost:8000/ws/chat"
-echo "🏥 Health check: http://localhost:8000/health"
+echo "🌟 Starting FastAPI server on http://localhost:4828"
+echo "📡 WebSocket endpoint: ws://localhost:4828/ws/chat"
+echo "🏥 Health check: http://localhost:4828/health"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""

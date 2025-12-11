@@ -4,16 +4,38 @@ import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } f
 import { createPortal } from 'react-dom';
 import { Terminal, Columns, Rows, Trash2 } from 'lucide-react';
 
+export interface ConsoleMessageMeta {
+  line?: number | null;
+  column?: number | null;
+  rawLine?: number | null;
+  rawColumn?: number | null;
+  docLine?: number | null;
+  docColumn?: number | null;
+  phase?: string | null;
+  origin?: string | null;
+  name?: string | null;
+  stack?: string | null;
+}
+
 interface ConsoleMessage {
   id: string;
   message: any;
   level: string;
   timestamp: string;
   source?: string;
+  meta?: ConsoleMessageMeta;
 }
 
 export interface PreviewDebugPanelRef {
-  addConsoleMessage: (message: any, level: string, source?: string) => void;
+  addConsoleMessage: (message: any, level: string, source?: string, meta?: ConsoleMessageMeta) => void;
+}
+
+export interface ConsoleSourceClickPayload {
+  source: string;
+  originalSource?: string;
+  message?: any;
+  level?: string;
+  meta?: ConsoleMessageMeta;
 }
 
 interface PreviewDebugPanelProps {
@@ -23,6 +45,7 @@ interface PreviewDebugPanelProps {
   taskName?: string;
   placement?: 'side' | 'bottom';
   onTogglePlacement?: () => void;
+  onSourceClick?: (payload: ConsoleSourceClickPayload) => void;
 }
 
 const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProps>(({
@@ -31,10 +54,15 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
   className = '',
   taskName = 'preview',
   placement = 'bottom',
-  onTogglePlacement
+  onTogglePlacement,
+  onSourceClick
 }, ref) => {
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([]);
   const consoleIframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeDocRef = useRef<Document | null>(null);
+  const iframeClickHandlerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  const onSourceClickRef = useRef<typeof onSourceClick | null>(null);
+  const consoleMessagesRef = useRef<ConsoleMessage[]>([]);
   
   // Tooltip state
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -48,15 +76,24 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
     setTooltipVisible(false);
   }, [placement]);
 
+  useEffect(() => {
+    onSourceClickRef.current = onSourceClick || null;
+  }, [onSourceClick]);
+
+  useEffect(() => {
+    consoleMessagesRef.current = consoleMessages;
+  }, [consoleMessages]);
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
-    addConsoleMessage: (message: any, level: string = 'log', source?: string) => {
+    addConsoleMessage: (message: any, level: string = 'log', source?: string, meta?: ConsoleMessageMeta) => {
       const newMessage: ConsoleMessage = {
         id: `${Date.now()}-${Math.random()}`,
         message,
         level,
         timestamp: '',
-        source: source
+        source: source,
+        meta
       };
       
       setConsoleMessages(prev => [...prev, newMessage]);
@@ -73,9 +110,15 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
       const iframe = consoleIframeRef.current;
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
       if (iframeDoc) {
+        if (iframeDocRef.current && iframeClickHandlerRef.current && iframeDocRef.current !== iframeDoc) {
+          try {
+            iframeDocRef.current.removeEventListener('click', iframeClickHandlerRef.current);
+          } catch {}
+        }
         iframeDoc.open();
         iframeDoc.write(generateConsoleHTML());
         iframeDoc.close();
+        attachIframeInteractions(iframeDoc);
       }
     }
   };
@@ -140,6 +183,75 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
       .replace(/>/g, '&gt;');
   };
 
+  const escapeAttribute = (text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
+  };
+
+  const formatSourceDisplay = (source?: string, level?: string, rawMessage?: any, meta?: ConsoleMessageMeta): string | null => {
+    if (!source) return null;
+    const normalized = String(source);
+    const match = normalized.match(/^(.*?):(\d+)(?::\d+)?$/);
+    if (!match) {
+      return normalized;
+    }
+    const prefix = match[1];
+    const lineNumber = parseInt(match[2], 10);
+    if (!Number.isFinite(lineNumber)) {
+      return normalized;
+    }
+    let offset = 0;
+    if (level === 'error') {
+      const phase = meta?.phase || null;
+      let messageText = '';
+      if (typeof rawMessage === 'string') {
+        messageText = rawMessage;
+      } else if (Array.isArray(rawMessage)) {
+        messageText = rawMessage.map(item => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object' && 'message' in item) {
+            const msgVal = (item as any).message;
+            if (typeof msgVal === 'string') return msgVal;
+          }
+          try {
+            return String(item);
+          } catch {
+            return '';
+          }
+        }).join(' ');
+      } else if (rawMessage && typeof rawMessage === 'object' && 'message' in rawMessage) {
+        const msgVal = (rawMessage as any).message;
+        if (typeof msgVal === 'string') {
+          messageText = msgVal;
+        } else {
+          try {
+            messageText = String(msgVal);
+          } catch {
+            messageText = '';
+          }
+        }
+      }
+
+      const isSyntax = /^SyntaxError\b/.test(messageText);
+      const isReference = /^ReferenceError\b/.test(messageText);
+
+      if (phase === 'compile') {
+        offset = 1;
+      } else {
+        if (isSyntax || isReference) {
+          offset = -1;
+        } else {
+          offset = 1;
+        }
+      }
+    }
+
+    const adjustedLine = Math.max(1, lineNumber + offset);
+    return `${prefix}:${adjustedLine}`;
+  };
+
   // Generate HTML content for the console iframe
   const generateConsoleHTML = (): string => {
     const messagesHTML = consoleMessages.length === 0 
@@ -148,16 +260,22 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
           <div style="font-size: 12px;">No console messages</div>
         </div>
       `
-      : consoleMessages.map((msg, index) => `
+      : consoleMessages.map((msg, index) => {
+        const displaySource = formatSourceDisplay(msg.source, msg.level, msg.message, msg.meta);
+        const sourceAttr = displaySource ? escapeAttribute(displaySource) : '';
+        const originalSourceAttr = msg.source ? escapeAttribute(String(msg.source)) : '';
+        const messageIdAttr = escapeAttribute(msg.id);
+        return `
         <div style="padding: 2px 0; ${index > 0 ? 'border-top: 1px solid #333;' : ''}">
           <div style="display: flex; align-items: flex-start; gap: 8px;">
             <span style="${getLevelColor(msg.level)} font-size: 12px; line-height: 1.2;">
               ${escapeHtml(formatMessage(msg.message))}
             </span>
-            ${msg.source ? `<span style="color: #6bcf7f; font-size: 12px; text-decoration: underline; cursor: pointer; flex-shrink: 0;">${escapeHtml(String(msg.source))}</span>` : ''}
+            ${displaySource ? `<button type="button" class="console-source-link" style="margin-left: auto;" data-console-source="${sourceAttr}" data-console-original-source="${originalSourceAttr}" data-console-message-id="${messageIdAttr}">${escapeHtml(displaySource)}</button>` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
     return `
       <!DOCTYPE html>
@@ -180,6 +298,24 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
           }
           * {
             box-sizing: border-box;
+          }
+          .console-source-link {
+            background: none;
+            border: none;
+            color: rgb(163, 184, 241);
+            font-size: 12px;
+            line-height: 1.2;
+            cursor: pointer;
+            text-decoration: underline;
+            font-family: inherit;
+            padding: 0;
+          }
+          .console-source-link:hover {
+            color: #dbeafe;
+          }
+          .console-source-link:focus {
+            outline: 1px solid rgba(219, 234, 254, 0.6);
+            outline-offset: 2px;
           }
         </style>
       </head>
@@ -218,6 +354,54 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
     updateIframeContent();
     scrollIframeToBottom();
   }, [consoleMessages]);
+
+  React.useEffect(() => {
+    iframeClickHandlerRef.current = (event: MouseEvent) => {
+      try {
+        const target = event.target as HTMLElement | null;
+        if (!target) return;
+        const sourceElement = target.closest('[data-console-source]') as HTMLElement | null;
+        if (!sourceElement) return;
+        event.preventDefault();
+        event.stopPropagation();
+
+        const displaySource = sourceElement.getAttribute('data-console-source') || '';
+        const originalSource = sourceElement.getAttribute('data-console-original-source') || '';
+        const messageId = sourceElement.getAttribute('data-console-message-id') || '';
+        const messages = consoleMessagesRef.current || [];
+        const matchedMessage = messages.find(m => m.id === messageId);
+
+        if (displaySource && onSourceClickRef.current) {
+          onSourceClickRef.current({
+            source: displaySource,
+            originalSource: originalSource || undefined,
+            message: matchedMessage?.message,
+            level: matchedMessage?.level,
+            meta: matchedMessage?.meta
+          });
+        }
+      } catch (error) {
+        console.error('Failed to process console source click:', error);
+      }
+    };
+
+    return () => {
+      if (iframeDocRef.current && iframeClickHandlerRef.current) {
+        try {
+          iframeDocRef.current.removeEventListener('click', iframeClickHandlerRef.current);
+        } catch {}
+      }
+    };
+  }, []);
+
+  const attachIframeInteractions = (doc: Document) => {
+    const clickHandler = iframeClickHandlerRef.current;
+    if (!clickHandler) return;
+    try {
+      doc.addEventListener('click', clickHandler);
+      iframeDocRef.current = doc;
+    } catch {}
+  };
 
   return (
     <div className={`preview-debug-panel h-full flex flex-col ${className}`}>

@@ -28,14 +28,13 @@ export async function loadCurrentTask(
   actualEditorRef
 ) {
   try {
-    // Fetch the dummy tasks data
-    const response = await fetch('/data/dummy_tasks.json');
+    // Fetch tasks from API (proxied to backend DB)
+    const response = await fetch('/api/tasks');
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }
-    
     const data = await response.json();
-    const tasks = data.tasks;
+    const tasks = data.tasks || [];
     
     // Validate task index
     if (taskIndex < 0 || taskIndex >= tasks.length) {
@@ -45,46 +44,36 @@ export async function loadCurrentTask(
     
     const currentTask = tasks[taskIndex];
     
-    // Set up the editor with the task's initial files
-    if (editor && currentTask.files && currentTask.files.length > 0) {
-      // Clear existing models
-      const models = editor.getModels();
-      models.forEach(model => {
-        if (!model.isDisposed()) {
-          model.dispose();
-        }
-      });
-      
-      // Create new models for each file
-      currentTask.files.forEach((file, index) => {
-        let content = '';
-        
-        // If content is a file path, we need to fetch it
-        if (file.content.startsWith('data/code_files/')) {
-          // For now, we'll use placeholder content
-          // In a real implementation, you'd fetch the actual file content
-          content = `// ${file.name}\n// File content would be loaded from: ${file.content}`;
-        } else {
-          content = file.content;
-        }
-        
-        // Determine language based on file extension or language property
+    // Fetch files for the selected task and populate editor
+    if (editor && currentTask?.id) {
+      const filesRes = await fetch(`/api/task-files?taskId=${encodeURIComponent(currentTask.id)}`);
+      const filesData = filesRes.ok ? await filesRes.json() : { files: [] };
+      const files = Array.isArray(filesData.files) ? filesData.files : [];
+
+      // // Clear existing models
+      // const models = editor.getModels();
+      // models.forEach(model => {
+      //   if (!model.isDisposed()) {
+      //     model.dispose();
+      //   }
+      // });
+
+      files.forEach((file, index) => {
+        const name = file.name || `file-${index}`;
+        const content = file.content || '';
         let language = file.language || 'plaintext';
-        if (file.name.endsWith('.html')) language = 'html';
-        else if (file.name.endsWith('.css')) language = 'css';
-        else if (file.name.endsWith('.js')) language = 'javascript';
-        else if (file.name.endsWith('.ts')) language = 'typescript';
-        else if (file.name.endsWith('.py')) language = 'python';
-        else if (file.name.endsWith('.json')) language = 'json';
-        
-        // Create the model
+        if (name.endsWith('.html')) language = 'html';
+        else if (name.endsWith('.css')) language = 'css';
+        else if (name.endsWith('.js')) language = 'javascript';
+        else if (name.endsWith('.ts')) language = 'typescript';
+        else if (name.endsWith('.py')) language = 'python';
+        else if (name.endsWith('.json')) language = 'json';
+
         const model = window.monaco.editor.createModel(
           content,
           language,
-          window.monaco.Uri.parse(`file:///${file.name}`)
+          window.monaco.Uri.parse(`file:///${name}`)
         );
-        
-        // Set the first file as the main model
         if (index === 0) {
           editor.setModel(model);
         }
@@ -95,7 +84,7 @@ export async function loadCurrentTask(
     const initialMessage = {
       id: `task-${taskIndex}-${Date.now()}`,
       type: 'system',
-      content: `**Task: ${currentTask.name}**\n\n${currentTask.description}\n\n**Requirements:**\n${currentTask.requirements.map(req => `- ${req}`).join('\n')}`,
+      content: `**Task: ${currentTask.name}**\n\n${currentTask.description}`,
       timestamp: new Date().toISOString(),
       role: 'system'
     };

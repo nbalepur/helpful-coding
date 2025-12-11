@@ -7,12 +7,11 @@ import {
   ChevronDown,
   ChevronUp,
   Play,
-  Video,
-  List,
   Clock,
   Tag,
   ArrowLeft
 } from 'lucide-react';
+import TaskInstructionNew from './TaskInstructionNew';
 
 interface Task {
   id: string;
@@ -57,7 +56,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
         return (
           <div className="relative">
             <CheckCircle className={`peer h-5 w-5 text-green-500 transition-colors cursor-help ${!disableHover ? 'hover:text-green-400' : ''}`} />
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               Completed
             </div>
           </div>
@@ -71,7 +70,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
                 <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse"></div>
               </div>
             </div>
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               In Progress
             </div>
           </div>
@@ -80,7 +79,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
         return (
           <div className="relative">
             <Circle className={`peer h-5 w-5 text-gray-500 transition-colors cursor-help ${!disableHover ? 'hover:text-gray-400' : ''}`} />
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               Not Started
             </div>
           </div>
@@ -109,7 +108,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
         ) : (
           <Star className={`peer h-4 w-4 text-gray-500 transition-colors cursor-help ${!disableHover ? 'hover:text-gray-400' : ''}`} />
         )}
-        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
           {saved ? "Remove from saved" : "Save task"}
         </div>
       </div>
@@ -210,55 +209,12 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
             }`}>
               <div className="px-3 pb-3 border-t border-gray-700/50 bg-gray-800/30 w-full min-w-0">
                 <div className="pt-3">
-                  {/* Task Details Template */}
-                  <div className="space-y-4">
-                    {/* Description */}
-                    <div className="w-full min-w-0">
-                      <p className="text-gray-300 leading-relaxed break-words">{task.description}</p>
-                    </div>
-
-                    {/* Video Demo */}
-                    {task.videoDemo && (
-                      <div className="w-full min-w-0">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <Video className="h-4 w-4 text-blue-400" />
-                          <h4 className="text-sm font-medium text-gray-200">Video Demo</h4>
-                        </div>
-                        <div className="relative bg-gray-700 rounded-lg overflow-hidden w-full max-w-md mx-auto">
-                          <video 
-                            className="w-full aspect-video object-cover"
-                            controls
-                            preload="metadata"
-                            muted
-                            disablePictureInPicture
-                          >
-                            <source src={task.videoDemo} type="video/mp4" />
-                            Your browser does not support the video tag.
-                          </video>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Requirements */}
-                    <div className="w-full min-w-0">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <List className="h-4 w-4 text-green-400" />
-                        <h4 className="text-sm font-medium text-gray-200">Requirements</h4>
-                      </div>
-                      <div className="space-y-2">
-                        {task.requirements && task.requirements.length > 0 ? (
-                          task.requirements.map((requirement, index) => (
-                            <div key={index} className="flex items-start space-x-2 min-w-0">
-                              <div className="flex-shrink-0 w-1.5 h-1.5 bg-green-400 rounded-full mt-2"></div>
-                              <p className="text-sm text-gray-300 leading-relaxed break-words min-w-0">{requirement}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-gray-400 italic">No requirements specified</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  {/* Task Instructions (HTML-aware, compact) */}
+                  <TaskInstructionNew
+                    taskDescription={task.description}
+                    showHeader={false}
+                    compact={true}
+                  />
                 </div>
               </div>
             </div>

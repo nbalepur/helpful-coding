@@ -396,7 +396,20 @@ class OpenAIAgent:
             schema_name="suggestions",
         )
         suggestions = suggestions_json.get("suggestions", [])
-        suggestions = [suggestion.replace('.', '').strip() for suggestion in suggestions]
+        cleaned_suggestions = []
+        seen = set()
+        for suggestion in suggestions:
+            if not isinstance(suggestion, str):
+                continue
+            text = suggestion.replace('.', '').strip()
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned_suggestions.append(text)
+        suggestions = sorted(cleaned_suggestions, key=lambda s: s.casefold())
         print(f"✅ Generated {len(suggestions)} suggestions")
         yield {"state": "suggestions", "data": {"suggestions": suggestions}}
 

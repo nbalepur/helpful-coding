@@ -7,6 +7,141 @@ import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_
 import { BsExclamationTriangle } from 'react-icons/bs';
 import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
+import html2canvas from 'html2canvas';
+import { buildFullHTMLDocument } from '../utils/htmlBuilder';
+import { useSnackbar } from './SnackbarProvider';
+
+const flattenFileTree = (nodes: any[] = []): any[] => {
+  const result: any[] = [];
+  const queue = [...nodes];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node) continue;
+    if (node.type === 'file') {
+      result.push(node);
+    }
+    if (node.children && Array.isArray(node.children)) {
+      queue.unshift(...node.children);
+    }
+  }
+  return result;
+};
+
+// Helper function to convert single backticks to HTML code tags (for choices)
+const convertBackticksToCode = (text: string): string => {
+  if (!text) return '';
+  
+  // Escape HTML to prevent XSS
+  const escapeHtml = (str: string) => {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  };
+  
+  let result = escapeHtml(text);
+  // Replace single backticks (`code`) with <code>code</code>
+  result = result.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+  
+  return result;
+};
+
+// Component to render text with code blocks as Monaco editors
+const TextWithCodeBlocks: React.FC<{ text: string }> = ({ text }) => {
+  if (!text) return null;
+  
+  // Split text by triple backticks
+  const parts: Array<{ type: 'text' | 'code'; content: string }> = [];
+  const tripleBacktickRegex = /```([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = tripleBacktickRegex.exec(text)) !== null) {
+    // Add text before the code block
+    if (match.index > lastIndex) {
+      const textContent = text.substring(lastIndex, match.index);
+      if (textContent) {
+        parts.push({ type: 'text', content: textContent });
+      }
+    }
+    
+    // Add code block
+    parts.push({ type: 'code', content: match[1].trim() });
+    lastIndex = tripleBacktickRegex.lastIndex;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    const textContent = text.substring(lastIndex);
+    if (textContent) {
+      parts.push({ type: 'text', content: textContent });
+    }
+  }
+  
+  // If no code blocks found, just return the text with single backticks converted
+  if (parts.length === 0) {
+    parts.push({ type: 'text', content: text });
+  }
+  
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.type === 'code') {
+          return (
+            <div key={`code-${index}`} style={{ margin: '8px 0', border: '1px solid #4b5563', borderRadius: '6px', overflow: 'hidden' }}>
+              <MonacoEditor
+                height="300px"
+                language="javascript"
+                value={part.content}
+                theme="vs-dark"
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  scrollbar: {
+                    vertical: 'hidden',
+                    horizontal: 'hidden',
+                    alwaysConsumeMouseWheel: false,
+                  },
+                  overviewRulerLanes: 0,
+                  hideCursorInOverviewRuler: true,
+                }}
+              />
+            </div>
+          );
+        } else {
+          // Process single backticks in text
+          const escapeHtml = (str: string) => {
+            return str
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          };
+          
+          let processedText = escapeHtml(part.content);
+          processedText = processedText.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+          
+          return (
+            <span
+              key={`text-${index}`}
+              className="markdown-content"
+              style={{ display: 'inline' }}
+              dangerouslySetInnerHTML={{ __html: processedText }}
+            />
+          );
+        }
+      })}
+    </>
+  );
+};
 
 interface CodingEditorProps {
   // Editor props
@@ -77,6 +212,9 @@ interface CodingEditorProps {
   pendingAgentChanges?: any;
   onAcceptAgentChanges?: (fileType?: string, content?: string) => void;
   onRejectAgentChanges?: () => void;
+  projectId?: number | null;
+  userId?: number | null;
+  taskName?: string | null;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -137,7 +275,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   pendingAgentChanges,
   onAcceptAgentChanges,
   onRejectAgentChanges,
+  projectId,
+  userId,
+  taskName,
 }: CodingEditorProps) => {
+  const { showSnackbar } = useSnackbar();
   const [output, setOutput] = useState(
     "Output will be shown here when Run is pressed."
   );
@@ -269,6 +411,47 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [isTestsRunning, setIsTestsRunning] = useState(false);
   const [allTestsPassed, setAllTestsPassed] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const PROJECT_TITLE_LIMIT = 80;
+  const PROJECT_DESCRIPTION_LIMIT = 300;
+  const [projectTitle, setProjectTitle] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [projectTitleError, setProjectTitleError] = useState<string | null>(null);
+  const [projectDescriptionError, setProjectDescriptionError] = useState<string | null>(null);
+  const [previewScreenshot, setPreviewScreenshot] = useState<string | null>(null);
+  const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
+  const [screenshotError, setScreenshotError] = useState<string | null>(null);
+  const [isSubmittingProject, setIsSubmittingProject] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [existingSubmission, setExistingSubmission] = useState<{ id: number; title: string; description: string | null; createdAt: string | null } | null>(null);
+  const [hasConsentedToOverride, setHasConsentedToOverride] = useState(false);
+  const [showComprehensionCheck, setShowComprehensionCheck] = useState(false);
+  const [comprehensionAnswers, setComprehensionAnswers] = useState<Record<string, string>>({});
+  const [comprehensionQuestions, setComprehensionQuestions] = useState<Array<{
+    id: string;
+    question_name?: string;
+    question: string;
+    question_type: string;
+    choices?: string[];
+  }>>([]);
+  const [isLoadingComprehensionQuestions, setIsLoadingComprehensionQuestions] = useState(false);
+  const [comprehensionQuestionsError, setComprehensionQuestionsError] = useState<string | null>(null);
+  
+  const trimmedProjectTitleLength = projectTitle.trim().length;
+  const trimmedProjectDescriptionLength = projectDescription.trim().length;
+  const isSubmitDisabled = !!(
+    isSubmittingProject ||
+    isScreenshotLoading ||
+    !trimmedProjectTitleLength ||
+    !trimmedProjectDescriptionLength ||
+    !previewScreenshot ||
+    (existingSubmission && !hasConsentedToOverride)
+  );
+  const titleInputId = 'submit-project-title';
+  const descriptionInputId = 'submit-project-description';
+  const isProjectTitleAtCap = trimmedProjectTitleLength >= PROJECT_TITLE_LIMIT;
+  const isProjectDescriptionAtCap = trimmedProjectDescriptionLength >= PROJECT_DESCRIPTION_LIMIT;
+  const previewBoxContainerRef = useRef<HTMLDivElement>(null);
+  const [previewBoxSize, setPreviewBoxSize] = useState<{ width: number; height: number }>({ width: 480, height: 270 });
   const [assistantMessages, setAssistantMessages] = useState([
     { type: 'assistant', message: 'Analyzing your latest edits…' },
     { type: 'user', message: 'Please run all tests.' },
@@ -744,66 +927,25 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
     // Build the complete HTML document (same sanitization as PreviewIframe)
     const sanitizeHtml = (html: string): string => {
-      return html
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-        .replace(/<object[^>]*>[\s\S]*?<\/object>/gi, '')
-        .replace(/<embed[^>]*>/gi, '')
-        .replace(/<link[^>]*>/gi, '')
-        .replace(/<meta[^>]*>/gi, '')
-        .replace(/on\w+="[^"]*"/gi, '')
-        .replace(/javascript:/gi, '')
-        .replace(/data:/gi, '')
-        .replace(/vbscript:/gi, '');
+      // Minimal sanitization to avoid breaking isolation
+      return html;
     };
 
     const sanitizeCss = (css: string): string => {
+      // Minimal CSS sanitization
       return css
-        .replace(/expression\s*\(/gi, '')
-        .replace(/javascript:/gi, '')
-        .replace(/@import/gi, '')
+        .replace(/@import[^;]+;/gi, '')
         .replace(/behavior\s*:/gi, '')
         .replace(/binding\s*:/gi, '');
     };
 
     const sanitizeJs = (js: string): string => {
-      // Use same sanitization as PreviewIframe - less aggressive to preserve functionality
+      // Minimal JS sanitization to preserve functionality; rely on iframe sandbox for isolation
       return js
-        .replace(/eval\s*\(/gi, '')
-        .replace(/Function\s*\(/g, '')
-        .replace(/document\.cookie/gi, '')
-        .replace(/localStorage/gi, '')
-        .replace(/sessionStorage/gi, '')
-        .replace(/window\.open/gi, '')
-        .replace(/window\.location/gi, '')
         .replace(/window\.parent/gi, '')
         .replace(/window\.top/gi, '')
         .replace(/parent\./gi, '')
-        .replace(/top\./gi, '')
-        .replace(/document\.write/gi, '')
-        .replace(/document\.writeln/gi, '')
-        .replace(/data:/gi, '')
-        .replace(/javascript:/gi, '')
-        .replace(/http:/gi, '')
-        .replace(/https:/gi, '')
-        .replace(/\.com/gi, '')
-        .replace(/\.org/gi, '')
-        .replace(/\.net/gi, '')
-        .replace(/\.io/gi, '')
-        .replace(/\.dev/gi, '')
-        .replace(/\.local/gi, '')
-        .replace(/XMLHttpRequest/gi, '')
-        .replace(/fetch\s*\(/gi, '')
-        .replace(/import\s*\(/gi, '')
-        .replace(/require\s*\(/gi, '')
-        .replace(/WebSocket/gi, '')
-        .replace(/EventSource/gi, '')
-        .replace(/navigator\./gi, '')
-        .replace(/screen\./gi, '')
-        .replace(/history\./gi, '')
-        .replace(/location\./gi, '')
-        .replace(/window\[/gi, '')
-        .replace(/document\[/gi, '');
+        .replace(/top\./gi, '');
     };
 
     const sanitizedHtml = sanitizeHtml(previewContent.html || '');
@@ -823,10 +965,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Website Preview</title>
-            <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${ENV.EXECUTE_ENDPOINT_URL}; frame-src 'none'; object-src 'none'; media-src 'none'; base-uri 'none'; form-action 'none';">
-            <meta http-equiv="X-Content-Type-Options" content="nosniff">
-            <meta http-equiv="X-Frame-Options" content="DENY">
-            <meta http-equiv="Referrer-Policy" content="no-referrer">
           </head>
           <body>
             ${sanitizedHtml}
@@ -842,10 +980,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Website Preview</title>
-          <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${ENV.EXECUTE_ENDPOINT_URL}; frame-src 'none'; object-src 'none'; media-src 'none'; base-uri 'none'; form-action 'none';">
-          <meta http-equiv="X-Content-Type-Options" content="nosniff">
-          <meta http-equiv="X-Frame-Options" content="DENY">
-          <meta http-equiv="Referrer-Policy" content="no-referrer">
         </head>
         <body>
           <h1>Website Preview</h1>
@@ -867,9 +1001,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     newWindow.document.write(fullHtml);
     newWindow.document.close();
   };
-
-
-  const generatePreviewContent = async (): Promise<{ html: string; css: string; js: string }> => {
+  const generatePreviewContent = useCallback(async (): Promise<{ html: string; css: string; js: string }> => {
     if (enableMultiFile && initialFiles && initialFiles.length > 0) {
       // Build an up-to-date view of files by overlaying live editor contents
       // from actualEditorRef on top of initialFiles
@@ -1031,7 +1163,54 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         };
       }
     }
-  };
+  }, [enableMultiFile, initialFiles, actualEditorRef, code]);
+
+  const collectSubmissionFiles = useCallback((): Record<string, string> => {
+    const files: Record<string, string> = {};
+
+    if (enableMultiFile && initialFiles && initialFiles.length > 0) {
+      const editorContents = (() => {
+        try {
+          return (actualEditorRef?.current?.getAllFileContents?.() as Record<string, string>) || {};
+        } catch (error) {
+          console.warn('Failed to read live editor contents for submission:', error);
+          return {} as Record<string, string>;
+        }
+      })();
+
+      const flattenedNodes = flattenFileTree(initialFiles);
+      flattenedNodes.forEach(node => {
+        const key = node?.id || node?.name;
+        if (!key) {
+          return;
+        }
+        const liveContent = editorContents[key];
+        const fallbackContent = node?.content ?? '';
+        files[String(node.name || key)] = String(
+          liveContent !== undefined ? liveContent : fallbackContent ?? ''
+        );
+      });
+
+      Object.entries(editorContents).forEach(([id, content]) => {
+        const exists = flattenedNodes.some(node => (node?.id || node?.name) === id);
+        if (!exists) {
+          files[id] = String(content ?? '');
+        }
+      });
+
+      return files;
+    }
+
+    const mainCode = typeof code === 'string' ? code : '';
+    const fallbackKey = mainCode.includes('<html')
+      ? 'index.html'
+      : (mainCode.includes('function') || mainCode.includes('const') || mainCode.includes('let'))
+        ? 'script.js'
+        : 'code.txt';
+
+    files[fallbackKey] = mainCode;
+    return files;
+  }, [enableMultiFile, initialFiles, actualEditorRef, code]);
 
 
   useEffect(() => {
@@ -1108,7 +1287,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         setPreviewContent(content);
       });
     }
-  }, [terminalTab]);
+  }, [terminalTab, generatePreviewContent]);
 
   // Auto-update preview content when code changes (for both single and multi-file modes)
   useEffect(() => {
@@ -1122,7 +1301,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
       return () => clearTimeout(timeoutId);
     }
-  }, [code, initialFiles, enableMultiFile, terminalTab]); // Add code and initialFiles as dependencies
+  }, [code, initialFiles, enableMultiFile, terminalTab, generatePreviewContent]); // Add code and initialFiles as dependencies
 
   // Callback to handle file content changes in multi-file mode
   const handleFileContentChange = useCallback(() => {
@@ -1138,7 +1317,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
       return () => clearTimeout(timeoutId);
     }
-  }, [terminalTab, onFileContentChange]);
+  }, [terminalTab, onFileContentChange, generatePreviewContent]);
 
   const handleSaveShortcut = useCallback((fileId?: string) => {
     try { onSaveShortcut && onSaveShortcut(fileId); } catch (e) {}
@@ -1219,7 +1398,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         alert(alertMessage);
       } else {
         localStorage.setItem("code", "");
-        alert("You have completed all the tasks!");
         setTimeout(() => {
           setTaskIndex((prevTaskIndex) => {
             return prevTaskIndex + 1;
@@ -1236,6 +1414,210 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   }
 
   // Handle project submission
+  const createPreviewScreenshot = useCallback(async (): Promise<string> => {
+    if (typeof window === 'undefined') {
+      throw new Error('Preview capture is only available in the browser');
+    }
+
+    const content = await generatePreviewContent();
+
+    if (!content.html && !content.css && !content.js) {
+      throw new Error('No preview content available');
+    }
+
+    let tempIframe: HTMLIFrameElement | null = null;
+
+    try {
+      tempIframe = document.createElement('iframe');
+      tempIframe.style.position = 'fixed';
+      tempIframe.style.left = '-10000px';
+      tempIframe.style.top = '0';
+      tempIframe.style.width = '1280px';
+      tempIframe.style.height = '720px';
+      tempIframe.style.border = 'none';
+      tempIframe.style.opacity = '0';
+      tempIframe.style.pointerEvents = 'none';
+      tempIframe.sandbox.add('allow-scripts');
+      tempIframe.sandbox.add('allow-same-origin');
+      document.body.appendChild(tempIframe);
+
+      const iframeDoc = tempIframe.contentDocument || tempIframe.contentWindow?.document;
+      if (!iframeDoc) {
+        throw new Error('Unable to access temporary preview iframe');
+      }
+
+      const fullHtml = buildFullHTMLDocument({
+        htmlCode: content.html,
+        cssCode: content.css,
+        jsCode: content.js
+      });
+
+      iframeDoc.open();
+      iframeDoc.write(fullHtml);
+      iframeDoc.close();
+
+      await new Promise(resolve => setTimeout(resolve, 1200));
+
+      if (!iframeDoc.body) {
+        throw new Error('Unable to capture preview body');
+      }
+
+      const canvas = await html2canvas(iframeDoc.body, {
+        allowTaint: true,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        scale: Math.max(1.5, window.devicePixelRatio || 1),
+        logging: false,
+        width: 1280,
+        height: 720
+      });
+
+      return canvas.toDataURL('image/png', 0.92);
+    } finally {
+      if (tempIframe && tempIframe.parentNode) {
+        tempIframe.parentNode.removeChild(tempIframe);
+      }
+    }
+  }, [generatePreviewContent]);
+
+  useEffect(() => {
+    if (!showSubmitModal) {
+      setProjectTitle('');
+      setProjectDescription('');
+      setProjectTitleError(null);
+      setProjectDescriptionError(null);
+      setPreviewScreenshot(null);
+      setScreenshotError(null);
+      setSubmissionError(null);
+      setIsSubmittingProject(false);
+      setIsScreenshotLoading(false);
+      setExistingSubmission(null);
+      setHasConsentedToOverride(false);
+      setShowComprehensionCheck(false);
+      setComprehensionAnswers({});
+      setComprehensionQuestions([]);
+      setComprehensionQuestionsError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Check for existing submission
+    const checkExistingSubmission = async () => {
+      if (!userId || !projectId) return;
+      
+      try {
+        const params = new URLSearchParams();
+        if (projectId) {
+          params.append('projectId', projectId.toString());
+        } else if (task_id) {
+          params.append('taskId', task_id);
+        }
+        
+        const response = await fetch(`${ENV.BACKEND_URL}/api/users/${userId}/submissions/check?${params.toString()}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.exists && data.submission) {
+            if (!cancelled) {
+              setExistingSubmission(data.submission);
+            }
+          } else {
+            if (!cancelled) {
+              setExistingSubmission(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check existing submission', error);
+        // Don't block submission if check fails
+      }
+    };
+
+    const capture = async () => {
+      setIsScreenshotLoading(true);
+      setScreenshotError(null);
+
+      try {
+        const screenshot = await createPreviewScreenshot();
+        if (!cancelled) {
+          setPreviewScreenshot(screenshot);
+        }
+      } catch (error) {
+        console.error('Failed to capture preview screenshot', error);
+        if (!cancelled) {
+          setPreviewScreenshot(null);
+          setScreenshotError('Unable to capture preview. Please try again.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsScreenshotLoading(false);
+        }
+      }
+    };
+
+    checkExistingSubmission();
+    capture();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showSubmitModal, createPreviewScreenshot, userId, projectId, task_id]);
+
+  useEffect(() => {
+    if (previewScreenshot) {
+      setScreenshotError(null);
+    }
+  }, [previewScreenshot]);
+
+  useEffect(() => {
+    if (!showSubmitModal || showComprehensionCheck) {
+      return;
+    }
+
+    const container = previewBoxContainerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      if (!rect || rect.width === 0 || rect.height === 0) return;
+      const maxWidth = Math.min(rect.width, 960);
+      const maxHeight = Math.min(rect.height, 540);
+      const aspectRatio = 16 / 9;
+
+      let width = maxWidth;
+      let height = width / aspectRatio;
+
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspectRatio;
+      }
+
+      const minWidth = 200;
+      if (width < minWidth) {
+        width = minWidth;
+        height = width / aspectRatio;
+      }
+
+      setPreviewBoxSize({ width, height });
+    };
+
+    // Use requestAnimationFrame to ensure DOM has updated
+    requestAnimationFrame(() => {
+      updateSize();
+    });
+    
+    const observer = new ResizeObserver(() => {
+      updateSize();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [showSubmitModal, showComprehensionCheck]);
+
   const handleProjectSubmit = () => {
     setShowSubmitModal(false);
     
@@ -1279,26 +1661,241 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     // Track submission telemetry
     trackSubmitCode(setTelemetry, taskIndex, "project submitted", true, editor);
     
-    // Clear code and advance to next task or finish
+    // Clear code for the current task after submission
     localStorage.setItem("code", "");
-    
-    if (taskIndex < function_signatures.length - 1) {
-      setTaskIndex((prevTaskIndex) => prevTaskIndex + 1);
-      alert("Thanks for submitting! Next task will now be displayed.");
+  };
+
+  const handleProjectFormSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmissionError(null);
+
+    const trimmedTitle = projectTitle.trim();
+    const trimmedDescription = projectDescription.trim();
+    let hasError = false;
+
+    if (!trimmedTitle) {
+      setProjectTitleError('Please add a project title.');
+      hasError = true;
     } else {
-      alert("You have completed all the tasks!");
-      setTimeout(() => {
-        setTaskIndex((prevTaskIndex) => prevTaskIndex + 1);
-      }, 1000);
-      var myData = [response_id, task_id, exp_condition, worker_id];
-      localStorage.setItem("objectToPass", JSON.stringify(myData));
+      setProjectTitleError(null);
+    }
+
+    if (!trimmedDescription) {
+      setProjectDescriptionError('Please add a short description.');
+      hasError = true;
+    } else {
+      setProjectDescriptionError(null);
+    }
+
+    if (trimmedTitle.length > PROJECT_TITLE_LIMIT) {
+      setProjectTitleError(`Title must be ${PROJECT_TITLE_LIMIT} characters or fewer.`);
+      hasError = true;
+    }
+
+    if (trimmedDescription.length > PROJECT_DESCRIPTION_LIMIT) {
+      setProjectDescriptionError(`Description must be ${PROJECT_DESCRIPTION_LIMIT} characters or fewer.`);
+      hasError = true;
+    }
+
+    if (!previewScreenshot) {
+      setScreenshotError('Preview not ready yet. Please wait a moment and try again.');
+      hasError = true;
+    }
+
+    if (!userId || Number.isNaN(userId)) {
+      setSubmissionError('Missing user information. Please sign in again and retry.');
+      hasError = true;
+    }
+
+    if (!projectId || Number.isNaN(projectId)) {
+      setSubmissionError('Unable to determine project for this submission. Please reopen the task and try again.');
+      hasError = true;
+    }
+
+    if (hasError) {
+      return;
+    }
+
+    // Store the validated title and description
+    setProjectTitle(trimmedTitle);
+    setProjectDescription(trimmedDescription);
+
+    // Instead of submitting immediately, show the comprehension check panel
+    setShowComprehensionCheck(true);
+  };
+
+  // Fetch comprehension questions when the panel is shown
+  useEffect(() => {
+    if (!showComprehensionCheck || !userId || !projectId) {
+      return;
+    }
+
+    const fetchComprehensionQuestions = async () => {
+      setIsLoadingComprehensionQuestions(true);
+      setComprehensionQuestionsError(null);
+      
+      try {
+        const codeSnapshot = collectSubmissionFiles();
+        if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
+          throw new Error('No code files found');
+        }
+
+        const response = await fetch(`${ENV.BACKEND_URL}/api/comprehension-questions/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            project_id: projectId,
+            submission_title: projectTitle.trim(),
+            submission_description: projectDescription.trim(),
+            submission_code: codeSnapshot,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to generate comprehension questions');
+        }
+
+        const data = await response.json();
+        if (data.success && data.questions) {
+          // Map the API response to the format expected by the UI
+          const mappedQuestions = data.questions.map((q: any, index: number) => ({
+            id: q.id?.toString() || `comp-${index}`,
+            question_name: q.question_name || '',
+            question: q.question || '',
+            question_type: q.question_type || 'free_response',
+            choices: q.choices || undefined,
+          }));
+          setComprehensionQuestions(mappedQuestions);
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (error) {
+        console.error('Failed to fetch comprehension questions:', error);
+        setComprehensionQuestionsError(error instanceof Error ? error.message : 'Failed to load questions');
+        // Fallback to empty array - user can still proceed
+        setComprehensionQuestions([]);
+      } finally {
+        setIsLoadingComprehensionQuestions(false);
+      }
+    };
+
+    fetchComprehensionQuestions();
+  }, [showComprehensionCheck, userId, projectId, projectTitle, projectDescription]);
+
+  // Helper function to count words in a string
+  const countWords = (text: string): number => {
+    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  };
+
+  const handleComprehensionCheckSubmit = async () => {
+    // Validate that all questions are answered (multi-select can be empty)
+    const unansweredQuestions = comprehensionQuestions.filter(q => {
+      if (q.question_type === 'multi_select') {
+        // Multi-select questions are always valid, even if nothing is selected
+        return false;
+      }
+      return !comprehensionAnswers[q.id]?.trim();
+    });
+    if (unansweredQuestions.length > 0) {
+      setSubmissionError('Please answer all comprehension questions before submitting.');
+      return;
+    }
+
+    // Validate minimum word count for free response questions
+    const minWords = 10;
+    const invalidFreeResponseQuestions = comprehensionQuestions.filter(q => {
+      if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+        const answer = comprehensionAnswers[q.id] || '';
+        const wordCount = countWords(answer);
+        return wordCount < minWords;
+      }
+      return false;
+    });
+    if (invalidFreeResponseQuestions.length > 0) {
+      setSubmissionError(`Free response answers must be at least ${minWords} words long.`);
+      return;
+    }
+
+    const codeSnapshot = collectSubmissionFiles();
+    if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
+      setSubmissionError('We could not capture your project files. Please ensure the editor has loaded and try again.');
+      return;
+    }
+
+    setIsSubmittingProject(true);
+    setSubmissionError(null);
+    
+    try {
+      const response = await fetch(`${ENV.BACKEND_URL}/api/submissions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          projectId,
+          taskId: task_id || null,
+          title: projectTitle.trim(),
+          description: projectDescription.trim(),
+          code: codeSnapshot,
+          image: previewScreenshot,
+          comprehensionAnswers: Object.fromEntries(
+            comprehensionQuestions.map(q => {
+              const answer = comprehensionAnswers[q.id] || '';
+              // For multi_select questions, convert to binary array [1, 0, 1, 0]
+              if (q.question_type === 'multi_select' && q.choices) {
+                const selectedChoices = answer ? answer.split(',').map(c => c.trim()).filter(Boolean) : [];
+                const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
+                return [q.question_name || q.id, binaryArray];
+              }
+              // For other question types, keep as string
+              return [q.question_name || q.id, answer];
+            })
+          ),
+        }),
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to submit project.';
+        try {
+          const data = await response.json();
+          if (data?.error) {
+            message = data.error;
+          }
+        } catch (_) {
+          // ignore parse errors
+        }
+        throw new Error(message);
+      }
+
+      // Close both modals
+      setShowComprehensionCheck(false);
+      setShowSubmitModal(false);
+      
+      handleProjectSubmit();
+      // Reset consent state after successful submission
+      setHasConsentedToOverride(false);
+      setExistingSubmission(null);
+      // Reset comprehension answers
+      setComprehensionAnswers({});
+      // Show success snackbar
+      showSnackbar("Nice work! Hit \"View Submissions\" to rate other projects");
+    } catch (error) {
+      console.error('Project submission failed:', error);
+      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again');
+    } finally {
+      setIsSubmittingProject(false);
     }
   };
 
   const showAssistantSide = assistantPlacement === 'side' && showAIAssistantForBottom;
   
   return (
-    <div className="coding-editor h-full flex flex-col min-h-0 animate-fadeInRight">
+    <div className="coding-editor h-full flex flex-col min-h-0">
       
       {/* Main content area - horizontal flex when side placement */}
       <div className="flex-1 flex min-h-0" style={{ overflow: 'hidden' }}>
@@ -1319,7 +1916,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           }}
         >
         {showCodeEditor && (
-          <div className="editor-pane min-h-0">
+          <div className={`editor-pane min-h-0${showAssistantSide ? ' editor-pane-side' : ''}`}>
           {enableMultiFile ? (
             <MultiFileEditor
               onEditorMount={handleEditorMount}
@@ -1364,16 +1961,17 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               options={{
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
-                fontSize: 14,
+                fontSize: 12,
                 lineNumbers: 'on',
                 wordWrap: 'on',
                 automaticLayout: true,
                 readOnly: false,
                 theme: 'vs-dark',
                 cursorBlinking: 'blink',
-                cursorSmoothCaretAnimation: 'on',
+                cursorSmoothCaretAnimation: 'off',
                 smoothScrolling: true,
                 mouseWheelZoom: true,
+                mouseWheelScrollSensitivity: 0.7,
                 contextmenu: true,
                 selectOnLineNumbers: true,
                 roundedSelection: false,
@@ -1395,7 +1993,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         {showCodeEditor && showAIAssistantForBottom && !showAssistantSide && (
           <div 
             className="editor-resize-handle flex-shrink-0 cursor-row-resize group"
-            title="Drag to resize"
             onMouseDown={onEditorMouseDown}
             style={{
               height: 2
@@ -1406,7 +2003,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         )}
         
         {showAIAssistantForBottom && !showAssistantSide && (
-          <div className="terminal-pane min-h-0" style={{ padding: 0, height: '100%' }}>
+          <div className="terminal-pane min-h-0" style={{ padding: 0, height: '100%', overflow: 'visible' }}>
             <div style={{ padding: '0px 0px 0px 0px', height: '100%' }}>
               {typeof renderAssistantPane === 'function' ? renderAssistantPane() : null}
             </div>
@@ -1418,25 +2015,26 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         {showAssistantSide && (
           <>
             <div 
-              className="flex-shrink-0 cursor-col-resize group"
-              title="Drag to resize"
+              className="assistant-side-divider flex-shrink-0 cursor-col-resize group"
               onMouseDown={handleAssistantSideMouseDown}
               style={{
-                width: 4,
-                backgroundColor: 'transparent',
+                width: 2,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
             >
-              <div className="w-px h-full bg-gray-700 group-hover:bg-gray-600 transition-colors" />
+              <div
+                className="h-full bg-gray-700 group-hover:bg-gray-600 transition-colors rounded-sm"
+                style={{ width: 2 }}
+              />
             </div>
             <div 
               className="assistant-side-pane flex-shrink-0"
               style={{ 
                 width: assistantSideWidth,
                 height: '100%',
-                overflow: 'hidden'
+                overflow: 'visible'
               }}
             >
               {typeof renderAssistantPane === 'function' ? renderAssistantPane() : null}
@@ -1464,14 +2062,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
       {/* Submit Confirmation Modal */}
       {showSubmitModal && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(15, 23, 42, 0.76)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1480,103 +2078,760 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           }}
           onClick={() => setShowSubmitModal(false)}
         >
-          <div 
+          <div
             style={{
-              backgroundColor: '#2d2d2d',
-              borderRadius: '8px',
-              padding: '32px',
-              maxWidth: '500px',
-              width: '100%',
-              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
-              border: '1px solid #444'
+              backgroundColor: '#11131a',
+              borderRadius: '14px',
+              padding: '1% 2% 1% 2%',
+              width: 'calc(100vw - 64px)',
+              height: 'calc(100vh - 64px)',
+              boxShadow: '0 30px 60px rgba(0, 0, 0, 0.7)',
+              border: '1px solid rgba(148, 163, 184, 0.18)',
+              display: 'flex',
+              flexDirection: 'column'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ 
-              color: '#e5e7eb', 
-              marginBottom: '16px', 
-              fontSize: '20px',
-              fontWeight: '600'
-            }}>
-              Submit Project?
-            </h2>
-            
-            <div style={{ 
-              color: '#d1d5db', 
-              marginBottom: '24px',
-              lineHeight: '1.6',
-              fontSize: '14px'
-            }}>
-              <p style={{ marginBottom: '12px' }}>
-                Are you sure you want to submit this project?
-              </p>
-              <p style={{ marginBottom: '12px', color: '#9ca3af' }}>
-                We recommend running all test cases at once before submitting.
-              </p>
-              
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px'
+              }}
+            >
+              <h2
+                style={{
+                  color: '#e2e8f0',
+                  fontSize: '22px',
+                  fontWeight: 600,
+                  letterSpacing: '0.01em',
+                  paddingLeft: showComprehensionCheck ? '10px' : '0px',
+                }}
+              >
+                {showComprehensionCheck ? 'Comprehension Check' : 'Submit Project'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(false)}
+                aria-label="Close submit modal"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#9ca3af',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  lineHeight: 1,
+                  transition: 'color 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#9ca3af';
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {!showComprehensionCheck ? (
+              <form
+                onSubmit={handleProjectFormSubmit}
+                style={{
+                  flex: 1,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr)',
+                  gridTemplateRows: 'auto auto 1fr auto',
+                  gap: '1em',
+                  minHeight: 0
+                }}
+              >
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '6px' }}>
+                <label 
+                  htmlFor={titleInputId}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    color: '#e5e7eb',
+                    fontWeight: 500,
+                    fontSize: '14px',
+                    marginBottom: '0'
+                  }}
+                >
+                  <span>Project Title</span>
+                  <span style={{ color: isProjectTitleAtCap ? '#60a5fa' : '#9ca3af', fontSize: '12px' }}>
+                    {projectTitle.length}/{PROJECT_TITLE_LIMIT}
+                  </span>
+                </label>
+                <input
+                  id={titleInputId}
+                  type="text"
+                  value={projectTitle}
+                  maxLength={PROJECT_TITLE_LIMIT}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value.slice(0, PROJECT_TITLE_LIMIT);
+                    setProjectTitle(nextTitle);
+                    if (projectTitleError) {
+                      const trimmed = nextTitle.trim();
+                      if (trimmed && trimmed.length <= PROJECT_TITLE_LIMIT) {
+                        setProjectTitleError(null);
+                      }
+                    }
+                  }}
+                  placeholder="Give your project a name"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#1f2937',
+                    color: '#e5e7eb',
+                    fontSize: '14px'
+                  }}
+                />
+                {projectTitleError && (
+                  <div style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>
+                    {projectTitleError}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '6px' }}>
+                <label
+                  htmlFor={descriptionInputId}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    color: '#e5e7eb',
+                    fontWeight: 500,
+                    fontSize: '14px',
+                    marginBottom: '0'
+                  }}
+                >
+                  <span>Project Description</span>
+                  <span style={{ color: isProjectDescriptionAtCap ? '#60a5fa' : '#9ca3af', fontSize: '12px' }}>
+                    {trimmedProjectDescriptionLength}/{PROJECT_DESCRIPTION_LIMIT}
+                  </span>
+                </label>
+                <textarea
+                  id={descriptionInputId}
+                  value={projectDescription}
+                  maxLength={PROJECT_DESCRIPTION_LIMIT}
+                  onChange={(e) => {
+                    const nextDescription = e.target.value.slice(0, PROJECT_DESCRIPTION_LIMIT);
+                    setProjectDescription(nextDescription);
+                    if (projectDescriptionError) {
+                      const trimmed = nextDescription.trim();
+                      if (trimmed && trimmed.length <= PROJECT_DESCRIPTION_LIMIT) {
+                        setProjectDescriptionError(null);
+                      }
+                    }
+                  }}
+                  placeholder="Summarize what the user can expect when they open your project"
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#1f2937',
+                    color: '#e5e7eb',
+                    fontSize: '14px',
+                    resize: 'none',
+                    overflowY: 'auto'
+                  }}
+                />
+                {projectDescriptionError && (
+                  <div style={{ color: '#f87171', fontSize: '12px', marginTop: '4px' }}>
+                    {projectDescriptionError}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: 'auto 1fr auto',
+                  gap: '6px',
+                  minHeight: 0
+                }}
+              >
+                <span style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '14px', textAlign: 'center', display: 'block', paddingBottom: 0 }}>
+                  Preview
+                </span>
+                <div
+                  ref={previewBoxContainerRef}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'stretch',
+                    minHeight: 0
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${previewBoxSize.width}px`,
+                      height: `${previewBoxSize.height}px`,
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      aspectRatio: '16 / 9',
+                      border: '1px solid rgba(148, 163, 184, 0.22)',
+                      borderRadius: '12px',
+                      backgroundColor: '#0b0c11',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {isScreenshotLoading ? (
+                      <div
+                        role="status"
+                        aria-label="Loading snapshot"
+                        className="flex flex-col items-center justify-center space-y-3"
+                      >
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
+                      </div>
+                    ) : previewScreenshot ? (
+                      <img
+                        src={previewScreenshot}
+                        alt="Submission preview"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(148, 163, 184, 0.18)'
+                        }}
+                      />
+                    ) : (
+                      <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '13px', padding: '12px' }}>
+                        Preview not available yet. It will appear here as soon as it is ready.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {screenshotError && (
+                  <div style={{ color: '#f87171', fontSize: '12px' }}>
+                    {screenshotError}
+                  </div>
+                )}
+              </div>
+
               {overriddenTestsCount > 0 && (
-                <div style={{
-                  marginTop: '16px',
-                  padding: '12px',
-                  backgroundColor: 'rgba(234, 179, 8, 0.1)',
-                  border: '1px solid rgba(234, 179, 8, 0.3)',
-                  borderRadius: '4px',
-                  color: '#fbbf24',
-                  fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    backgroundColor: 'rgba(252, 211, 77, 0.08)',
+                    border: '1px solid rgba(252, 211, 77, 0.2)',
+                    borderRadius: '10px',
+                    color: '#fcd34d',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
                   <BsExclamationTriangle style={{ flexShrink: 0, fontSize: '16px' }} />
                   <span>
-                    You overrode {overriddenTestsCount} test case{overriddenTestsCount !== 1 ? 's' : ''}.
+                    {overriddenTestsCount} overridden test{overriddenTestsCount !== 1 ? 's' : ''}. Confirm you're
+                    OK with the change before submitting.
                   </span>
                 </div>
               )}
-            </div>
-            
-            <div style={{ 
-              display: 'flex', 
-              gap: '12px', 
-              justifyContent: 'flex-end' 
-            }}>
-              <button
-                onClick={() => setShowSubmitModal(false)}
+
+              {existingSubmission && (
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                    borderRadius: '10px',
+                    color: '#fca5a5',
+                    fontSize: '13px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <BsExclamationTriangle style={{ flexShrink: 0, fontSize: '16px', marginTop: '2px' }} />
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <span style={{ fontWeight: 500 }}>
+                        You already have a submission called "{existingSubmission.title}"!
+                      </span>
+                      <span>
+                        Submitting again will override your current submission and clear all votes..
+                      </span>
+                    </div>
+                  </div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      paddingLeft: '24px'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={hasConsentedToOverride}
+                      onChange={(e) => setHasConsentedToOverride(e.target.checked)}
+                      style={{
+                        cursor: 'pointer',
+                        width: '16px',
+                        height: '16px',
+                        accentColor: '#ef4444'
+                      }}
+                    />
+                    <span style={{ fontSize: '12px' }}>
+                      I understand and want to override my current submission
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {submissionError && (
+                <div style={{ color: '#f87171', fontSize: '12px', textAlign: 'right' }}>
+                  {submissionError}
+                </div>
+              )}
+
+              <div
                 style={{
-                  padding: '10px 24px',
-                  backgroundColor: '#374151',
-                  color: '#e5e7eb',
-                  border: '1px solid #4b5563',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
+                  display: 'flex',
+                  gap: '10px',
+                  justifyContent: 'flex-end',
+                  marginTop: '8px'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4b5563'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#374151'}
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleProjectSubmit}
+                <button
+                  type="button"
+                  onClick={() => setShowSubmitModal(false)}
+                  disabled={isSubmittingProject}
+                  style={{
+                    padding: '6px 14px',
+                    backgroundColor: '#4b5563',
+                    color: '#f9fafb',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    opacity: isSubmittingProject ? 0.6 : 1,
+                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isSubmittingProject) {
+                      return;
+                    }
+                    e.currentTarget.style.backgroundColor = '#6b7280';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#4b5563';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitDisabled}
+                  style={{
+                    padding: '6px 16px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    opacity: isSubmitDisabled ? 0.6 : 1,
+                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isSubmitDisabled) {
+                      return;
+                    }
+                    e.currentTarget.style.backgroundColor = '#2563eb';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#3b82f6';
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </form>
+            ) : (
+              <div
                 style={{
-                  padding: '10px 24px',
-                  backgroundColor: '#2563eb',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '32px',
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  paddingLeft: '10px',
+                  paddingRight: '20px'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
-                Submit Project
-              </button>
-            </div>
+                <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
+                  Please answer the following questions about your project before you submit!
+                </p>
+                
+                {isLoadingComprehensionQuestions && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mb-4"></div>
+                    <p style={{ color: '#9ca3af', fontSize: '14px' }}>Generating questions...</p>
+                  </div>
+                )}
+                
+                {comprehensionQuestionsError && (
+                  <div style={{ padding: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', color: '#fca5a5', fontSize: '13px' }}>
+                    {comprehensionQuestionsError}
+                  </div>
+                )}
+                
+                {!isLoadingComprehensionQuestions && comprehensionQuestions.length === 0 && !comprehensionQuestionsError && (
+                  <p style={{ color: '#9ca3af', fontSize: '14px', fontStyle: 'italic' }}>
+                    No questions available. You can proceed with submission.
+                  </p>
+                )}
+                
+                {!isLoadingComprehensionQuestions && comprehensionQuestions.map((q, index) => {
+                  const currentAnswer = comprehensionAnswers[q.id] || '';
+                  
+                  return (
+                    <div 
+                      key={q.id || index} 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: q.question_type === 'mcqa' ? '6px' : '12px',
+                        paddingTop: index > 0 ? '20px' : '0px',
+                        borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none'
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: '#e5e7eb',
+                          fontWeight: 500,
+                          fontSize: '14px'
+                        }}
+                      >
+                        <span>{index + 1}. </span>
+                        <TextWithCodeBlocks text={q.question} />
+                      </div>
+                      
+                      {q.question_type === 'mcqa' && q.choices && q.choices.length > 0 ? (
+                        <div 
+                          style={{ 
+                            display: 'flex', 
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            marginTop: '0px'
+                          }}
+                        >
+                          {q.choices.map((choice, choiceIndex) => {
+                            const isSelected = currentAnswer === choice;
+                            return (
+                              <label
+                                key={choiceIndex}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  cursor: 'pointer',
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  backgroundColor: isSelected ? '#1e3a8a' : '#1f2937',
+                                  border: isSelected ? '1px solid #3b82f6' : '1px solid #4b5563',
+                                  transition: 'background-color 0.2s, border-color 0.2s',
+                                  flex: '0 1 auto',
+                                  minWidth: 'fit-content'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.backgroundColor = '#374151';
+                                    e.currentTarget.style.borderColor = '#6b7280';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.backgroundColor = '#1f2937';
+                                    e.currentTarget.style.borderColor = '#4b5563';
+                                  }
+                                }}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`comp-${q.id}`}
+                                  value={choice}
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    setComprehensionAnswers(prev => ({
+                                      ...prev,
+                                      [q.id]: e.target.value
+                                    }));
+                                    if (submissionError) {
+                                      setSubmissionError(null);
+                                    }
+                                  }}
+                                  style={{
+                                    cursor: 'pointer',
+                                    accentColor: '#3b82f6'
+                                  }}
+                                />
+                                <span 
+                                  className="markdown-content" 
+                                  style={{ 
+                                    color: isSelected ? '#e5e7eb' : '#d1d5db', 
+                                    fontSize: '14px',
+                                    fontWeight: isSelected ? 500 : 'normal'
+                                  }}
+                                  dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : q.question_type === 'multi_select' && q.choices && q.choices.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {q.choices.map((choice, choiceIndex) => {
+                            const selectedAnswers = currentAnswer.split(',').filter(Boolean);
+                            const isChecked = selectedAnswers.includes(choice);
+                            
+                            return (
+                              <label
+                                key={choiceIndex}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  cursor: 'pointer',
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  backgroundColor: '#1f2937',
+                                  border: '1px solid #4b5563',
+                                  transition: 'background-color 0.2s, border-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#374151';
+                                  e.currentTarget.style.borderColor = '#6b7280';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#1f2937';
+                                  e.currentTarget.style.borderColor = '#4b5563';
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  value={choice}
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const selectedAnswers = currentAnswer.split(',').filter(Boolean);
+                                    let newAnswers: string[];
+                                    
+                                    if (e.target.checked) {
+                                      newAnswers = [...selectedAnswers, choice];
+                                    } else {
+                                      newAnswers = selectedAnswers.filter(a => a !== choice);
+                                    }
+                                    
+                                    setComprehensionAnswers(prev => ({
+                                      ...prev,
+                                      [q.id]: newAnswers.join(',')
+                                    }));
+                                    if (submissionError) {
+                                      setSubmissionError(null);
+                                    }
+                                  }}
+                                  style={{
+                                    cursor: 'pointer',
+                                    accentColor: '#3b82f6'
+                                  }}
+                                />
+                                <span 
+                                className="markdown-content" 
+                                style={{ color: '#e5e7eb', fontSize: '14px' }}
+                                dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
+                              />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <textarea
+                            id={`comp-${q.id}`}
+                            value={currentAnswer}
+                            onChange={(e) => {
+                              setComprehensionAnswers(prev => ({
+                                ...prev,
+                                [q.id]: e.target.value
+                              }));
+                              if (submissionError) {
+                                setSubmissionError(null);
+                              }
+                            }}
+                            placeholder="Your answer..."
+                            rows={3}
+                            style={{
+                              width: '100%',
+                              padding: '12px 16px',
+                              borderRadius: '6px',
+                              border: '1px solid #4b5563',
+                              backgroundColor: '#1f2937',
+                              color: '#e5e7eb',
+                              fontSize: '14px',
+                              resize: 'vertical',
+                              fontFamily: 'inherit'
+                            }}
+                          />
+                          <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                            {(() => {
+                              const wordCount = countWords(currentAnswer);
+                              const minWords = 10;
+                              const isValid = wordCount >= minWords;
+                              return (
+                                <span style={{ color: isValid ? '#9ca3af' : '#f87171' }}>
+                                  {wordCount} / {minWords} words {!isValid && '(minimum required)'}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {submissionError && (
+                  <div style={{ color: '#f87171', fontSize: '12px' }}>
+                    {submissionError}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    justifyContent: 'flex-end',
+                    marginTop: 'auto',
+                    paddingTop: '16px'
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowComprehensionCheck(false)}
+                    disabled={isSubmittingProject}
+                    style={{
+                      padding: '6px 14px',
+                      backgroundColor: '#4b5563',
+                      color: '#f9fafb',
+                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      borderRadius: '6px',
+                      cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      opacity: isSubmittingProject ? 0.6 : 1,
+                      transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isSubmittingProject) {
+                        return;
+                      }
+                      e.currentTarget.style.backgroundColor = '#6b7280';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4b5563';
+                    }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleComprehensionCheckSubmit}
+                    disabled={isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                      // Multi-select questions are always valid, even if nothing is selected
+                      if (q.question_type === 'multi_select') {
+                        return false;
+                      }
+                      if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                        const answer = comprehensionAnswers[q.id] || '';
+                        return !answer.trim() || countWords(answer) < 10;
+                      }
+                      return !comprehensionAnswers[q.id]?.trim();
+                    }))}
+                    style={{
+                      padding: '6px 16px',
+                      background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                      backgroundSize: '400% 400%',
+                      backgroundPosition: '0% 50%',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                        // Multi-select questions are always valid, even if nothing is selected
+                        if (q.question_type === 'multi_select') {
+                          return false;
+                        }
+                        if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                          const answer = comprehensionAnswers[q.id] || '';
+                          return !answer.trim() || countWords(answer) < 10;
+                        }
+                        return !comprehensionAnswers[q.id]?.trim();
+                      }))) ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                        // Multi-select questions are always valid, even if nothing is selected
+                        if (q.question_type === 'multi_select') {
+                          return false;
+                        }
+                        if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                          const answer = comprehensionAnswers[q.id] || '';
+                          return !answer.trim() || countWords(answer) < 10;
+                        }
+                        return !comprehensionAnswers[q.id]?.trim();
+                      }))) ? 0.6 : 1,
+                      transition: 'opacity 0.2s ease, transform 0.2s ease',
+                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                        // Multi-select questions are always valid, even if nothing is selected
+                        if (q.question_type === 'multi_select') {
+                          return false;
+                        }
+                        if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                          const answer = comprehensionAnswers[q.id] || '';
+                          return !answer.trim() || countWords(answer) < 10;
+                        }
+                        return !comprehensionAnswers[q.id]?.trim();
+                      }))) {
+                        e.currentTarget.style.animation = '';
+                        return;
+                      }
+                      e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.animation = '';
+                    }}
+                  >
+                    {isSubmittingProject ? 'Submitting…' : 'Submit Project'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

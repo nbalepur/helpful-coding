@@ -62,10 +62,10 @@ This script will:
 ## URLs
 
 Once started, the application will be available at:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **Health Check**: http://localhost:8000/health
-- **WebSocket**: ws://localhost:8000/ws/chat
+- **Frontend**: http://localhost:4827
+- **Backend API**: http://localhost:4828
+- **Health Check**: http://localhost:4828/health
+- **WebSocket**: ws://localhost:4828/ws/chat
 
 ## Environment Setup
 
@@ -78,7 +78,7 @@ OPENAI_API_KEY=your_openai_api_key_here
 
 # Server Configuration
 HOST=0.0.0.0
-PORT=8000
+PORT=4828
 DEBUG=True
 ```
 
@@ -101,14 +101,14 @@ The frontend automatically connects to the backend via WebSocket. No additional 
 ## Troubleshooting
 
 ### Backend Issues
-- **Port 8000 in use**: Change the PORT in `backend/.env`
+- **Port 4828 in use**: Change the PORT in `backend/.env`
 - **Python virtual environment issues**: Delete `backend/venv/` and run setup again
 - **API key errors**: Check your OpenAI API key in `backend/.env`
 
 ### Frontend Issues
-- **Port 3000 in use**: Next.js will automatically use the next available port
+- **Port 4827 in use**: Next.js will automatically use the next available port
 - **Node modules issues**: Delete `interface/node_modules/` and run setup again
-- **Connection errors**: Ensure the backend is running on port 8000
+- **Connection errors**: Ensure the backend is running on port 4828
 
 ### General Issues
 - **Permission denied**: Make sure scripts are executable: `chmod +x scripts/*.sh`

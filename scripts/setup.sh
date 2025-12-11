@@ -92,7 +92,7 @@ if [ ! -f ".env" ]; then
     echo "   Example:"
     echo "   OPENAI_API_KEY=your_api_key_here"
     echo "   HOST=0.0.0.0"
-    echo "   PORT=8000"
+    echo "   PORT=4828"
     echo "   DEBUG=True"
     echo ""
     read -p "Do you want to create the .env file now? (y/n): " -n 1 -r
@@ -109,7 +109,7 @@ OPENAI_API_KEY=$api_key
 
 # Server Configuration
 HOST=0.0.0.0
-PORT=8000
+PORT=4828
 DEBUG=True
 EOF
             echo "✅ .env file created!"
@@ -142,7 +142,7 @@ echo "   Start frontend only: ./scripts/start-frontend.sh"
 echo "   Start both:          ./scripts/start-all.sh"
 echo ""
 echo "🌐 URLs:"
-echo "   Frontend: http://localhost:3000"
-echo "   Backend:  http://localhost:8000"
-echo "   Health:   http://localhost:8000/health"
+echo "   Frontend: http://localhost:4827"
+echo "   Backend:  http://localhost:4828"
+echo "   Health:   http://localhost:4828/health"
 echo ""
