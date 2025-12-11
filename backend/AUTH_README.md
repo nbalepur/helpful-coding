@@ -92,4 +92,4 @@ Run the test script to verify the endpoints:
 python test_auth.py
 ```
 
-Make sure the backend server is running on `localhost:8000` before running tests.
+Make sure the backend server is running on `localhost:4828` before running tests.

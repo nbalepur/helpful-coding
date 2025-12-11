@@ -46,10 +46,10 @@ echo -e "${YELLOW}📦 Checking dependencies...${NC}"
 cd "$PROJECT_ROOT"
 
 # Try to activate conda environment
+CONDA_AVAILABLE=false
 if command -v conda &> /dev/null; then
-    echo -e "${YELLOW}🔧 Activating conda environment 'helpful-coding'...${NC}"
-    eval "$(conda shell.bash hook)"
-    conda activate helpful-coding
+    CONDA_AVAILABLE=true
+    echo -e "${YELLOW}🔧 Using conda environment 'helpful-coding'...${NC}"
 else
     echo -e "${YELLOW}⚠️  Conda not found, trying virtual environment...${NC}"
     # Fallback to virtual environment if conda is not available
@@ -65,13 +65,21 @@ fi
 # Install requirements if needed
 if [ -f "backend/requirements.txt" ]; then
     echo -e "${YELLOW}📥 Installing requirements...${NC}"
-    pip install -r backend/requirements.txt
+    if [ "$CONDA_AVAILABLE" = true ]; then
+        conda run -n helpful-coding pip install -r backend/requirements.txt
+    else
+        pip install -r backend/requirements.txt
+    fi
 fi
 
 # Run the reset script
 echo -e "${YELLOW}🗑️  Resetting database (dropping all tables)...${NC}"
 cd "$SCRIPT_DIR/../python"
-python3 reset_tables.py
+if [ "$CONDA_AVAILABLE" = true ]; then
+    conda run -n helpful-coding python reset_tables.py
+else
+    python3 reset_tables.py
+fi
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Database reset successfully!${NC}"

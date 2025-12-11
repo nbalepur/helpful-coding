@@ -25,6 +25,22 @@
   animation: fade-in-up 0.35s ease-out both;
 }
 
+/* Suggestion animation - appears floating up and fading in */
+@keyframes suggestion-appear {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.suggestion-animate {
+  animation: suggestion-appear 0.4s ease-out forwards;
+}
+
 @keyframes dot-bounce {
   0%, 80%, 100% {
     transform: translateY(0);
@@ -52,7 +68,7 @@
   animation-delay: 0.24s;
 }
 
-/* Animated Gradient for Vibe Code Arena - moved to globals.css to avoid conflicts */
+/* Animated Gradient for Vibe Jam - moved to globals.css to avoid conflicts */
 
 .animate-thinking-1 {
   animation: thinking-wave 1.2s ease-in-out infinite;
@@ -2270,6 +2286,7 @@ button:active {
   /* padding: 5px 5px 5px 10px; */
   padding: 5px 10px;
   margin: auto;
+  margin-top: 12px;
   /* background-color: rgb(100 116 139); */
   background-color: #646464;
   /* background-color: #007acc; */
@@ -6587,4 +6604,19 @@ a#post-task:active {
   opacity: 0 !important;
   display: none !important;
   visibility: hidden !important;
+}
+
+.assistant-side-divider {
+  background-color: transparent !important;
+  transition: background-color 0.2s ease;
+}
+
+.assistant-side-divider:hover,
+.assistant-side-divider:active {
+  background-color: transparent !important;
+}
+
+.editor-pane-side {
+  border-left: 1px solid #404040;
+  border-bottom: 1px solid #404040;
 }

@@ -5,13 +5,31 @@
 
 export const ENV = {
   // Backend API URL
-  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000',
+  BACKEND_URL: ((): string => {
+    const raw = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
+    try {
+      const u = new URL(raw);
+      if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
+      return u.toString().replace(/\/$/, '');
+    } catch {
+      return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
+    }
+  })(),
   
   // Backend WebSocket URL
-  BACKEND_WS_URL: process.env.NEXT_PUBLIC_BACKEND_WS_URL || 'ws://localhost:8000',
+  BACKEND_WS_URL: ((): string => {
+    const raw = process.env.NEXT_PUBLIC_BACKEND_WS_URL || 'ws://127.0.0.1:4828';
+    try {
+      const u = new URL(raw);
+      if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
+      return u.toString().replace(/\/$/, '');
+    } catch {
+      return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
+    }
+  })(),
   
   // Frontend URL
-  FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000',
+  FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://127.0.0.1:4827',
   
   // Default backend port for user code execution
   DEFAULT_BACKEND_PORT: parseInt(process.env.NEXT_PUBLIC_DEFAULT_BACKEND_PORT || '5000', 10),
@@ -33,5 +51,8 @@ export const ENV = {
   get WS_CHAT_URL() {
     return `${this.BACKEND_WS_URL}/ws/chat`;
   },
+
+  // Cookie prefix to namespace app cookies and avoid collisions with user code
+  COOKIE_PREFIX: process.env.NEXT_PUBLIC_COOKIE_PREFIX || 'vca_',
 } as const;
 

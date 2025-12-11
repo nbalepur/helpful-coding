@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import LoginForm from "./LoginForm";
 import SignupForm from "./SignupForm";
 import IRBConsentForm from "./IRBConsentForm";
@@ -10,9 +11,15 @@ export default function LandingPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading, login } = useAuth();
   const [videosLoaded, setVideosLoaded] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const [showLoginForm, setShowLoginForm] = useState(false);
   const [showSignupForm, setShowSignupForm] = useState(false);
   const [showIRBForm, setShowIRBForm] = useState(false);
+
+  // Set mounted state to prevent hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -23,12 +30,14 @@ export default function LandingPage() {
 
   useEffect(() => {
     // Wait for videos to load before showing carousel
-    const timer = setTimeout(() => {
-      setVideosLoaded(true);
-    }, 0); // Increased delay to 2 seconds
-    
-    return () => clearTimeout(timer);
-  }, []);
+    if (isMounted) {
+      const timer = setTimeout(() => {
+        setVideosLoaded(true);
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isMounted]);
 
   const handleLogin = () => {
     setShowLoginForm(true);
@@ -49,8 +58,9 @@ export default function LandingPage() {
   };
 
   const handleSwitchToSignup = () => {
-    setShowSignupForm(true);
+    setShowIRBForm(true);
     setShowLoginForm(false);
+    setShowSignupForm(false);
   };
 
   const handleSwitchToLogin = () => {
@@ -85,6 +95,20 @@ export default function LandingPage() {
   // Duplicate items for seamless infinite scroll
   const duplicatedItems = [...demoItems, ...demoItems];
 
+
+  // Prevent hydration mismatch by not rendering content until mounted
+  if (!isMounted) {
+    return (
+      <div className="h-screen overflow-hidden bg-gray-900 text-white">
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen overflow-hidden bg-gray-900 text-white">
@@ -131,26 +155,29 @@ export default function LandingPage() {
           <div className="flex flex-col items-center h-full px-4 text-center justify-center py-8">
         {/* Header */}
         <div className="text-center w-full mb-6">
-          <h1 className="text-6xl font-light mb-4 w-full text-center">
-            <span className="font-semibold" style={{
-              background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
-              backgroundSize: '400% 400%',
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              animation: 'gradient-shift 3s ease infinite'
-            }}>
-              Vibe Code Arena
-            </span>
-          </h1>
+          <div className="flex flex-row items-center justify-center mb-4 gap-4">
+            <img src="/toast.png" alt="Toast" className="h-16 w-auto object-contain" />
+            <h1 className="text-6xl font-light text-center">
+              <span className="font-semibold" style={{
+                background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                backgroundSize: '400% 400%',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                animation: 'gradient-shift 3s ease infinite'
+              }}>
+                Vibe Jam
+              </span>
+            </h1>
+          </div>
           <p className="text-2xl text-gray-400 mb-4">
-          🚀 Build fun projects, win prizes, and show off your AI-assisted coding skills
+            Build fun projects, win prizes, and show off your AI-assisted coding skills
           </p>
         </div>
 
                 {/* Demo Windows (auto-scrolling left → right with edge fade) */}
                 <div className="landing-carousel" style={{height: '33vh'}}>
-          <div className="landing-slide-track" style={{opacity: videosLoaded ? 1 : 0}}>
+          <div className="landing-slide-track" style={{opacity: (isMounted && videosLoaded) ? 1 : 0}}>
             {duplicatedItems.map((item, index) => (
               <div key={`${item.id}-${index}`} className="landing-slide">
                 <div className="bg-gray-950 rounded-lg border border-gray-700 overflow-hidden">

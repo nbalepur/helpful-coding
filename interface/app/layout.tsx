@@ -2,12 +2,13 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from './utils/auth'
+import { SnackbarProvider } from './components/SnackbarProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Vibe Code Arena',
-  description: 'Vibe Code Arena'
+  title: 'Vibe Jam',
+  description: 'Vibe Jam'
 }
 
 export default function RootLayout({
@@ -19,7 +20,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
-          {children}
+          <SnackbarProvider>
+            {children}
+          </SnackbarProvider>
         </AuthProvider>
       </body>
     </html>

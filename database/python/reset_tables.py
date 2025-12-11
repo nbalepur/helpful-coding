@@ -7,12 +7,13 @@ import sys
 import os
 from pathlib import Path
 
-# Add the parent directory to the path so we can import from database
-sys.path.append(str(Path(__file__).parent.parent))
+# Add the repository root to sys.path so we can import the package 'database'
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
 
-# Import from the parent directory
-import config
-import sqlalchemy_models
+# Import via the package to enable relative imports inside modules
+from database import config, sqlalchemy_models
 import logging
 
 # Set up logging

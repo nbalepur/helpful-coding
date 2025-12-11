@@ -6,18 +6,15 @@ import {
   X,
   Grid3X3,
   Trophy,
-  BarChart3,
   Brain,
   Info,
-  Monitor,
-  Sun,
-  Moon,
+  // Monitor,
+  // Sun,
+  // Moon,
   Command,
   Zap,
   Coffee,
   Smile,
-  PanelBottom,
-  PanelRight,
   User
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
@@ -27,10 +24,8 @@ interface SidebarProps {
   onToggle: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
-  theme: 'native' | 'light' | 'dark';
-  onThemeChange: (theme: 'native' | 'light' | 'dark') => void;
-  assistantPlacement: 'bottom' | 'side';
-  onAssistantPlacementChange: (placement: 'bottom' | 'side') => void;
+  // theme: 'native' | 'light' | 'dark';
+  // onThemeChange: (theme: 'native' | 'light' | 'dark') => void;
   isAssistantVisible: boolean;
   onAssistantVisibleChange: (visible: boolean) => void;
 }
@@ -40,10 +35,8 @@ export default function Sidebar({
   onToggle, 
   activeTab, 
   onTabChange, 
-  theme, 
-  onThemeChange,
-  assistantPlacement,
-  onAssistantPlacementChange,
+  // theme, 
+  // onThemeChange,
   isAssistantVisible,
   onAssistantVisibleChange
 }: SidebarProps) {
@@ -57,24 +50,19 @@ export default function Sidebar({
 
   const navigationItems = [
     { id: 'tasks', icon: Grid3X3, label: 'Tasks' },
-    { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
-    { id: 'stats', icon: BarChart3, label: 'My Stats' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
+    { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
     { id: 'about', icon: Info, label: 'About' },
   ] as const;
 
   // Feedback removed; About moved into navigation
 
-  const themeOptions = [
-    { id: 'native', icon: Monitor, label: 'Native' },
-    { id: 'light', icon: Sun, label: 'Light' },
-    { id: 'dark', icon: Moon, label: 'Dark' },
-  ] as const;
+  // const themeOptions = [
+  //   { id: 'native', icon: Monitor, label: 'Native' },
+  //   { id: 'light', icon: Sun, label: 'Light' },
+  //   { id: 'dark', icon: Moon, label: 'Dark' },
+  // ] as const;
 
-  const assistantOptions = [
-    { id: 'bottom', icon: PanelBottom, label: 'Bottom' },
-    { id: 'side', icon: PanelRight, label: 'Side' },
-  ] as const;
 
   const ChillLogo = () => (
     <div className="relative w-8 h-8">
@@ -99,14 +87,14 @@ export default function Sidebar({
     <div className="relative group">
       {children}
       {(always || !isOpen) && (
-        <div className={`absolute ${placement === 'right' ? 'left-full ml-2 top-1/2 -translate-y-1/2' : 'top-full mt-2 left-1/2 -translate-x-1/2'} px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700`}>
+        <div className={`absolute ${placement === 'right' ? 'left-full ml-2 top-1/2 -translate-y-1/2' : 'top-full mt-2 left-1/2 -translate-x-1/2'} px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300`}>
           {text}
         </div>
       )}
     </div>
   );
 
-  const getSidebarShortcutLabel = () => 'Tab';
+  const getSidebarShortcutLabel = () => 'Open Sidebar (Tab)';
 
   // Prevent flicker by not rendering until mounted
   if (!mounted) {
@@ -124,23 +112,49 @@ export default function Sidebar({
         <div className="flex flex-col h-full">
           {/* Top Toggle Button */}
           <div className={`py-4 border-b border-gray-800 ${isOpen ? 'px-4' : 'px-2'}`}>
-            <Tooltip text={getSidebarShortcutLabel()}>
-              <button
-                onClick={onToggle}
-                className={`w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg bg-gray-900 hover:bg-gray-800 transition-colors`}
-              >
-                {isOpen ? <X size={16} /> : <Menu size={16} />}
-                <span className={`transition-all duration-300 ${
-                  isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0 overflow-hidden'
-                }`}>
-                  Collapse
-                </span>
-              </button>
-            </Tooltip>
+            {isOpen ? (
+              <div className="w-full flex items-center justify-between space-x-3 px-3 h-10 py-0 rounded-lg bg-gray-900">
+                <div className="flex items-center space-x-3 flex-1">
+                  <img 
+                    src="/toast.png" 
+                    alt="Toast" 
+                    className="w-8 h-8 object-contain"
+                  />
+                  <span className="text-white font-semibold">Vibe Jam</span>
+                </div>
+                <Tooltip text={getSidebarShortcutLabel()}>
+                  <button
+                    onClick={onToggle}
+                    className="flex items-center justify-center w-8 h-8 rounded hover:bg-gray-800 transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </Tooltip>
+              </div>
+            ) : (
+              <Tooltip text={getSidebarShortcutLabel()}>
+                <button
+                  onClick={onToggle}
+                  className="w-full flex items-center justify-center px-1 h-10 py-0 rounded-lg bg-gray-900 hover:bg-gray-800 transition-colors relative"
+                >
+                  <div className="relative w-8 h-8 flex items-center justify-center group">
+                    <img 
+                      src="/toast.png" 
+                      alt="Toast" 
+                      className="w-full h-full object-contain transition-opacity duration-200 group-hover:opacity-0"
+                    />
+                    <Menu 
+                      size={16} 
+                      className="absolute inset-0 m-auto opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                    />
+                  </div>
+                </button>
+              </Tooltip>
+            )}
           </div>
 
           {/* Navigation */}
-          <div className="flex-1 py-6">
+          <div className="flex-1 pt-2 pb-6">
             <div className={`${isOpen ? 'px-2' : 'px-1'}`}>
               <h2 className={`text-sm font-medium text-gray-400 uppercase tracking-wider mb-3 px-2 transition-all duration-300 ${
                 isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
@@ -152,7 +166,6 @@ export default function Sidebar({
                   const routeMap: Record<string, string> = {
                     'tasks': '/browse',
                     'leaderboard': '/leaderboard',
-                    'stats': '/stats',
                     'skill-check': '/skill-check',
                     'about': '/about',
                   };
@@ -173,7 +186,7 @@ export default function Sidebar({
                         }}
                         className={`w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg transition-colors cursor-pointer ${
                           activeTab === item.id
-                            ? 'bg-gray-900 text-white'
+                            ? 'bg-gray-800 text-white'
                             : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
                         }`}
                       >
@@ -193,36 +206,8 @@ export default function Sidebar({
 
           {/* Bottom Section */}
           <div className={`border-t border-gray-800 ${isOpen ? 'p-2' : 'p-1'}`}>
-            {/* AI Assistant Placement */}
-            <div className="mb-4 mt-2">
-              <h3 className={`text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2 transition-all duration-300 ${
-                isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
-              }`}>
-                AI Placement
-              </h3>
-              <div className={`flex ${isOpen ? 'space-x-1' : 'flex-col space-y-1'}`}>
-                {assistantOptions.map((option) => (
-                  <Tooltip key={option.id} text={option.label} always={isOpen} placement={isOpen ? 'bottom' : 'right'}>
-                    <button
-                      onClick={() => {
-                        onAssistantPlacementChange(option.id as 'bottom' | 'side');
-                      }}
-                      className={`${isOpen ? 'p-2' : 'w-full flex justify-center p-2'} rounded-lg transition-colors ${
-                        assistantPlacement === option.id
-                          ? 'bg-gray-900 text-white'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
-                      }`}
-                      aria-pressed={assistantPlacement === option.id}
-                    >
-                      <option.icon size={16} />
-                    </button>
-                  </Tooltip>
-                ))}
-              </div>
-            </div>
-
             {/* Theme Selector */}
-            <div className="mb-4">
+            {/* <div className="mb-4">
               <div className={`border-t border-gray-800 mb-4 ${isOpen ? 'mx-[-8px]' : 'mx-[-4px]'}`}></div>
               <h3 className={`text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2 transition-all duration-300 ${
                 isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
@@ -246,12 +231,11 @@ export default function Sidebar({
                   </Tooltip>
                 ))}
               </div>
-            </div>
+            </div> */}
 
 
             {/* User Profile / Logout */}
             <div>
-              <div className={`border-t border-gray-800 ${isOpen ? 'mx-[-8px]' : 'mx-[-4px]'}`}></div>
               <div className="pt-4 mb-2">
                 <div className={`flex items-center w-full ${isOpen ? 'justify-start' : 'justify-center'}`}>
                 <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
