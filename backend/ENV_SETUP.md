@@ -13,7 +13,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 # Email Configuration (SendGrid)
 SENDGRID_API_KEY=your_sendgrid_api_key_here
 FROM_EMAIL=noreply@yourdomain.com
-RESET_LINK_BASE_URL=http://localhost:3000/reset-password
+RESET_LINK_BASE_URL=http://localhost:4827/reset-password
 
 # Development Settings
 DEBUG=True

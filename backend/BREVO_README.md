@@ -28,7 +28,7 @@ Add the following variables to your `.env` file:
 BREVO_API_KEY=your_brevo_api_key_here
 FROM_EMAIL=noreply@helpfulcoding.com
 FROM_NAME=Helpful Coding
-RESET_LINK_BASE_URL=http://localhost:3000/reset-password
+RESET_LINK_BASE_URL=http://localhost:4827/reset-password
 ```
 
 ### 4. Test the Integration

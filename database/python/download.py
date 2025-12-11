@@ -34,7 +34,6 @@ def export_to_json(output_file):
         projects = crud.ProjectCRUD.get_all(db)
         codes = crud.CodeCRUD.get_all(db)
         submissions = crud.SubmissionCRUD.get_all(db)
-        feedbacks = crud.SubmissionFeedbackCRUD.get_all(db)
         
         # Convert to dictionaries
         data = {
@@ -43,11 +42,10 @@ def export_to_json(output_file):
             "projects": [project.__dict__ for project in projects],
             "codes": [code.__dict__ for code in codes],
             "submissions": [submission.__dict__ for submission in submissions],
-            "feedbacks": [feedback.__dict__ for feedback in feedbacks]
         }
         
         # Remove SQLAlchemy internal attributes
-        for table_name in ["users", "projects", "codes", "submissions", "feedbacks"]:
+        for table_name in ["users", "projects", "codes", "submissions"]:
             for item in data[table_name]:
                 if "_sa_instance_state" in item:
                     del item["_sa_instance_state"]
@@ -57,7 +55,7 @@ def export_to_json(output_file):
             json.dump(data, f, indent=2, default=str)
         
         logger.info(f"✅ Data exported to {output_file}")
-        logger.info(f"Exported {len(users)} users, {len(projects)} projects, {len(codes)} codes, {len(submissions)} submissions, {len(feedbacks)} feedbacks")
+        logger.info(f"Exported {len(users)} users, {len(projects)} projects, {len(codes)} codes, {len(submissions)} submissions")
         return True
         
     except Exception as e:
@@ -100,9 +98,18 @@ def export_to_csv(output_dir):
         if codes:
             with open(f"{output_dir}/codes.csv", 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['id', 'user_id', 'project_id', 'filename', 'code', 'has_issue', 'created_at', 'updated_at'])
+                writer.writerow(['id', 'user_id', 'project_id', 'code', 'mode', 'metadata', 'created_at', 'updated_at'])
                 for code in codes:
-                    writer.writerow([code.id, code.user_id, code.project_id, code.filename, code.code, code.has_issue, code.created_at, code.updated_at])
+                    writer.writerow([
+                        code.id,
+                        code.user_id,
+                        code.project_id,
+                        json.dumps(code.code),
+                        code.mode,
+                        json.dumps(code.code_metadata) if code.code_metadata is not None else None,
+                        code.created_at,
+                        code.updated_at
+                    ])
             logger.info(f"✅ Codes exported to {output_dir}/codes.csv")
         
         # Export submissions
@@ -110,20 +117,21 @@ def export_to_csv(output_dir):
         if submissions:
             with open(f"{output_dir}/submissions.csv", 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['id', 'user_id', 'project_id', 'name', 'description', 'frontend_file', 'html_file', 'css_file', 'created_at', 'updated_at'])
+                writer.writerow(['id', 'user_id', 'project_id', 'title', 'description', 'code', 'scores', 'image', 'created_at', 'updated_at'])
                 for submission in submissions:
-                    writer.writerow([submission.id, submission.user_id, submission.project_id, submission.name, submission.description, submission.frontend_file, submission.html_file, submission.css_file, submission.created_at, submission.updated_at])
+                    writer.writerow([
+                        submission.id,
+                        submission.user_id,
+                        submission.project_id,
+                        submission.title,
+                        submission.description,
+                        json.dumps(submission.code),
+                        json.dumps(submission.scores) if submission.scores is not None else None,
+                        submission.image,
+                        submission.created_at,
+                        submission.updated_at
+                    ])
             logger.info(f"✅ Submissions exported to {output_dir}/submissions.csv")
-        
-        # Export feedbacks
-        feedbacks = crud.SubmissionFeedbackCRUD.get_all(db)
-        if feedbacks:
-            with open(f"{output_dir}/submission_feedbacks.csv", 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['id', 'user_id', 'submission_id', 'rating', 'created_at', 'updated_at'])
-                for feedback in feedbacks:
-                    writer.writerow([feedback.id, feedback.user_id, feedback.submission_id, feedback.rating, feedback.created_at, feedback.updated_at])
-            logger.info(f"✅ Feedbacks exported to {output_dir}/submission_feedbacks.csv")
         
         return True
         
@@ -143,15 +151,13 @@ def show_database_stats():
         projects_count = len(crud.ProjectCRUD.get_all(db))
         codes_count = len(crud.CodeCRUD.get_all(db))
         submissions_count = len(crud.SubmissionCRUD.get_all(db))
-        feedbacks_count = len(crud.SubmissionFeedbackCRUD.get_all(db))
         
         logger.info("📊 Database Statistics:")
         logger.info(f"  Users: {users_count}")
         logger.info(f"  Projects: {projects_count}")
         logger.info(f"  Code files: {codes_count}")
         logger.info(f"  Submissions: {submissions_count}")
-        logger.info(f"  Feedbacks: {feedbacks_count}")
-        logger.info(f"  Total records: {users_count + projects_count + codes_count + submissions_count + feedbacks_count}")
+        logger.info(f"  Total records: {users_count + projects_count + codes_count + submissions_count}")
         
         return True
         

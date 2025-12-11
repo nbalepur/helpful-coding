@@ -1,23 +1,27 @@
 "use client";
-import React, { useMemo, useRef, useState, useImperativeHandle, forwardRef, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useImperativeHandle, forwardRef, useCallback, useEffect } from 'react';
 import PreviewIframe from './PreviewIframe';
-import PreviewDebugPanel, { PreviewDebugPanelRef } from './PreviewDebugPanel';
+import PreviewDebugPanel, { PreviewDebugPanelRef, ConsoleSourceClickPayload, ConsoleMessageMeta } from './PreviewDebugPanel';
 import { FileNode } from './FileManager';
 import { RefreshCw, Bug, Terminal, X, Columns, Rows } from 'lucide-react';
+import { getUserSettingsCookie, updateUserSetting } from '../utils/cookies';
+
+type PreviewRefreshSource = 'toolbar' | 'debug-panel' | 'iframe-shortcut' | 'external';
 
 interface PreviewTabProps {
   files: FileNode[];
   className?: string;
   taskName?: string;
   actualEditorRef?: React.RefObject<any>;
+  onRefresh?: (source: PreviewRefreshSource) => void;
 }
 
 export interface PreviewTabRef {
   refreshPreview: () => void;
-  addConsoleMessage: (message: any, level: string) => void;
+  addConsoleMessage: (message: any, level: string, source?: string, meta?: ConsoleMessageMeta) => void;
 }
 
-const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef }, ref) => {
+const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh }, ref) => {
   const previewRef = useRef<any>(null);
   const debugPanelRef = useRef<PreviewDebugPanelRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,12 +29,22 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [url, setUrl] = useState(`https://vibecode.io/${taskName.toLowerCase().replace(/\s+/g, '-')}`);
   
-  // Console placement and dragging state
-  const [consolePlacement, setConsolePlacement] = useState<'side' | 'bottom'>('bottom');
+  // Console placement and dragging state - load from cookies
+  const [consolePlacement, setConsolePlacement] = useState<'side' | 'bottom'>(() => {
+    if (typeof window === 'undefined') return 'bottom';
+    const settings = getUserSettingsCookie();
+    return settings.debugConsolePlacement;
+  });
   const [splitterPosition, setSplitterPosition] = useState(50); // Percentage for side placement
   const [consoleHeight, setConsoleHeight] = useState(200); // Pixels for bottom placement
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const isInitialMountRef = useRef(true);
+  const filesRef = useRef<FileNode[]>(files);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   // Update URL when taskName changes
   React.useEffect(() => {
@@ -38,23 +52,33 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
     setUrl(`https://vibecode.io/${formattedTaskName}`);
   }, [taskName]);
 
+  // Mark initial mount as complete
+  useEffect(() => {
+    isInitialMountRef.current = false;
+  }, []);
+
+  // Save debug console placement to cookies when it changes
+  useEffect(() => {
+    if (!isInitialMountRef.current) {
+      updateUserSetting('debugConsolePlacement', consolePlacement);
+    }
+  }, [consolePlacement]);
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     refreshPreview: () => {
-      setInternalRefreshKey(prev => prev + 1);
+      triggerRefresh('external');
     },
-    addConsoleMessage: (message: any, level: string) => {
-      debugPanelRef.current?.addConsoleMessage(message, level);
+    addConsoleMessage: (message: any, level: string, source?: string, meta?: Record<string, any>) => {
+      debugPanelRef.current?.addConsoleMessage(message, level, source, meta);
     }
   }));
 
-  // Extract HTML, CSS, and JS content from saved files
-  const { htmlContent, cssContent, jsContent } = useMemo(() => {
+  const getPreviewContents = useCallback(() => {
     let html = '';
     let css = '';
     let js = '';
 
-    // Try to get content from editor first (includes edited content from DiffEditor)
     let allFileContents: Record<string, string> = {};
     if (actualEditorRef?.current?.getAllFileContents) {
       try {
@@ -64,15 +88,14 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
       }
     }
 
-    // If we got content from editor, use it
+    const currentFiles = filesRef.current || [];
+
     if (Object.keys(allFileContents).length > 0) {
-      // Find files by matching content IDs to file names
       Object.entries(allFileContents).forEach(([fileId, content]) => {
-        // Try to match fileId to a file name, or use fileId as-is if it's a path
-        const matchingFile = files.find(f => f.id === fileId);
+        const matchingFile = currentFiles.find(f => f.id === fileId);
         const fileName = matchingFile?.name || fileId || '';
-        
-        if (fileName.toLowerCase().endsWith('.html') || 
+
+        if (fileName.toLowerCase().endsWith('.html') ||
             fileName.toLowerCase() === 'index.html' ||
             fileId.toLowerCase().endsWith('.html')) {
           html = String(content);
@@ -89,48 +112,45 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
         }
       });
     } else {
-      // Fallback to reading from files array if editor ref is not available
-      const flattenFiles = (nodes: FileNode[]): FileNode[] => {
+      const flattenFiles = (nodes: FileNode[] = []): FileNode[] => {
         const result: FileNode[] = [];
         const stack = [...nodes];
-        
+
         while (stack.length > 0) {
           const node = stack.shift();
           if (!node) continue;
-          
+
           if (node.type === 'file') {
             result.push(node);
           }
-          
+
           if (node.children && Array.isArray(node.children)) {
             stack.unshift(...node.children);
           }
         }
-        
+
         return result;
       };
 
-      const flatFiles = flattenFiles(files);
+      const flatFiles = flattenFiles(currentFiles);
 
-      // Find files by name patterns
-      const htmlFile = flatFiles.find(file => 
-        file.name.toLowerCase().endsWith('.html') || 
+      const htmlFile = flatFiles.find(file =>
+        file.name.toLowerCase().endsWith('.html') ||
         file.name.toLowerCase() === 'index.html'
       );
-      
-      const cssFile = flatFiles.find(file => 
-        file.name.toLowerCase().endsWith('.css') || 
+
+      const cssFile = flatFiles.find(file =>
+        file.name.toLowerCase().endsWith('.css') ||
         file.name.toLowerCase() === 'style.css' ||
         file.name.toLowerCase() === 'styles.css'
       );
-      
-      const jsFile = flatFiles.find(file => 
-        file.name.toLowerCase().endsWith('.js') || 
+
+      const jsFile = flatFiles.find(file =>
+        file.name.toLowerCase().endsWith('.js') ||
         file.name.toLowerCase() === 'script.js' ||
         file.name.toLowerCase() === 'frontend.js'
       );
 
-      // Extract content from saved files
       if (htmlFile) {
         html = htmlFile.content || '';
       }
@@ -143,18 +163,64 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
     }
 
     return { htmlContent: html, cssContent: css, jsContent: js };
-  }, [files, internalRefreshKey, actualEditorRef]);
+  }, [actualEditorRef]);
+
+  const [previewContents, setPreviewContents] = useState(() => getPreviewContents());
+
+  useEffect(() => {
+    setPreviewContents(getPreviewContents());
+  }, [taskName, getPreviewContents]);
+
+  const { htmlContent, cssContent, jsContent } = previewContents;
 
   // Handle console logs from the iframe
-  const handleConsoleLog = (message: any, level: string = 'log', source?: string) => {
+  const handleConsoleLog = (message: any, level: string = 'log', source?: string, meta?: ConsoleMessageMeta) => {
     // Forward to debug panel with optional source for errors
-    debugPanelRef.current?.addConsoleMessage(message, level, source);
+    debugPanelRef.current?.addConsoleMessage(message, level, source, meta);
   };
 
+  const handleConsoleSourceClick = useCallback((payload: ConsoleSourceClickPayload) => {
+    try {
+      const editorApi = actualEditorRef?.current;
+      if (!editorApi) return;
+
+      const preferredSource = payload.source || payload.originalSource || '';
+      if (!preferredSource) return;
+
+      const match = preferredSource.match(/^(.*?):(\d+)(?::(\d+))?$/);
+      let fileIdentifier = preferredSource;
+      let lineNumber = 1;
+      let columnNumber: number | undefined;
+
+      if (match) {
+        fileIdentifier = match[1];
+        lineNumber = parseInt(match[2], 10) || 1;
+        columnNumber = match[3] ? (parseInt(match[3], 10) || undefined) : undefined;
+      }
+
+      const normalizedFileName = fileIdentifier.split(/[\\/]/).pop() || fileIdentifier;
+
+      if (typeof editorApi.revealLocation === 'function') {
+        editorApi.revealLocation(normalizedFileName, lineNumber, columnNumber, {
+          originalPath: fileIdentifier,
+          level: payload.level,
+          message: payload.message,
+          meta: payload.meta
+        });
+      } else if (typeof editorApi.selectFileByName === 'function') {
+        editorApi.selectFileByName(normalizedFileName);
+      }
+    } catch (error) {
+      console.error('Failed to navigate to source from console output:', error);
+    }
+  }, [actualEditorRef]);
+
   // Handle refresh
-  const handleRefresh = () => {
+  const triggerRefresh = useCallback((source: PreviewRefreshSource) => {
+    onRefresh?.(source);
+    setPreviewContents(getPreviewContents());
     setInternalRefreshKey(prev => prev + 1);
-  };
+  }, [onRefresh, getPreviewContents]);
 
   // Handle debug toggle
   const handleToggleDebug = () => {
@@ -243,32 +309,32 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
       )}
       
       {/* Horizontal Toolbar */}
-      <div className="bg-gray-800/30 border-b border-gray-700/50 px-4 py-2 flex items-center space-x-3 flex-shrink-0">
+      <div className="bg-gray-800/30 border-gray-900/50 px-4 py-2 flex items-center space-x-3 flex-shrink-0">
         {/* Refresh Button */}
         <div className="relative group">
           <button
-            onClick={handleRefresh}
+            onClick={() => triggerRefresh('toolbar')}
             className="p-2 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
 
           >
             <RefreshCw size={16} className="text-gray-300" />
           </button>
-          <div className="absolute left-1/2 top-full mt-2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+          <div className="absolute left-1/2 top-full mt-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Refresh (⌘+S)
-            <div className="absolute left-1/2 -top-2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-gray-900"></div>
           </div>
         </div>
         
         {/* URL Bar */}
-        <div className="flex-1 flex items-center bg-gray-700 rounded-md px-3 py-1.5">
-          <div className="text-gray-400 text-sm mr-2">🔒</div>
+        <div className="flex-1 min-w-0 flex items-center bg-gray-700 rounded-md px-3 py-1.5">
+          <div className="text-gray-400 text-sm mr-2 flex-shrink-0">🔒</div>
           <input
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 bg-transparent text-white text-sm outline-none"
+            className="flex-1 min-w-0 bg-transparent text-white text-sm outline-none truncate"
             placeholder="https://vibecode.io/preview"
             readOnly
+            title={url}
           />
         </div>
         
@@ -287,9 +353,8 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
             </svg>
           </button>
           {/* Tooltip */}
-          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Pop out preview
-            <div className="absolute right-0 top-1/2 transform -translate-y-1/2 -mr-2 w-0 h-0 border-t-4 border-b-4 border-l-4 border-t-transparent border-b-transparent border-l-gray-900"></div>
           </div>
         </div>
 
@@ -304,9 +369,8 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
             <Bug size={16} className="text-white" />
           </button>
           {/* Tooltip */}
-          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Toggle Console
-            <div className="absolute right-0 top-1/2 transform -translate-y-1/2 -mr-2 w-0 h-0 border-t-4 border-b-4 border-l-4 border-t-transparent border-b-transparent border-l-gray-900"></div>
           </div>
         </div>
       </div>
@@ -328,6 +392,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                   cssContent={cssContent}
                   jsContent={jsContent}
                   onConsoleLog={handleConsoleLog}
+                  onSaveShortcut={() => triggerRefresh('iframe-shortcut')}
                   className="w-full"
                   key={internalRefreshKey}
                 />
@@ -362,12 +427,13 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
               <div className="flex-1 overflow-hidden">
                 <PreviewDebugPanel
                   ref={debugPanelRef}
-                  onRefresh={handleRefresh}
+                  onRefresh={() => triggerRefresh('debug-panel')}
                   onConsoleLog={handleConsoleLog}
                   className="h-full"
                   taskName={taskName}
                   placement={consolePlacement}
                   onTogglePlacement={handleTogglePlacement}
+                  onSourceClick={handleConsoleSourceClick}
                 />
               </div>
             </div>
@@ -389,6 +455,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                   cssContent={cssContent}
                   jsContent={jsContent}
                   onConsoleLog={handleConsoleLog}
+                  onSaveShortcut={() => triggerRefresh('iframe-shortcut')}
                   className="w-full"
                   key={internalRefreshKey}
                 />
@@ -423,12 +490,13 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
               <div className="flex-1 overflow-hidden">
                 <PreviewDebugPanel
                   ref={debugPanelRef}
-                  onRefresh={handleRefresh}
+                  onRefresh={() => triggerRefresh('debug-panel')}
                   onConsoleLog={handleConsoleLog}
                   className="h-full"
                   taskName={taskName}
                   placement={consolePlacement}
                   onTogglePlacement={handleTogglePlacement}
+                  onSourceClick={handleConsoleSourceClick}
                 />
               </div>
             </div>

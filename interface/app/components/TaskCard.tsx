@@ -52,7 +52,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
         return (
           <div className="relative">
             <CheckCircle className={`peer h-5 w-5 text-green-500 transition-colors cursor-help ${!disableHover ? 'hover:text-green-400' : ''}`} />
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               Completed
             </div>
           </div>
@@ -66,7 +66,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
                 <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse"></div>
               </div>
             </div>
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               In Progress
             </div>
           </div>
@@ -75,7 +75,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
         return (
           <div className="relative">
             <Circle className={`peer h-5 w-5 text-gray-500 transition-colors cursor-help ${!disableHover ? 'hover:text-gray-400' : ''}`} />
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-700 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
               Not Started
             </div>
           </div>
@@ -172,8 +172,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
           <div className="pt-4">
             <TaskInstructionNew
               taskDescription={task.description}
-              requirements={task.requirements}
-              videoDemo={task.videoDemo}
               showHeader={false}
               compact={true}
             />

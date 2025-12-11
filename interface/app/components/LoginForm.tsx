@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { ENV } from "../config/env";
 import PasswordResetModal from "./PasswordResetModal";
-import { setUserIdCookie, setAuthTokenCookie } from "../utils/cookies";
+import { setUserIdCookie, setAuthTokenCookie, generateUuidV4 } from "../utils/cookies";
 
 interface LoginFormProps {
   onSuccess: (user: any, token: string) => void;
@@ -50,8 +50,8 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
         localStorage.setItem('auth_token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
         
-        // Store in cookies for persistence
-        setUserIdCookie(data.user.id);
+        // Store in cookies for persistence (use UUID for user_id cookie)
+        setUserIdCookie(generateUuidV4());
         setAuthTokenCookie(data.access_token);
         
         // Call success callback
@@ -95,7 +95,7 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
           {/* Header */}
           <div className="text-center mb-8">
             <h2 className="text-3xl font-semibold text-white mb-2" style={{textAlign: 'center'}}>Welcome Back</h2>
-            <p className="text-gray-400">Sign in to continue to Vibe Code Arena</p>
+            <p className="text-gray-400">Sign in to continue to Vibe Jam</p>
           </div>
           
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>

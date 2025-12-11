@@ -108,7 +108,7 @@ export default function IRBIframe({ className }: IRBIframeProps) {
       style={{
         width: '100%',
         height: '100%',
-        border: '1px solid #374151',
+        border: 'none',
         borderRadius: '8px',
         background: '#111827'
       }}

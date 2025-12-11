@@ -6,6 +6,7 @@ import asyncio
 import sys
 import io
 import time
+import traceback
 
 class OneCompilerService:
     """Service for executing Python code using OneCompiler's API via RapidAPI or local exec()."""
@@ -22,7 +23,7 @@ class OneCompilerService:
             self.use_local = use_local
         
         if self.use_local:
-            print("⚠️  Using LOCAL execution mode (Python exec()). For production, set USE_LOCAL_EXECUTION=False")
+            print("⚠️  Using LOCAL execution mode (Python exec() / JS eval()). For production, set USE_LOCAL_EXECUTION=False")
         else:
             print("✅ Using OneCompiler API for secure remote execution")
     
@@ -56,67 +57,211 @@ def endpoint(path):
         
         return code
     
-    async def _execute_local(self, code: str, stdin: str = "") -> Dict[str, Any]:
+    async def _execute_local(self, code: str, stdin: str = "", language: str = "python") -> Dict[str, Any]:
         """
-        Execute Python code locally using exec().
+        Execute code locally using subprocess (Python) or subprocess (JavaScript).
         WARNING: This is unsafe and should only be used for development.
         
         Args:
-            code: Python code to execute
+            code: Code to execute
             stdin: Standard input for the code (not used in local execution)
+            language: Language to execute ('python' or 'javascript')
             
         Returns:
             Dictionary containing execution results
         """
-        # Capture stdout and stderr
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
+        if language == "javascript":
+            return await self._execute_javascript_local(code)
+
+        # Python execution using subprocess with timeout (more reliable than thread-based timeout)
+        import subprocess
+        import tempfile
         
         start_time = time.time()
-        exit_code = 0
         
         try:
-            sys.stdout = stdout_buffer
-            sys.stderr = stderr_buffer
+            # Write code to a temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(code)
+                temp_file = f.name
             
-            # Create a clean execution environment
-            exec_globals = {
-                '__builtins__': __builtins__,
-                '__name__': '__main__',
-            }
-            
-            # Execute the code
-            exec(code, exec_globals)
-            
+            try:
+                # Execute using python with timeout
+                result = subprocess.run(
+                    [sys.executable, temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # 30 second timeout
+                )
+                
+                execution_time = time.time() - start_time
+                
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "execution_time": int(execution_time * 1000),
+                }
+            finally:
+                # Clean up temp file
+                try:
+                    import os
+                    os.unlink(temp_file)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
             execution_time = time.time() - start_time
-            
-            return {
-                "success": True,
-                "stdout": stdout_buffer.getvalue(),
-                "stderr": stderr_buffer.getvalue(),
-                "exit_code": 0,
-                "execution_time": int(execution_time * 1000),  # Convert to ms
-            }
-            
-        except Exception as e:
-            execution_time = time.time() - start_time
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            
+            # Clean up temp file if it still exists
+            try:
+                import os
+                if 'temp_file' in locals():
+                    os.unlink(temp_file)
+            except:
+                pass
             return {
                 "success": False,
-                "stdout": stdout_buffer.getvalue(),
-                "stderr": stderr_buffer.getvalue() + "\n" + error_msg,
+                "stdout": "",
+                "stderr": "Timeout Error: Code did not execute after 30 seconds",
                 "exit_code": 1,
                 "execution_time": int(execution_time * 1000),
-                "error": error_msg
+                "error": "Timeout Error: Code did not execute after 30 seconds"
             }
+        except FileNotFoundError:
+            # Python not found - fallback to exec() without timeout (for compatibility)
+            execution_time = time.time() - start_time
+            # Fallback to old exec() method if subprocess fails
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
             
-        finally:
-            # Restore stdout and stderr
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+            try:
+                sys.stdout = stdout_buffer
+                sys.stderr = stderr_buffer
+                
+                exec_globals = {
+                    '__builtins__': __builtins__,
+                    '__name__': '__main__',
+                }
+                
+                exec(code, exec_globals)
+                
+                return {
+                    "success": True,
+                    "stdout": stdout_buffer.getvalue(),
+                    "stderr": stderr_buffer.getvalue(),
+                    "exit_code": 0,
+                    "execution_time": int(execution_time * 1000),
+                }
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                captured_stdout = stdout_buffer.getvalue()
+                captured_stderr = stderr_buffer.getvalue()
+                full_stderr = captured_stderr + error_msg if captured_stderr else error_msg
+                
+                return {
+                    "success": False,
+                    "stdout": captured_stdout,
+                    "stderr": full_stderr,
+                    "exit_code": 1,
+                    "execution_time": int(execution_time * 1000),
+                    "error": error_msg
+                }
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+        except Exception as e:
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": str(e),
+                "exit_code": 1,
+                "execution_time": int(execution_time * 1000),
+                "error": str(e)
+            }
+    
+    async def _execute_javascript_local(self, code: str) -> Dict[str, Any]:
+        """
+        Execute JavaScript code locally using eval().
+        WARNING: This is unsafe and should only be used for development.
+        
+        Args:
+            code: JavaScript code to execute
+            
+        Returns:
+            Dictionary containing execution results
+        """
+        import subprocess
+        import tempfile
+        
+        start_time = time.time()
+        
+        try:
+            # Write code to a temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                f.write(code)
+                temp_file = f.name
+            
+            try:
+                # Execute using node
+                result = subprocess.run(
+                    ['node', temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                execution_time = time.time() - start_time
+                
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "execution_time": int(execution_time * 1000),
+                }
+            finally:
+                # Clean up temp file
+                try:
+                    import os
+                    os.unlink(temp_file)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "exit_code": 1,
+                "execution_time": int(execution_time * 1000),
+                "error": "Timeout Error: Code did not execute after 30 seconds"
+            }
+        except FileNotFoundError:
+            # Node.js not installed
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "Node.js is not installed. Please install Node.js to run JavaScript code locally.",
+                "exit_code": 1,
+                "execution_time": int(execution_time * 1000),
+                "error": "Node.js not found"
+            }
+        except Exception as e:
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": str(e),
+                "exit_code": 1,
+                "execution_time": int(execution_time * 1000),
+                "error": str(e)
+            }
     
     async def execute_python(self, code: str, stdin: str = "") -> Dict[str, Any]:
         """
@@ -134,8 +279,8 @@ def endpoint(path):
         
         # Use local execution if configured
         if self.use_local:
-            print("Executing locally!!")
-            return await self._execute_local(code, stdin)
+            print("Executing Python locally!!")
+            return await self._execute_local(code, stdin, "python")
         
         # RapidAPI OneCompiler format
         payload = {
@@ -179,12 +324,22 @@ def endpoint(path):
                 
                 if response.status_code == 200:
                     result = response.json()
+                    # Handle nested response structure (some APIs return {data: {...}})
+                    if isinstance(result, dict) and "data" in result and isinstance(result["data"], dict):
+                        result = result["data"]
+                    
+                    # Extract fields with fallbacks for different naming conventions
+                    stdout = result.get("stdout", result.get("output", ""))
+                    stderr = result.get("stderr", result.get("error", ""))
+                    exit_code = result.get("exitCode", result.get("exit_code", result.get("exitCode", 0)))
+                    execution_time = result.get("executionTime", result.get("execution_time", 0))
+                    
                     return {
                         "success": True,
-                        "stdout": result.get("stdout", ""),
-                        "stderr": result.get("stderr", ""),
-                        "exit_code": result.get("exitCode", 0),
-                        "execution_time": result.get("executionTime", 0),
+                        "stdout": stdout if stdout else "",
+                        "stderr": stderr if stderr else "",
+                        "exit_code": int(exit_code) if exit_code else 0,
+                        "execution_time": int(execution_time) if execution_time else 0,
                         "raw_response": result  # Include raw response for debugging
                     }
                 else:
@@ -197,7 +352,11 @@ def endpoint(path):
         except httpx.TimeoutException:
             return {
                 "success": False,
-                "error": "OneCompiler API timeout - code execution took too long"
+                "stdout": "",
+                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "exit_code": 1,
+                "execution_time": 30000,
+                "error": "Timeout Error: Code did not execute after 30 seconds"
             }
         except httpx.RequestError as e:
             return {
@@ -283,3 +442,106 @@ def endpoint(path):
             "total_tests": len(test_cases),
             "passed_tests": sum(1 for r in results if r.get("passed", False))
         }
+    
+    async def execute_javascript(self, code: str, stdin: str = "") -> Dict[str, Any]:
+        """
+        Execute JavaScript code using OneCompiler's API or local Node.js.
+        
+        Args:
+            code: JavaScript code to execute
+            stdin: Standard input for the code
+            
+        Returns:
+            Dictionary containing execution results
+        """
+        # Use local execution if configured
+        if self.use_local:
+            print("Executing JavaScript locally!!")
+            return await self._execute_local(code, stdin, "javascript")
+        
+        # RapidAPI OneCompiler format
+        payload = {
+            "language": "javascript",
+            "stdin": stdin,
+            "files": [
+                {
+                    "name": "index.js",
+                    "content": code
+                }
+            ]
+        }
+        
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "x-rapidapi-host": "onecompiler-apis.p.rapidapi.com"
+            }
+            
+            # Add RapidAPI key if available
+            if self.rapidapi_key:
+                headers["x-rapidapi-key"] = self.rapidapi_key
+            else:
+                return {
+                    "success": False,
+                    "error": "RapidAPI key is required. Set RAPIDAPI_KEY environment variable."
+                }
+            
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                # Use RapidAPI OneCompiler endpoint
+                response = await client.post(
+                    "https://onecompiler-apis.p.rapidapi.com/api/v1/run",
+                    json=payload,
+                    headers=headers
+                )
+                
+                # Debug logging (remove in production)
+                if os.getenv("DEBUG", "False").lower() == "true":
+                    print(f"OneCompiler API Response Status: {response.status_code}")
+                    print(f"OneCompiler API Response: {response.text[:500]}...")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    # Handle nested response structure (some APIs return {data: {...}})
+                    if isinstance(result, dict) and "data" in result and isinstance(result["data"], dict):
+                        result = result["data"]
+                    
+                    # Extract fields with fallbacks for different naming conventions
+                    stdout = result.get("stdout", result.get("output", ""))
+                    stderr = result.get("stderr", result.get("error", ""))
+                    exit_code = result.get("exitCode", result.get("exit_code", result.get("exitCode", 0)))
+                    execution_time = result.get("executionTime", result.get("execution_time", 0))
+                    
+                    return {
+                        "success": True,
+                        "stdout": stdout if stdout else "",
+                        "stderr": stderr if stderr else "",
+                        "exit_code": int(exit_code) if exit_code else 0,
+                        "execution_time": int(execution_time) if execution_time else 0,
+                        "raw_response": result  # Include raw response for debugging
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"OneCompiler API error: {response.status_code}",
+                        "details": response.text
+                    }
+                    
+        except httpx.TimeoutException:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "exit_code": 1,
+                "execution_time": 30000,
+                "error": "Timeout Error: Code did not execute after 30 seconds"
+            }
+        except httpx.RequestError as e:
+            return {
+                "success": False,
+                "error": f"OneCompiler API request failed: {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Unexpected error calling OneCompiler API: {str(e)}"
+            }
