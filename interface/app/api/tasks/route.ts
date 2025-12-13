@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ENV } from '@/app/config/env';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(_request: NextRequest) {
   try {
-    const raw = ENV.BACKEND_URL;
-    console.log('raw', raw);
-    const res = await fetch(`${raw}/api/tasks-db`);
+    // API routes run server-side, so use internal backend URL directly
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
+    const res = await fetch(`${backendUrl}/api/tasks-db`);
     if (!res.ok) {
       throw new Error(`Backend error ${res.status}`);
     }
