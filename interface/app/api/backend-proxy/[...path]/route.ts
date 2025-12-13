@@ -57,23 +57,17 @@ async function proxyRequest(
     const internalBackendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
     
     // Reconstruct the backend URL with the path and query string
-    // The path from the proxy route contains the API endpoint path
-    // e.g., if request is /api/backend-proxy/api/execute-endpoint, path array will be ["api", "execute-endpoint"]
-    // We want to forward to the backend as /api/execute-endpoint
-    // So we need to check if the first segment is "api" and use the rest, or add /api/ prefix
+    // Forward the path as-is to the backend
+    // e.g., /api/backend-proxy/login -> /login
+    //       /api/backend-proxy/api/execute-endpoint -> /api/execute-endpoint
     const pathArray = Array.isArray(params.path) ? params.path : [params.path];
     let backendPath = '';
     
     if (pathArray.length > 0) {
-      if (pathArray[0] === 'api') {
-        // Path already starts with "api", use the rest
-        backendPath = '/api/' + pathArray.slice(1).join('/');
-      } else {
-        // Path doesn't start with "api", add it
-        backendPath = '/api/' + pathArray.join('/');
-      }
+      // Join all path segments and forward directly to backend
+      backendPath = '/' + pathArray.join('/');
     } else {
-      backendPath = '/api';
+      backendPath = '/';
     }
     
     const targetUrl = `${internalBackendUrl}${backendPath}${url.search}`;

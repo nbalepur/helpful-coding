@@ -33,9 +33,10 @@ export const ENV = {
     // Use proxy if explicitly enabled, or in production build, or on production host
     if (useProxy || isProductionHost) {
       // Use relative URL to proxy through Next.js
-      // Note: Code uses ${BACKEND_URL}/api/..., so we need /api/backend-proxy/api
-      // This way: /api/backend-proxy/api + /execute-endpoint = /api/backend-proxy/api/execute-endpoint
-      return '/api/backend-proxy/api';
+      // Code uses ${BACKEND_URL}/login or ${BACKEND_URL}/api/...
+      // So: /api/backend-proxy + /login = /api/backend-proxy/login (proxy forwards to /login)
+      // And: /api/backend-proxy + /api/execute-endpoint = /api/backend-proxy/api/execute-endpoint (proxy forwards to /api/execute-endpoint)
+      return '/api/backend-proxy';
     }
     
     // In development, use direct connection
