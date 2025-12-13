@@ -33,14 +33,25 @@ const nextConfig = {
     async rewrites() {
         let backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
         // Force IPv4 (127.0.0.1) instead of localhost which can resolve to IPv6 (::1)
-        backendUrl = backendUrl.replace('localhost', '127.0.0.1');
+        backendUrl = backendUrl.replace(/localhost/g, '127.0.0.1');
+        // Ensure we're using IPv4 explicitly
+        if (backendUrl.includes('127.0.0.1')) {
+            // Already good
+        } else if (backendUrl.includes('localhost')) {
+            backendUrl = backendUrl.replace('localhost', '127.0.0.1');
+        }
         const backendHost = new URL(backendUrl).origin;
         
         return [
-            // Proxy all API requests to the backend
+            // Proxy all API requests to the backend (including /api/video/*)
             {
                 source: '/api/:path*',
                 destination: `${backendHost}/api/:path*`,
+            },
+            // Proxy video requests
+            {
+                source: '/video/:path*',
+                destination: `${backendHost}/video/:path*`,
             },
             // Proxy auth endpoints
             {
