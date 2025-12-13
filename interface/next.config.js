@@ -31,7 +31,9 @@ const nextConfig = {
     // Proxy backend API requests to the backend server
     // This allows the frontend to access the backend through the same port (4827)
     async rewrites() {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
+        let backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
+        // Force IPv4 (127.0.0.1) instead of localhost which can resolve to IPv6 (::1)
+        backendUrl = backendUrl.replace('localhost', '127.0.0.1');
         const backendHost = new URL(backendUrl).origin;
         
         return [
