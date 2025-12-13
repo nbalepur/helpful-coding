@@ -20,7 +20,10 @@ export async function middleware(request: NextRequest) {
 
   if (userId && authToken) {
     try {
-      const response = await fetch(`${ENV.BACKEND_URL}/auth/validate`, {
+      // Middleware runs server-side, so use internal backend URL directly
+      // Don't use proxy route - middleware can access 127.0.0.1:4828 directly
+      const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828'
+      const response = await fetch(`${backendUrl}/auth/validate`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
