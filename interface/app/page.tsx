@@ -2,7 +2,7 @@
 
 // Disable static prerender to avoid CSR bailout issues with useSearchParams
 export const dynamic = 'force-dynamic';
-import { useState, useEffect, useRef, useTransition, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useTransition, useCallback, useMemo, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "./utils/auth";
@@ -47,7 +47,7 @@ import UserSubmissions from "./components/UserSubmissions";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
 
-export default function Home() {
+function HomeInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -2892,5 +2892,13 @@ export default function Home() {
       )}
       
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeInner />
+    </Suspense>
   );
 }

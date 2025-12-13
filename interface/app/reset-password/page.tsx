@@ -3,11 +3,11 @@
 // Disable static prerender to avoid CSR bailout issues with useSearchParams
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ENV } from '../config/env';
 
-export default function ResetPasswordPage() {
+function ResetPasswordPageInner() {
   const [formData, setFormData] = useState({
     newPassword: '',
     confirmPassword: ''
@@ -256,5 +256,13 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordPageInner />
+    </Suspense>
   );
 }
