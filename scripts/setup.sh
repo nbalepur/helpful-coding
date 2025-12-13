@@ -59,20 +59,51 @@ echo "🔧 Setting up backend..."
 # Setup backend
 cd "$PROJECT_ROOT/backend"
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "📦 Creating Python virtual environment..."
-    python3 -m venv venv
-    echo "✅ Virtual environment created"
-else
-    echo "✅ Virtual environment already exists"
+# Check if conda is installed
+if ! command -v conda &> /dev/null; then
+    echo "❌ Conda is not installed. Please install conda first."
+    echo "   Visit: https://docs.conda.io/en/latest/miniconda.html"
+    exit 1
 fi
 
-# Activate virtual environment and install dependencies
-echo "🔧 Activating virtual environment and installing dependencies..."
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-    echo "✅ Virtual environment activated"
+# Initialize conda
+eval "$(conda shell.bash hook)"
+
+# Create conda environment if it doesn't exist
+# Check if environment exists (more robust check)
+if conda env list | grep -qE "helpful-coding\s"; then
+    echo "✅ Conda environment 'helpful-coding' already exists"
+    echo "🔍 Checking Python version in conda environment..."
+    # Activate to check version
+    eval "$(conda shell.bash hook)"
+    conda activate helpful-coding
+    conda_python_version=$(python --version 2>&1 | cut -d' ' -f2)
+    echo "   Python version in conda env: $conda_python_version"
+    conda deactivate
+else
+    echo "📦 Creating conda environment 'helpful-coding' with Python 3.11..."
+    conda create -n helpful-coding python=3.11 -y
+    echo "✅ Conda environment created"
+fi
+
+# Activate conda environment and install dependencies
+echo "🔧 Activating conda environment and installing dependencies..."
+eval "$(conda shell.bash hook)"
+if conda activate helpful-coding; then
+    echo "✅ Conda environment activated"
+    
+    # Verify Python version
+    python_version=$(python --version 2>&1 | cut -d' ' -f2)
+    echo "   Using Python: $python_version"
+    
+    # Check if Python version is 3.8+
+    major_version=$(echo "$python_version" | cut -d'.' -f1)
+    minor_version=$(echo "$python_version" | cut -d'.' -f2)
+    if [ "$major_version" -lt 3 ] || ([ "$major_version" -eq 3 ] && [ "$minor_version" -lt 8 ]); then
+        echo "❌ Error: Python 3.8+ is required, but conda environment has Python $python_version"
+        echo "   Please recreate the environment: conda remove -n helpful-coding --all -y && conda create -n helpful-coding python=3.11 -y"
+        exit 1
+    fi
     
     # Upgrade pip and install dependencies
     echo "📥 Upgrading pip and installing dependencies..."
@@ -80,7 +111,7 @@ if [ -f "venv/bin/activate" ]; then
     pip install -r requirements.txt
     echo "✅ Backend dependencies installed"
 else
-    echo "❌ Failed to activate virtual environment. Please check the setup."
+    echo "❌ Failed to activate conda environment. Please check the setup."
     exit 1
 fi
 

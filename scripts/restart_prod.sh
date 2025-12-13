@@ -100,24 +100,19 @@ if [ ! -f ".env" ]; then
 fi
 
 # Check if conda is installed and activate environment
-if command -v conda &> /dev/null; then
-    echo "🔧 Activating helpful-coding conda environment..."
-    eval "$(conda shell.bash hook)"
-    if conda activate helpful-coding; then
-        echo "✅ Conda environment activated"
-    else
-        echo "⚠️  Warning: Failed to activate helpful-coding conda environment."
-        echo "Continuing with system Python..."
-    fi
-else
-    echo "ℹ️  Conda not found, using system Python"
+if ! command -v conda &> /dev/null; then
+    echo "❌ Conda is not installed. Please install conda first."
+    exit 1
 fi
 
-# Check if virtual environment exists and activate it
-if [ -d "venv" ]; then
-    echo "🔧 Activating virtual environment..."
-    source venv/bin/activate
-    echo "✅ Virtual environment activated"
+echo "🔧 Activating helpful-coding conda environment..."
+eval "$(conda shell.bash hook)"
+if conda activate helpful-coding; then
+    echo "✅ Conda environment activated"
+else
+    echo "❌ Failed to activate helpful-coding conda environment."
+    echo "Please make sure the environment exists: conda create -n helpful-coding python=3.11"
+    exit 1
 fi
 
 # Install/update dependencies
