@@ -5,11 +5,13 @@
 
 export const ENV = {
   // Backend API URL
-  // Use relative URL if NEXT_PUBLIC_USE_PROXY is set, otherwise use full URL
+  // Use relative URL when NEXT_PUBLIC_USE_PROXY is set (defaults to true if not set)
+  // This makes requests go through Next.js rewrites to the backend
   BACKEND_URL: ((): string => {
-    // If using proxy (when only frontend port is public), use relative URLs
-    if (process.env.NEXT_PUBLIC_USE_PROXY === 'true') {
-      return ''; // Relative URL - requests will go through Next.js proxy
+    // Default to using proxy (relative URLs) unless explicitly disabled
+    const useProxy = process.env.NEXT_PUBLIC_USE_PROXY !== 'false';
+    if (useProxy) {
+      return ''; // Relative URL - requests will go through Next.js proxy/rewrites
     }
     const raw = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
     try {
