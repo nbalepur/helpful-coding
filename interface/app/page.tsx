@@ -63,7 +63,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("tasks");
   // Skill check mode: 'pre-test', 'post-test', or 'locked'
   // TODO: Replace with API call to determine skill check availability
-  const [skillCheckMode, setSkillCheckMode] = useState<'pre-test' | 'post-test' | 'locked'>('post-test');
+  const [skillCheckMode, setSkillCheckMode] = useState<'pre-test' | 'post-test' | 'locked'>('pre-test');
   // Load initial settings from cookies (only on client side)
   const [theme, setTheme] = useState<'native' | 'light' | 'dark'>(() => {
     if (typeof window === 'undefined') return 'native';
