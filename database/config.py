@@ -23,9 +23,31 @@ ASYNC_DATABASE_URL = os.getenv("ASYNC_DATABASE_URL", "postgresql+asyncpg://postg
 # DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./helpful_coding.db")
 # ASYNC_DATABASE_URL = os.getenv("ASYNC_DATABASE_URL", "sqlite+aiosqlite:///./helpful_coding.db")
 
-# Create engines
-engine = create_engine(DATABASE_URL, echo=True)
-async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=True)
+# Check if this is a Supabase connection (requires SSL)
+is_supabase = "supabase" in DATABASE_URL.lower() or "supabase" in ASYNC_DATABASE_URL.lower()
+
+# Configure engine with SSL for Supabase connections
+# Supabase requires SSL and doesn't support GSSAPI
+if is_supabase:
+    # For psycopg2 (synchronous): add SSL parameters via connect_args
+    engine = create_engine(
+        DATABASE_URL,
+        echo=True,
+        connect_args={
+            "sslmode": "require",
+            "gssencmode": "disable",  # Disable GSSAPI encryption
+        }
+    )
+    # For asyncpg (asynchronous): SSL is handled via the connection string
+    # Add ?sslmode=require if not already present
+    if "?sslmode=" not in ASYNC_DATABASE_URL and "?ssl=" not in ASYNC_DATABASE_URL:
+        separator = "&" if "?" in ASYNC_DATABASE_URL else "?"
+        ASYNC_DATABASE_URL = f"{ASYNC_DATABASE_URL}{separator}sslmode=require"
+    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=True)
+else:
+    # Standard PostgreSQL connection (local or non-SSL)
+    engine = create_engine(DATABASE_URL, echo=True)
+    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=True)
 
 # Create session makers
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
