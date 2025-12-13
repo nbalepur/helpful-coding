@@ -5,7 +5,12 @@
 
 export const ENV = {
   // Backend API URL
+  // Use relative URL if NEXT_PUBLIC_USE_PROXY is set, otherwise use full URL
   BACKEND_URL: ((): string => {
+    // If using proxy (when only frontend port is public), use relative URLs
+    if (process.env.NEXT_PUBLIC_USE_PROXY === 'true') {
+      return ''; // Relative URL - requests will go through Next.js proxy
+    }
     const raw = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
     try {
       const u = new URL(raw);
@@ -17,6 +22,8 @@ export const ENV = {
   })(),
   
   // Backend WebSocket URL
+  // WebSockets can't go through Next.js rewrites, so we need direct access
+  // If only port 4827 is public, WebSockets won't work unless backend is also accessible
   BACKEND_WS_URL: ((): string => {
     const raw = process.env.NEXT_PUBLIC_BACKEND_WS_URL || 'ws://127.0.0.1:4828';
     try {
