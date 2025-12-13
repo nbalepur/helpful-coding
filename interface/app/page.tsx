@@ -2,7 +2,6 @@
 
 // Disable static prerender to avoid CSR bailout issues with useSearchParams
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 import { useState, useEffect, useRef, useTransition, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
