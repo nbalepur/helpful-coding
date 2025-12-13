@@ -202,6 +202,7 @@ app.add_middleware(
         "http://127.0.0.1:4827",
         "http://localhost:3000",  # Legacy port support
         "http://127.0.0.1:3000",  # Legacy port support
+        "https://vibe-code.umiacs.umd.edu",  # Production frontend
     ],
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
