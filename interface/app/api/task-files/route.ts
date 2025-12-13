@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ENV } from '@/app/config/env';
 
 export const runtime = 'nodejs';
-
-console.log('ENV', ENV);
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -14,17 +12,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const raw = ENV.BACKEND_URL || 'http://127.0.0.1:4828';
-    let base = raw;
-    try {
-      const u = new URL(raw);
-      if (u.hostname === 'localhost') {
-        u.hostname = '127.0.0.1';
-      }
-      base = u.toString().replace(/\/$/, '');
-    } catch {
-      base = raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
-    }
+    // API routes run server-side, so use internal backend URL directly
+    const backendBaseUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
     
     // Build query string with taskId and optionally userId
     const queryParams = new URLSearchParams({ taskId });
@@ -32,7 +21,7 @@ export async function GET(request: NextRequest) {
       queryParams.append('userId', userId);
     }
     
-    const res = await fetch(`${base}/api/task-files-db?${queryParams.toString()}`);
+    const res = await fetch(`${backendBaseUrl}/api/task-files-db?${queryParams.toString()}`);
     if (!res.ok) {
       throw new Error(`Backend error ${res.status}`);
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ENV } from '../../../config/env';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,8 +22,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Forward to the backend
-    const backendUrl = `${ENV.BACKEND_URL}/api/skill-check/completion-status?user_id=${encodeURIComponent(userId)}&phase=${encodeURIComponent(phase)}`;
+    // API routes run server-side, so use internal backend URL directly
+    const backendBaseUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
+    const backendUrl = `${backendBaseUrl}/api/skill-check/completion-status?user_id=${encodeURIComponent(userId)}&phase=${encodeURIComponent(phase)}`;
     const response = await fetch(backendUrl);
 
     if (!response.ok) {
