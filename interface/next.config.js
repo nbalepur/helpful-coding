@@ -28,64 +28,6 @@ const nextConfig = {
         // number of pages that should be kept simultaneously without being disposed
         pagesBufferLength: 2,
     },
-    // Proxy backend API requests to the backend server
-    // This allows the frontend to access the backend through the same port (4827)
-    async rewrites() {
-        let backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:4828';
-        // Force IPv4 (127.0.0.1) instead of localhost which can resolve to IPv6 (::1)
-        backendUrl = backendUrl.replace(/localhost/g, '127.0.0.1');
-        // Ensure we're using IPv4 explicitly
-        if (backendUrl.includes('127.0.0.1')) {
-            // Already good
-        } else if (backendUrl.includes('localhost')) {
-            backendUrl = backendUrl.replace('localhost', '127.0.0.1');
-        }
-        const backendHost = new URL(backendUrl).origin;
-        
-        return [
-            // Proxy all API requests to the backend (including /api/video/*)
-            {
-                source: '/api/:path*',
-                destination: `${backendHost}/api/:path*`,
-            },
-            // Proxy video requests
-            {
-                source: '/video/:path*',
-                destination: `${backendHost}/video/:path*`,
-            },
-            // Proxy auth endpoints
-            {
-                source: '/login',
-                destination: `${backendHost}/login`,
-            },
-            {
-                source: '/signup',
-                destination: `${backendHost}/signup`,
-            },
-            {
-                source: '/auth/:path*',
-                destination: `${backendHost}/auth/:path*`,
-            },
-            // Proxy other backend endpoints
-            {
-                source: '/validate-reset-token',
-                destination: `${backendHost}/validate-reset-token`,
-            },
-            {
-                source: '/reset-password',
-                destination: `${backendHost}/reset-password`,
-            },
-            {
-                source: '/send-password-reset',
-                destination: `${backendHost}/send-password-reset`,
-            },
-            // Proxy WebSocket upgrade requests (though WebSocket itself won't work through rewrites)
-            {
-                source: '/ws/:path*',
-                destination: `${backendHost}/ws/:path*`,
-            },
-        ];
-    },
 }
 
 module.exports = nextConfig

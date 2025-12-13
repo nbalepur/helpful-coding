@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "NODE_OPTIONS='--dns-result-order=ipv4first' next start -p 4827",
+    "start": "next start -p 4827",
     "lint": "next lint",
     "sync-env": "node ../scripts/sync-env.js"
   },
