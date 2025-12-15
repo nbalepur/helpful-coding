@@ -58,7 +58,7 @@ const normalizeWhitespace = (value: string | null | undefined) =>
 const RATING_DIMENSIONS: Array<{ key: string; name: string; description: string }> = [
   {
     key: "theme",
-    name: "Theme",
+    name: "Task Fulfillment",
     description: "How well the interface adheres to the task requirements.",
   },
   {

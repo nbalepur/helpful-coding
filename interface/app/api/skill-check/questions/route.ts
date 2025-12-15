@@ -20,7 +20,15 @@ export async function GET(request: NextRequest) {
     const backendUrl = `${backendBaseUrl}/api/skill-check/questions?mode=${mode}${
       userId ? `&user_id=${encodeURIComponent(userId)}` : ''
     }`;
-    const response = await fetch(backendUrl);
+    console.log('📋 Proxying questions request:', { mode, userId, backendUrl });
+    const response = await fetch(backendUrl, {
+      cache: 'no-store', // Prevent Next.js from caching this request
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
 
     if (!response.ok) {
       const error = await response.json();

@@ -31,8 +31,17 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
 
       try {
         const phase = skillCheckMode === 'pre-test' ? 'pre-test' : 'post-test';
+        // Add timestamp to prevent caching
+        const timestamp = Date.now();
         const response = await fetch(
-          `/api/skill-check/completion-status?user_id=${encodeURIComponent(userId)}&phase=${encodeURIComponent(phase)}`
+          `/api/skill-check/completion-status?user_id=${encodeURIComponent(userId)}&phase=${encodeURIComponent(phase)}&_t=${timestamp}`,
+          {
+            cache: 'no-store', // Prevent browser caching
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            }
+          }
         );
         if (response.ok) {
           const data = await response.json();
