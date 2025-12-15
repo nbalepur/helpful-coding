@@ -45,6 +45,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   
   // Configurable paste character limit (default: 100)
   const PASTE_CHAR_LIMIT = 100;
+  // Minimum time away (in ms) before showing navigation warning (default: 5 seconds)
+  const NAVIGATION_WARNING_THRESHOLD_MS = 5000;
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -67,6 +69,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const navigationAwayTimeRef = useRef<number | null>(null); // Track when user navigated away
   const isNavigatedAwayRef = useRef<boolean>(false); // Track if user is currently away
+  const [showReportButton, setShowReportButton] = useState(false); // Track if 30 seconds have passed for current question
 
   useEffect(() => {
     loadQuestions();
@@ -109,6 +112,24 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     }
   }, [currentIndex, questions, answers, codingLanguage, userId]);
 
+  // Show report button after 30 seconds for each question
+  useEffect(() => {
+    if (questions.length > 0 && currentIndex < questions.length) {
+      // Reset report button visibility when question changes
+      setShowReportButton(false);
+      
+      // Set timer to show report button after 30 seconds
+      const timer = setTimeout(() => {
+        setShowReportButton(true);
+      }, 30000); // 30 seconds in milliseconds
+      
+      // Cleanup timer on question change or unmount
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+  }, [currentIndex, questions.length]);
+
   // Clear test results when switching between Python and JavaScript
   useEffect(() => {
     setTestResults({ allPassed: null, errorMessage: null, stdout: '', stderr: '', loading: false });
@@ -118,7 +139,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     try {
       setLoading(true);
       const userParam = userId ? `&user_id=${encodeURIComponent(String(userId))}` : '';
-      const response = await fetch(`/api/skill-check/questions?mode=${mode}${userParam}`);
+      const url = `/api/skill-check/questions?mode=${mode}${userParam}`;
+      console.log('📋 Loading questions:', { mode, userId, url });
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to load questions');
       }
@@ -293,7 +316,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
     // Helper function to log navigation event to database
     // Works for all question types - MCQA, coding, experience, NASA TLI, etc.
-    const logNavigationEvent = async (timeAwayMs: number | null = null) => {
+    const logNavigationEvent = async (timeAwayMs: number | null = null, showNotification: boolean = false) => {
       const currentQuestion = questions[currentIndex];
       if (!currentQuestion) return; // Safety check
       
@@ -310,6 +333,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             time_away_ms: timeAwayMs,
           }),
         });
+        
+        // Show snackbar notification when navigation is detected and exceeds threshold
+        if (showNotification && timeAwayMs !== null && timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS) {
+          showSnackbar('⚠️ We noticed that you navigated away from the page. Do not leave the page to look up answers.', 5000);
+        }
       } catch (error) {
         console.error('Failed to log navigation event:', error);
       }
@@ -329,7 +357,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         if (isNavigatedAwayRef.current && navigationAwayTimeRef.current) {
           const durationAway = Date.now() - navigationAwayTimeRef.current;
           isNavigatedAwayRef.current = false;
-          logNavigationEvent(durationAway); // Log when they return with duration
+          logNavigationEvent(durationAway, true); // Log when they return with duration and show notification
           navigationAwayTimeRef.current = null;
         }
       }
@@ -348,7 +376,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       if (isNavigatedAwayRef.current && navigationAwayTimeRef.current) {
         const durationAway = Date.now() - navigationAwayTimeRef.current;
         isNavigatedAwayRef.current = false;
-        logNavigationEvent(durationAway); // Log when they return with duration
+        logNavigationEvent(durationAway, true); // Log when they return with duration and show notification
         navigationAwayTimeRef.current = null;
       }
     };
@@ -389,7 +417,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [questions, currentIndex, userId, mode]);
+  }, [questions, currentIndex, userId, mode, showSnackbar, NAVIGATION_WARNING_THRESHOLD_MS]);
 
   const handleNext = useCallback(() => {
     // Log current question's answer before moving to next
@@ -1859,7 +1887,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           currentQuestion.choiceD,
         ].filter((c): c is string => !!c);
       }
-    } else if (currentQuestion.question_type === 'multi_select' || currentQuestion.question_type === 'integer') {
+    } else if (currentQuestion.question_type === 'multi_select' || currentQuestion.question_type === 'multi_select_with_time' || currentQuestion.question_type === 'integer') {
       choicesArray = Array.isArray(currentQuestion.choices) ? currentQuestion.choices : [];
     }
 
@@ -2227,11 +2255,12 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           }).join('');
           
           return result;
-        } else if (questionType === 'multi_select') {
+        } else if (questionType === 'multi_select' || questionType === 'multi_select_with_time') {
           // Special handling for experience background multi_select questions
           const isProgrammingExperience = isExperience && questionText && questionText.indexOf('What programming / scripting languages are you proficient in?') === 0;
           const isAiToolsExperience = isExperience && questionText && questionText.indexOf('Which AI tools do you use specifically for coding?') === 0;
-
+          
+          // Use matrix UI for both regular multi_select and multi_select_with_time experience questions
           if (isProgrammingExperience || isAiToolsExperience) {
             const scale = isProgrammingExperience
               ? ['None', 'Beginner', 'Intermediate', 'Advanced']
@@ -2245,10 +2274,19 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               ? baseAnswer.responses
               : {};
             const otherTextValue = typeof baseAnswer.other === 'string' ? baseAnswer.other : (initialOtherText || '');
+            const isMultiSelectWithTime = questionType === 'multi_select_with_time';
+            // For multi_select_with_time, store months per choice
+            const monthsPerChoice = isMultiSelectWithTime && baseAnswer.months && typeof baseAnswer.months === 'object'
+              ? baseAnswer.months
+              : {};
 
             (choices || []).forEach((choice) => {
               if (!responses[choice]) {
                 responses[choice] = scale[0];
+              }
+              // Initialize months for each choice if not present
+              if (isMultiSelectWithTime && !monthsPerChoice[choice]) {
+                monthsPerChoice[choice] = '';
               }
             });
 
@@ -2256,6 +2294,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               scale: scale,
               responses: responses,
               other: otherTextValue,
+              ...(isMultiSelectWithTime ? { months: monthsPerChoice } : {}),
             };
 
             // Send initial default (all "None") answer up to parent so navigation logic works
@@ -2280,6 +2319,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                 .replace(/'/g, '&#39;');
               return '<th class="matrix-header-cell">' + escaped + '</th>';
             }).join('');
+            
+            // Add months header column for multi_select_with_time
+            const monthsHeaderCell = isMultiSelectWithTime 
+              ? '<th class="matrix-header-cell"># Months Used</th>'
+              : '';
 
             const rowsHtml = (choices || []).map((choice, rowIdx) => {
               const isOther = choice === 'Other';
@@ -2301,6 +2345,14 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   '</td>'
                 );
               }).join('');
+              
+              // Add months input cell for multi_select_with_time (one per row)
+              const monthsValueForChoice = isMultiSelectWithTime ? (monthsPerChoice[choice] || '') : '';
+              const monthsCell = isMultiSelectWithTime
+                ? '<td class="matrix-cell" style="vertical-align: middle;">' +
+                  '<input type="number" class="matrix-months-input" data-choice="' + escapedChoice + '" min="1" step="1" value="' + (monthsValueForChoice.replace(/"/g, '&quot;')) + '" placeholder="Months" style="width: 80px; padding: 6px 8px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
+                  '</td>'
+                : '';
 
               const labelHtml = isOther
                 ? '<span class="matrix-row-label">Other</span>'
@@ -2316,6 +2368,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                 '<tr class="matrix-row">' +
                   '<td class="matrix-label-cell">' + labelHtml + otherInputHtml + '</td>' +
                   cells +
+                  monthsCell +
                 '</tr>'
               );
             }).join('');
@@ -2327,6 +2380,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                     '<tr>' +
                       '<th class="matrix-header-cell matrix-header-empty"></th>' +
                       headerCells +
+                      monthsHeaderCell +
                     '</tr>' +
                   '</thead>' +
                   '<tbody>' +
@@ -2337,11 +2391,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
             return tableHtml;
           }
-
+          
+          // Regular multi_select or multi_select_with_time: use checkboxes
           const selectedChoices = initialAnswer && typeof initialAnswer === 'object' && !Array.isArray(initialAnswer)
             ? (initialAnswer.selected || [])
             : (Array.isArray(initialAnswer) ? initialAnswer : []);
-          return choices.map((choice, idx) => {
+          const isMultiSelectWithTime = questionType === 'multi_select_with_time';
+          const monthsValue = isMultiSelectWithTime && initialAnswer && typeof initialAnswer === 'object' && !Array.isArray(initialAnswer)
+            ? (initialAnswer.months || '')
+            : '';
+          
+          const checkboxesHtml = choices.map((choice, idx) => {
             const isSelected = selectedChoices.includes(choice);
             const isOther = choice === 'Other';
             const otherValue = isOther ? (initialAnswer && typeof initialAnswer === 'object' && !Array.isArray(initialAnswer) ? (initialAnswer.other || '') : initialOtherText) : '';
@@ -2374,6 +2434,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               ) +
               '</label>';
           }).join('');
+          
+          // Add months input field for multi_select_with_time questions
+          if (isMultiSelectWithTime) {
+            return checkboxesHtml + 
+              '<div style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid #374151; background: rgba(31, 41, 55, 0.5);">' +
+              '<label style="display: block; margin-bottom: 8px; color: #d1d5db; font-size: 14px; font-weight: 500;"># Months Used</label>' +
+              '<input type="number" class="months-input" min="1" step="1" value="' + (monthsValue.replace(/"/g, '&quot;')) + '" placeholder="Enter a positive integer" style="width: 100%; padding: 8px 12px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
+              '</div>';
+          }
+          
+          return checkboxesHtml;
         } else if (questionType === 'integer') {
           if (!choices || !Array.isArray(choices) || choices.length === 0) {
             return '';
@@ -2565,7 +2636,15 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           // Get the actual choice texts from data-choice-text attributes
           const selected = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
             .map(cb => cb.getAttribute('data-choice-text') || cb.value);
-          sendAnswer(selected);
+          
+          // For multi_select_with_time, include months value
+          if (questionType === 'multi_select_with_time') {
+            const monthsInput = document.querySelector('.months-input');
+            const months = monthsInput ? (monthsInput.value || '') : '';
+            sendAnswer({ selected: selected, months: months });
+          } else {
+            sendAnswer(selected);
+          }
         });
       });
       
@@ -2615,12 +2694,31 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
           const otherInput = matrixTable.querySelector('.matrix-other-input');
           const otherTextVal = otherInput ? (otherInput.value || '') : '';
+          
+          // Collect months per choice for multi_select_with_time
+          const monthsPerChoice = {};
+          if (questionType === 'multi_select_with_time') {
+            const monthsInputs = matrixTable.querySelectorAll('.matrix-months-input');
+            monthsInputs.forEach(input => {
+              const choice = input.getAttribute('data-choice');
+              if (choice) {
+                monthsPerChoice[choice] = input.value || '';
+              }
+            });
+          }
 
-          return {
+          const answerObj = {
             scale: scaleFromDom,
             responses: responses,
             other: otherTextVal,
           };
+          
+          // Include months for multi_select_with_time
+          if (questionType === 'multi_select_with_time') {
+            answerObj.months = monthsPerChoice;
+          }
+          
+          return answerObj;
         }
 
         matrixTable.querySelectorAll('input[type="radio"][data-matrix="1"]').forEach(radio => {
@@ -2638,6 +2736,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             sendAnswer(answerObj);
           });
         }
+        
+        // Handle months inputs for multi_select_with_time (one per row)
+        const monthsInputs = matrixTable.querySelectorAll('.matrix-months-input');
+        if (monthsInputs.length > 0 && questionType === 'multi_select_with_time') {
+          monthsInputs.forEach(monthsInput => {
+            monthsInput.addEventListener('input', function() {
+              const answerObj = buildMatrixAnswerFromDom();
+              sendAnswer(answerObj);
+            });
+          });
+        }
 
         // Ensure initial "selected" classes are in sync
         updateSelectedClasses();
@@ -2649,10 +2758,16 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           const label = this.closest('label');
           const radio = label.querySelector('input[type="radio"]');
           const checkbox = label.querySelector('input[type="checkbox"]');
-          if (questionType === 'multi_select') {
+          if (questionType === 'multi_select' || questionType === 'multi_select_with_time') {
             const selected = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
               .map(cb => cb.getAttribute('data-choice-text') || cb.value);
-            sendAnswer({ selected: selected, other: this.value });
+            const answerObj = { selected: selected, other: this.value };
+            // Include months for multi_select_with_time
+            if (questionType === 'multi_select_with_time') {
+              const monthsInput = document.querySelector('.months-input');
+              answerObj.months = monthsInput ? (monthsInput.value || '') : '';
+            }
+            sendAnswer(answerObj);
           } else {
             if (radio) {
               radio.checked = true;
@@ -2669,6 +2784,18 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           if (checkbox) checkbox.checked = true;
         });
       });
+      
+      // Handle months input for multi_select_with_time questions
+      const monthsInput = document.querySelector('.months-input');
+      if (monthsInput && questionType === 'multi_select_with_time') {
+        monthsInput.addEventListener('input', function() {
+          const selected = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(cb => cb.getAttribute('data-choice-text') || cb.value);
+          const otherInput = document.querySelector('.other-input');
+          const otherValue = otherInput ? (otherInput.value || '') : '';
+          sendAnswer({ selected: selected, months: this.value || '', other: otherValue });
+        });
+      }
 
       // Slider handlers for integer questions
       (function setupSliderHandlers() {
@@ -2821,7 +2948,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'skillCheckAnswer') {
         const { questionId, answer, questionType } = event.data;
-        if (questionType === 'multi_select' && typeof answer === 'object' && answer !== null && (answer as any).other !== undefined) {
+        if ((questionType === 'multi_select' || questionType === 'multi_select_with_time') && typeof answer === 'object' && answer !== null && (answer as any).other !== undefined) {
           setOtherText(prev => ({
             ...prev,
             [questionId]: (answer as any).other || ''
@@ -3021,10 +3148,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   </button>
                 </div>
               )}
-              <span className={`px-3 py-1 text-xs rounded-full border ${badgeColor}`}>
-                {badgeText}
-              </span>
-              <div className="relative group">
+              <div className={`relative group transition-opacity duration-200 ${showReportButton ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                 <button
                   onClick={() => setShowReportModal(true)}
                   className="w-8 h-8 rounded-full border border-transparent bg-transparent text-gray-400 hover:bg-gray-800 flex items-center justify-center transition-colors"
@@ -3035,6 +3159,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   Report / Give Up
                 </div>
               </div>
+              <span className={`px-3 py-1 text-xs rounded-full border ${badgeColor}`}>
+                {badgeText}
+              </span>
             </div>
           </div>
         );
@@ -3071,6 +3198,43 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                  ? !(codingLanguage === 'python' ? currentAnswer?.pythonCode : currentAnswer?.jsCode) || testResults.allPassed !== true
                 : currentQuestion.question_type === 'multi_select'
                   ? !currentAnswer || (Array.isArray(currentAnswer) && (currentAnswer.length === 0 || (currentAnswer.length === 1 && currentAnswer[0] === 'Other' && !otherText[currentQuestion.id])))
+                  : currentQuestion.question_type === 'multi_select_with_time'
+                    ? !currentAnswer || 
+                      (Array.isArray(currentAnswer) && (currentAnswer.length === 0 || (currentAnswer.length === 1 && currentAnswer[0] === 'Other' && !otherText[currentQuestion.id]))) ||
+                      (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer) && (
+                        // For matrix-style answers (with responses), check if any response is set and months are provided
+                        (currentAnswer.responses && Object.keys(currentAnswer.responses).length > 0 
+                          ? (() => {
+                              // Check if any tool has a non-"None" response but missing months
+                              const scale = Array.isArray(currentAnswer.scale) ? currentAnswer.scale : [];
+                              const noneValue = scale[0] || 'None';
+                              for (const [choice, response] of Object.entries(currentAnswer.responses)) {
+                                if (response !== noneValue) {
+                                  // This tool has a frequency selected, check if months is provided
+                                  if (!currentAnswer.months || typeof currentAnswer.months !== 'object') {
+                                    return true; // Missing months object
+                                  }
+                                  const monthsForChoice = String(currentAnswer.months[choice] || '');
+                                  if (!monthsForChoice || isNaN(parseInt(monthsForChoice)) || parseInt(monthsForChoice) < 1) {
+                                    return true; // Missing or invalid months for this choice
+                                  }
+                                }
+                              }
+                              return false; // All tools with selected frequencies have valid months
+                            })()
+                          // For checkbox-style answers (with selected)
+                          : (!currentAnswer.selected || 
+                             currentAnswer.selected.length === 0 || 
+                             (currentAnswer.selected.length === 1 && currentAnswer.selected[0] === 'Other' && !otherText[currentQuestion.id]) ||
+                             !currentAnswer.months || 
+                             (typeof currentAnswer.months === 'object' 
+                               ? Object.values(currentAnswer.months).some((m: any) => {
+                                   const monthsStr = String(m || '');
+                                   return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 1;
+                                 })
+                               : isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1))
+                        )
+                      ))
                   : !currentAnswer
             }
             className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
     // API routes run server-side, so use internal backend URL directly
     const backendBaseUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
     const backendUrl = `${backendBaseUrl}/api/skill-check/completion-status?user_id=${encodeURIComponent(userId)}&phase=${encodeURIComponent(phase)}`;
-    const response = await fetch(backendUrl);
+    const response = await fetch(backendUrl, {
+      cache: 'no-store', // Prevent Next.js from caching this request
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
 
     if (!response.ok) {
       const error = await response.json();
@@ -33,7 +40,12 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    // Prevent caching of the response
+    const jsonResponse = NextResponse.json(data);
+    jsonResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    jsonResponse.headers.set('Pragma', 'no-cache');
+    jsonResponse.headers.set('Expires', '0');
+    return jsonResponse;
   } catch (error: any) {
     console.error('Error checking skill check completion status:', error);
     return NextResponse.json(

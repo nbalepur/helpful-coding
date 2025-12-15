@@ -721,13 +721,17 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
     """
     Get an existing skill check assignment for a user or create a new one.
     """
+    print(f"🔍 Checking for existing assignment for user_id={user_id}")
     assignment = (
         db.query(SkillCheckAssignment)
         .filter(SkillCheckAssignment.user_id == user_id)
         .first()
     )
     if assignment:
+        print(f"✅ Found existing assignment: id={assignment.id}")
         return assignment
+    
+    print(f"🆕 Creating new assignment for user_id={user_id}")
 
     # Select questions with variant assignment strategy
     # UX questions: same base tags, different variants (_1 vs _2) for pre and post
@@ -788,6 +792,7 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
+    print(f"✅ Successfully created assignment: id={assignment.id}, user_id={assignment.user_id}")
     return assignment
 
 @app.get("/api/skill-check/questions", tags=["Tasks"])
@@ -827,7 +832,11 @@ async def get_skill_check_questions(
         # For logged-in users, use (or create) a persistent skill check assignment
         assignment: Optional[SkillCheckAssignment] = None
         if user_id is not None:
+            print(f"🔧 Creating/getting assignment for user_id={user_id}")
             assignment = _get_or_create_skill_check_assignment(db, user_id)
+            print(f"✅ Assignment created/found: user_id={assignment.user_id}, id={assignment.id}")
+        else:
+            print(f"⚠️  No user_id provided, skipping assignment creation")
 
         questions = []
         
@@ -841,7 +850,7 @@ async def get_skill_check_questions(
                 questions.append({
                     "id": f"exp_{q.id}",
                     "type": "experience",
-                    "question_type": q.type,  # 'mcqa' or 'multi_select'
+                    "question_type": q.type,  # 'mcqa', 'multi_select', 'multi_select_with_time', or 'integer'
                     "question": q.question,
                     "choices": q.choices,
                 })
@@ -1778,13 +1787,17 @@ async def get_skill_check_completion_status(
             }
         
         # Determine expected question IDs based on phase
+        # Use the same SKILL_CHECK_QUESTION_IDS config as get_skill_check_questions
+        config_key = "pre_test" if phase == "pre-test" else "post_test"
+        question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
+        
         expected_mcqa_question_ids = set()
         expected_code_question_ids = set()
         
         if phase == "pre-test":
-            # Experience questions: all 10 (stored as "exp_1", "exp_2", etc.)
-            for i in range(1, 7):
-                expected_mcqa_question_ids.add(f"exp_{i}")
+            # Experience questions: use same IDs as questions endpoint
+            for exp_id in question_ids_config["experience"]:
+                expected_mcqa_question_ids.add(f"exp_{exp_id}")
             
             # Frontend questions from assignment (now stored as names)
             if assignment.frontend_pre_test:
@@ -1818,9 +1831,9 @@ async def get_skill_check_completion_status(
                 for task_name in assignment.debug_pre_test:
                     expected_code_question_ids.add(f"code_debug_{task_name}")
         else:  # post-test
-            # NASA TLI questions: all 6 (stored as "nasa_1", "nasa_2", etc.)
-            for i in range(1, 7):
-                expected_mcqa_question_ids.add(f"nasa_{i}")
+            # NASA TLI questions: use same IDs as questions endpoint
+            for nasa_id in question_ids_config["nasa_tli"]:
+                expected_mcqa_question_ids.add(f"nasa_{nasa_id}")
             
             # Frontend questions from assignment (now stored as names)
             if assignment.frontend_post_test:
@@ -1872,6 +1885,13 @@ async def get_skill_check_completion_status(
         answered_mcqa_ids = {resp.question_id for resp in mcqa_responses}
         answered_code_ids = {resp.question_id for resp in code_responses}
         
+        # Debug logging
+        print(f"🔍 COMPLETION-STATUS DEBUG:")
+        print(f"   Expected MCQA IDs: {sorted(expected_mcqa_question_ids)}")
+        print(f"   Answered MCQA IDs: {sorted(answered_mcqa_ids)}")
+        print(f"   MCQA responses count: {len(mcqa_responses)}")
+        print(f"   Code responses count: {len(code_responses)}")
+        
         # Check if all expected questions are answered
         all_mcqa_answered = expected_mcqa_question_ids.issubset(answered_mcqa_ids)
         all_code_answered = expected_code_question_ids.issubset(answered_code_ids)
@@ -1880,6 +1900,8 @@ async def get_skill_check_completion_status(
         total_answered = len(answered_mcqa_ids) + len(answered_code_ids)
         has_responses = len(mcqa_responses) > 0 or len(code_responses) > 0
         completed = all_mcqa_answered and all_code_answered
+        
+        print(f"   has_responses: {has_responses}, completed: {completed}, total_answered: {total_answered}/{total_expected}")
         
         # Build complete ordered list of all question IDs (matching get_skill_check_questions order)
         # Then find first unanswered question in that list
@@ -3205,7 +3227,7 @@ async def _generate_comprehension_questions(
         },
         {
             "question_name": "self_report_modify",
-            "question": f"{prefix}: I could make modifications to my code without using AI tools.",
+            "question": f"{prefix}: I could easilyadd new features to my code without using AI tools.",
             "question_type": "mcqa",
             "choices": self_report_options,
              "answer": ""

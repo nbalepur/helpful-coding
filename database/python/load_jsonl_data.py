@@ -95,6 +95,9 @@ def load_experience_data(db, data_path: Path) -> tuple[int, int]:
             line = line.strip()
             if not line:
                 continue
+            # Skip comment lines (starting with // or #)
+            if line.startswith('//') or line.startswith('#'):
+                continue
 
             try:
                 data = json.loads(line)
