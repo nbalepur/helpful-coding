@@ -32,7 +32,7 @@ if is_supabase:
     # For psycopg2 (synchronous): add SSL parameters via connect_args
     engine = create_engine(
         DATABASE_URL,
-        echo=True,
+        echo=False,  # Disable SQL query logging
         connect_args={
             "sslmode": "require",
             "gssencmode": "disable",  # Disable GSSAPI encryption
@@ -43,11 +43,11 @@ if is_supabase:
     if "?sslmode=" not in ASYNC_DATABASE_URL and "?ssl=" not in ASYNC_DATABASE_URL:
         separator = "&" if "?" in ASYNC_DATABASE_URL else "?"
         ASYNC_DATABASE_URL = f"{ASYNC_DATABASE_URL}{separator}sslmode=require"
-    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=True)
+    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=False)  # Disable SQL query logging
 else:
     # Standard PostgreSQL connection (local or non-SSL)
-    engine = create_engine(DATABASE_URL, echo=True)
-    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=True)
+    engine = create_engine(DATABASE_URL, echo=False)  # Disable SQL query logging
+    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=False)  # Disable SQL query logging
 
 # Create session makers
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

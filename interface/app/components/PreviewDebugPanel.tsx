@@ -129,7 +129,12 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
       const iframe = consoleIframeRef.current;
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
       if (iframeDoc) {
-        iframeDoc.documentElement.scrollTop = iframeDoc.documentElement.scrollHeight;
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(() => {
+          if (iframeDoc.documentElement) {
+            iframeDoc.documentElement.scrollTop = iframeDoc.documentElement.scrollHeight;
+          }
+        });
       }
     }
   };
@@ -352,7 +357,61 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
   // Update iframe content whenever messages change and keep scroll at bottom
   React.useEffect(() => {
     updateIframeContent();
-    scrollIframeToBottom();
+    // Use multiple attempts to ensure scrolling works after iframe content is fully rendered
+    const scrollAttempts = [50, 100, 200];
+    scrollAttempts.forEach(delay => {
+      setTimeout(() => {
+        scrollIframeToBottom();
+      }, delay);
+    });
+  }, [consoleMessages]);
+
+  // Continuous scrolling to keep iframe at bottom when new content is added
+  React.useEffect(() => {
+    if (!consoleIframeRef.current || consoleMessages.length === 0) return;
+    
+    const iframe = consoleIframeRef.current;
+    let animationFrameId: number;
+    let lastScrollTime = 0;
+    const scrollThrottle = 50; // Throttle to every 50ms for performance
+    let lastContentHeight = 0;
+
+    const scrollLoop = () => {
+      const now = Date.now();
+      if (now - lastScrollTime >= scrollThrottle) {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc && iframeDoc.documentElement) {
+          const currentHeight = iframeDoc.documentElement.scrollHeight;
+          const currentScroll = iframeDoc.documentElement.scrollTop;
+          const maxScroll = currentHeight - iframeDoc.documentElement.clientHeight;
+          
+          // If content height increased (new content added), auto-scroll
+          if (currentHeight > lastContentHeight) {
+            // Only auto-scroll if user is near the bottom (within 100px) or already at bottom
+            if (currentScroll >= maxScroll - 100 || maxScroll <= 0) {
+              iframeDoc.documentElement.scrollTop = iframeDoc.documentElement.scrollHeight;
+            }
+            lastContentHeight = currentHeight;
+          }
+        }
+        lastScrollTime = now;
+      }
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+
+    // Initialize lastContentHeight
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (iframeDoc && iframeDoc.documentElement) {
+      lastContentHeight = iframeDoc.documentElement.scrollHeight;
+    }
+
+    animationFrameId = requestAnimationFrame(scrollLoop);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [consoleMessages]);
 
   React.useEffect(() => {
