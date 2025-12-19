@@ -120,6 +120,7 @@ function HomeInner() {
   const fileMetadataRef = useRef<Record<string, { name: string; language?: string }>>({});
   const unloadLoggedRef = useRef(false);
   const isInitialMountRef = useRef(true);
+  const historyClearedOnLoadRef = useRef(false);
   
   // Resize state
   const [leftColumnWidth, setLeftColumnWidth] = useState(0);
@@ -196,6 +197,24 @@ function HomeInner() {
   useEffect(() => {
     isInitialMountRef.current = false;
   }, []);
+
+  // Clear agent history when user first navigates to the page (once per page load)
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && numericUserId !== null && !historyClearedOnLoadRef.current) {
+      historyClearedOnLoadRef.current = true;
+      // Clear history on first page load
+      fetch(`${ENV.BACKEND_URL}/api/agent-history/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: numericUserId,
+        }),
+      }).catch((e) => {
+        // Silently fail - clearing history is best-effort
+        console.debug('Failed to clear agent history on page load:', e);
+      });
+    }
+  }, [isLoading, isAuthenticated, numericUserId]); // Run when auth state is ready
 
   // Save settings to cookies when they change (but not on initial mount)
   useEffect(() => {
@@ -2734,6 +2753,9 @@ function HomeInner() {
                             await fetch(`${ENV.BACKEND_URL}/api/agent-history/clear`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                userId: numericUserId,
+                              }),
                             });
                           } catch (e) {
                             // no-op: clearing history is best-effort

@@ -21,12 +21,24 @@ export async function GET(request: NextRequest) {
       queryParams.append('userId', userId);
     }
     
-    const res = await fetch(`${backendBaseUrl}/api/task-files-db?${queryParams.toString()}`);
+    const res = await fetch(`${backendBaseUrl}/api/task-files-db?${queryParams.toString()}`, {
+      cache: 'no-store', // Prevent Next.js from caching this request
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
     if (!res.ok) {
       throw new Error(`Backend error ${res.status}`);
     }
     const data = await res.json();
-    return NextResponse.json(data);
+    // Prevent caching of the response
+    const jsonResponse = NextResponse.json(data);
+    jsonResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    jsonResponse.headers.set('Pragma', 'no-cache');
+    jsonResponse.headers.set('Expires', '0');
+    return jsonResponse;
   } catch (error) {
     console.error('Error proxying task files:', error);
     return NextResponse.json({ files: [] }, { status: 200 });

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 import os
+import random
 import json
 import tempfile
 import shutil
@@ -13,6 +14,8 @@ import pathlib
 import hashlib
 import logging
 import re
+import time
+from datetime import datetime, timedelta
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -35,6 +38,8 @@ from database import (
 )
 from database.sqlalchemy_models import Project, User
 
+
+
 # --------------------------
 # IO that captures everything
 # --------------------------
@@ -46,12 +51,17 @@ class CapturingIO(InputOutput):
         super().__init__(**kw)
         self.messages: List[str] = []
         self.pretty = False  # turn off Rich/pretty so coder.show_pretty() is False
+        self.max_messages = int(os.getenv("AIDER_MAX_IO_MESSAGES", "1000"))  # Limit message history
 
     
     def _record(self, *args, **kwargs):
         import time
         msg = " ".join(str(a) for a in args)
         self.messages.append(msg)
+        # Limit message history to prevent unbounded memory growth
+        if len(self.messages) > self.max_messages:
+            # Keep most recent messages, remove oldest
+            self.messages = self.messages[-self.max_messages:]
 
     # Aider emits via these hooks (cover them all to be safe):
     def print(self, *args, **kwargs):
@@ -93,8 +103,8 @@ def make_coder(fnames: List[str], model_name: str | None = None) -> tuple[Coder,
     coder.dirty_commits = False
     return coder, io
 
-def run_and_capture_silent(query: str, fnames: List[str], model_name: str | None = None):
-    coder, io = make_coder(fnames, model_name or AIDER_MODEL)
+def run_and_capture_silent(query: str, fnames: List[str], temp_dir: str, model_name: str | None = None):
+    coder, io = _get_or_create_coder_for_temp_dir(temp_dir, fnames, model_name or AIDER_MODEL)
     io.pretty = False
     coder.stream = True
     coder.suggest_shell_commands = False
@@ -118,6 +128,230 @@ logger = logging.getLogger(__name__)
 # Model configuration from environment
 AIDER_MODEL = os.getenv("AIDER_MODEL", "gpt-4.1")
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-4o-2024-08-06")
+
+# --------------------------
+# Temp directory UUID-based Coder instances for conversation history
+# --------------------------
+# Structure: {temp_dir_path: {"coder": Coder, "io": CapturingIO, "last_used": float}}
+# Uses full temp directory path as key to ensure uniqueness
+# 
+# DEPLOYMENT NOTES:
+# - These are in-memory global variables, so they're shared across all users on the same server process
+# - However, each user gets their own Coder instance because cache_key includes the full path with user_id
+# - Example: User 1 -> /tmp/1/aider_abc123, User 2 -> /tmp/2/aider_xyz789 (different keys)
+# - If server restarts, all in-memory state is lost (but temp directories persist on disk)
+# - For production with multiple servers: Each server has its own memory, so isolation is automatic
+# - For serverless: Consider persisting UUID mapping to database/file to survive invocations
+# - Memory management: Instances are evicted after inactivity or when hitting max limit
+_coder_instances: Dict[str, Dict[str, Any]] = {}
+
+# Memory management configuration
+MAX_CODER_INSTANCES = int(os.getenv("AIDER_MAX_INSTANCES", "100"))  # Max instances in memory
+INSTANCE_IDLE_TIMEOUT_SECONDS = int(os.getenv("AIDER_IDLE_TIMEOUT", "1800"))  # 30 minutes default
+
+# Per-user active UUID tracking - persists until history is cleared
+# Structure: {user_id: "uuid_string"}
+# This ensures each user gets their own persistent session UUID
+# 
+# DEPLOYMENT NOTES:
+# - In-memory dict, lost on server restart
+# - On restart, users will get new UUIDs (but old temp dirs still exist on disk)
+# - For production: Consider persisting to database or file to survive restarts
+_user_active_uuid: Dict[int, str] = {}
+
+def _extract_uuid_from_temp_dir(temp_dir: str) -> str:
+    """Extract UUID from temp directory path like 'tmp/user_id/aider_<uuid>'."""
+    # Extract the UUID part from paths like:
+    # - /path/to/tmp/user_id/aider_abc123
+    # - tmp/user_id/aider_abc123
+    # - /path/to/tmp/user_id/aider_abc123/file.html
+    path = Path(temp_dir)
+    # Get the directory name (e.g., "aider_abc123")
+    dir_name = path.name
+    # Remove "aider_" prefix to get UUID
+    if dir_name.startswith("aider_"):
+        return dir_name[6:]  # Remove "aider_" prefix
+    return dir_name
+
+def _evict_inactive_instances():
+    """Remove instances that haven't been used recently."""
+    global _coder_instances
+    current_time = time.time()
+    keys_to_remove = []
+    
+    for cache_key, instance in _coder_instances.items():
+        last_used = instance.get("last_used", 0)
+        if current_time - last_used > INSTANCE_IDLE_TIMEOUT_SECONDS:
+            keys_to_remove.append(cache_key)
+    
+    for key in keys_to_remove:
+        logger.info(f"Evicting inactive Coder instance: {key}")
+        del _coder_instances[key]
+    
+    return len(keys_to_remove)
+
+def _evict_lru_instance():
+    """Remove the least recently used instance when hitting max limit."""
+    global _coder_instances
+    if len(_coder_instances) == 0:
+        return
+    
+    # Find instance with oldest last_used timestamp
+    lru_key = min(
+        _coder_instances.keys(),
+        key=lambda k: _coder_instances[k].get("last_used", 0)
+    )
+    logger.info(f"Evicting LRU Coder instance (max limit reached): {lru_key}")
+    del _coder_instances[lru_key]
+
+def _extract_user_id_from_temp_dir(temp_dir: str) -> Optional[int]:
+    """Extract user_id from temp directory path like 'tmp/user_id/aider_<uuid>'."""
+    try:
+        path = Path(temp_dir)
+        # Path structure: .../tmp/user_id/aider_<uuid>
+        # Get parent directory name which should be user_id
+        parent = path.parent
+        if parent.name and parent.name.isdigit():
+            return int(parent.name)
+        # Try grandparent if structure is different
+        grandparent = parent.parent
+        if grandparent.name and grandparent.name.isdigit():
+            return int(grandparent.name)
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+def _cleanup_other_user_instances(user_id: Optional[int], keep_temp_dir: str):
+    """Remove all other Coder instances for a user, keeping only the specified one."""
+    global _coder_instances
+    if user_id is None:
+        return
+    
+    keep_key = str(Path(keep_temp_dir).resolve())
+    keys_to_remove = []
+    
+    for cache_key, instance in _coder_instances.items():
+        if cache_key == keep_key:
+            continue  # Keep this one
+        
+        temp_dir = instance.get("temp_dir", "")
+        instance_user_id = _extract_user_id_from_temp_dir(temp_dir)
+        
+        if instance_user_id == user_id:
+            keys_to_remove.append(cache_key)
+    
+    for key in keys_to_remove:
+        logger.info(f"Removing duplicate instance for user {user_id}: {key}")
+        del _coder_instances[key]
+    
+    return len(keys_to_remove)
+
+def _get_or_create_coder_for_temp_dir(temp_dir: str, fnames: List[str], model_name: str | None = None) -> tuple[Coder, CapturingIO]:
+    """Get or create a Coder instance for a specific temp directory UUID to maintain conversation history.
+    
+    Ensures each user only has one active instance at a time.
+    """
+    global _coder_instances
+    
+    # Clean up inactive instances periodically
+    _evict_inactive_instances()
+    
+    uuid = _extract_uuid_from_temp_dir(temp_dir)
+    temp_dir_path = Path(temp_dir)
+    
+    # Extract user_id to enforce one instance per user
+    user_id = _extract_user_id_from_temp_dir(temp_dir)
+    
+    # Include full temp_dir path in key to ensure uniqueness (handles user_id folders)
+    # This ensures we don't accidentally reuse coders across different user folders
+    cache_key = str(temp_dir_path.resolve())
+    
+    # Get or create coder for this temp directory
+    if cache_key not in _coder_instances:
+        # Before creating new instance, ensure user doesn't have other instances
+        if user_id is not None:
+            _cleanup_other_user_instances(user_id, temp_dir)
+        
+        # Check if we're at max capacity
+        if len(_coder_instances) >= MAX_CODER_INSTANCES:
+            _evict_lru_instance()
+        # Check if we're at max capacity
+        if len(_coder_instances) >= MAX_CODER_INSTANCES:
+            _evict_lru_instance()
+        model_name = model_name or AIDER_MODEL
+        model = Model(model_name)
+        io = CapturingIO(yes=False)
+        
+        # Use files directly from the temp directory
+        temp_fnames = []
+        for fname in fnames:
+            # If fname is already in temp_dir, use it directly
+            fpath = Path(fname)
+            if str(fpath.parent) == str(temp_dir_path):
+                temp_fnames.append(fname)
+            else:
+                # Otherwise, use the file in temp_dir with same name
+                temp_fpath = temp_dir_path / fpath.name
+                if not temp_fpath.exists() and fpath.exists():
+                    shutil.copy2(fpath, temp_fpath)
+                elif not temp_fpath.exists():
+                    temp_fpath.write_text("", encoding="utf-8")
+                temp_fnames.append(str(temp_fpath))
+        
+        coder = Coder.create(main_model=model, io=io, fnames=temp_fnames)
+        coder.edit_format = "diff"
+        coder.suggest_shell_commands = False
+        coder.detect_urls = False
+        coder.verbose = False
+        coder.auto_commits = False
+        coder.dirty_commits = False
+        
+        _coder_instances[cache_key] = {
+            "coder": coder,
+            "io": io,
+            "temp_dir": str(temp_dir_path),
+            "last_used": time.time(),
+            "user_id": user_id  # Store user_id for easier tracking
+        }
+    else:
+        # Reuse existing coder - files are already in temp_dir
+        instance = _coder_instances[cache_key]
+        coder = instance["coder"]
+        io = instance["io"]
+        # Update last_used timestamp
+        instance["last_used"] = time.time()
+        
+        # Ensure user doesn't have other instances (cleanup any duplicates)
+        if user_id is not None:
+            _cleanup_other_user_instances(user_id, temp_dir)
+        
+        # Update file paths to point to temp_dir
+        temp_fnames = []
+        for fname in fnames:
+            fpath = Path(fname)
+            if str(fpath.parent) == str(temp_dir_path):
+                temp_fnames.append(fname)
+            else:
+                temp_fpath = temp_dir_path / fpath.name
+                # Sync file if it exists and is different
+                if fpath.exists() and str(fpath.resolve()) != str(temp_fpath.resolve()):
+                    shutil.copy2(fpath, temp_fpath)
+                elif not temp_fpath.exists():
+                    temp_fpath.write_text("", encoding="utf-8")
+                temp_fnames.append(str(temp_fpath))
+        
+        # Update coder's file list
+        if hasattr(coder, 'fnames'):
+            coder.fnames = temp_fnames
+    
+    return coder, io
+
+def _clear_coder_for_temp_dir(temp_dir: str):
+    """Clear the coder instance for a specific temp directory UUID."""
+    global _coder_instances
+    cache_key = str(Path(temp_dir).resolve())
+    if cache_key in _coder_instances:
+        del _coder_instances[cache_key]
 
 
 def _slugify_name(name: str) -> str:
@@ -317,13 +551,48 @@ def _append_history(entry: Dict[str, str]) -> None:
 # --------------------------
 # Temporary workspace helpers
 # --------------------------
-def _create_temp_workspace(incoming_files: Dict[str, str]) -> tuple[List[str], str, Dict[str, str]]:
-    """Create a fresh temporary workspace populated with incoming files."""
+def _create_temp_workspace(incoming_files: Dict[str, str], user_id: Optional[int] = None, temp_dir_uuid: Optional[str] = None) -> tuple[List[str], str, Dict[str, str]]:
+    """Create or reuse a temporary workspace populated with incoming files.
+    
+    If temp_dir_uuid is provided, reuses existing directory.
+    If not provided but user_id exists, reuses user's active UUID.
+    Otherwise creates new one and stores it as user's active UUID.
+    Workspace is organized as tmp/user_id/aider_<uuid> for easy cleanup.
+    """
+    global _user_active_uuid
+    
     repo_root = Path(__file__).resolve().parent.parent
     tmp_root = repo_root / "tmp"
-    tmp_root.mkdir(parents=True, exist_ok=True)
-    temp_dir_path = Path(tempfile.mkdtemp(prefix="aider_", dir=str(tmp_root)))
-
+    
+    # Organize by user_id if available, otherwise use "anonymous"
+    user_folder = str(user_id) if user_id is not None else "anonymous"
+    user_tmp_root = tmp_root / user_folder
+    user_tmp_root.mkdir(parents=True, exist_ok=True)
+    
+    # Determine which UUID to use
+    if temp_dir_uuid:
+        # Use provided UUID
+        final_uuid = temp_dir_uuid
+    elif user_id is not None and user_id in _user_active_uuid:
+        # Reuse user's active UUID
+        final_uuid = _user_active_uuid[user_id]
+    else:
+        # Create new UUID
+        final_uuid = None
+    
+    if final_uuid:
+        # Reuse existing temp directory
+        temp_dir_path = user_tmp_root / f"aider_{final_uuid}"
+        if not temp_dir_path.exists():
+            temp_dir_path.mkdir(parents=True, exist_ok=True)
+    else:
+        # Create new temp directory
+        temp_dir_path = Path(tempfile.mkdtemp(prefix="aider_", dir=str(user_tmp_root)))
+        # Extract UUID and store as user's active UUID
+        extracted_uuid = _extract_uuid_from_temp_dir(str(temp_dir_path))
+        if user_id is not None:
+            _user_active_uuid[user_id] = extracted_uuid
+    
     file_map = {
         "index.html": incoming_files.get("html") or incoming_files.get("index.html", ""),
         "frontend.js": incoming_files.get("js") or incoming_files.get("frontend.js", ""),
@@ -345,9 +614,11 @@ def _create_temp_workspace(incoming_files: Dict[str, str]) -> tuple[List[str], s
         fnames.append(str(fpath))
 
     return fnames, str(temp_dir_path), file_map
+
 class SummaryResponse(BaseModel):
     summary: str
-    suggestions: list[str]
+    ideas: list[str]
+    probabilities: list[float]
 
 
 class CodePreferenceLogPayload(BaseModel):
@@ -398,7 +669,7 @@ def _generate_summary_and_suggestions(api_key: str, user_query: str, changed_fil
 
 
         prompt = """
-You are an expert at summarizing actions that an AI assistant took after being prompted by a user and providing brilliant suggestions for the user to improve their code.
+You are an expert at summarizing actions that an AI assistant took after being prompted by a user and providing useful suggestions for the user to improve their code.
 
 This is what the user asked the assistant to do:
 <query>
@@ -417,7 +688,7 @@ These are the changes that the assistant made to the code (with optional SEARCH/
 
 Using this information your job is to generate:
 1. A summary of the changes that the assistant made to the code.
-2. A list of suggestions for the user to improve their code.
+2. A list of ideas for the user to improve their code.
 
 <summary instructions>
 - The summary should be written in first person as if you were the one who made edits to the code. Use "I" as appropriate.
@@ -426,38 +697,237 @@ Using this information your job is to generate:
 - Be concise. The summary should be a maximum of two sentences.
 </summary instructions>
 
-<suggestions instructions>
-- Generate exactly three suggestions.
-- The suggestions should either be: 1) general writing improvements to the user's code; 2) a new feature that the user could add; or 3) a bug/vulnerability that the user could fix.
-- The user's goal is to build an interface that other users can vote on based on how fun and cool they find it, so your suggestions should be tailored such that the user can win the competition and get the most votes. Do not mention the competition in your suggestions.
-- Only generate suggestions that are feasible to implement. The user only has access to HTML, CSS, and JavaScript, one file of each. They can mainly only use the default language features without implementing external libraries or packages. The user's UI will be hosted in an isolated iframe, so it's not possible to store any data or make it multi-player. 
-- The suggestions should be framed as follow-up actions that you could take, i.e. commands. For example: "Add [new feature]".
-- Look at the past conversation history and generate at least some suggestions that you have not previously proposed.
-- Be concise. Each suggestion should be no more than ten words.
-</suggestions instructions>
+<idea instructions>
+- Generate 3 ideas with their corresponding probabilities, sampled from the full distribution.
+- At least one of the ideas should be sampled from the long tail of ideas, not the most common ones.
+- Each idea should contribute toward improving at least one of the following: 1) task fulfillment - how well the interface adheres to the task requirements; 2) style - quality of the visual design: layout, colors, typography, and polish; 3) enjoyment - how engaging and satisfying it feels to interact with the UI; or 4) creativity - original touches or mechanics that make the UI stand out.
+- Only generate ideas that are feasible to implement with HTML, CSS, and JavaScript. Do not suggest anything that requires custom assets, external libraries, or complex modalities (e.g. audio, video, etc.). Anything visual that you could implement with HTML, CSS, and JavaScript are fine. Do not suggest anything that would require a backend or persistent state tracking, like a persistent high score (per-session high score is fine) or a log-in page. If the user refreshes the website they are building, it should be fine if everything is reset.
+- The ideas should be framed as follow-up actions that you could take, i.e. commands starting with a verb.
+- Look at the past conversation history and generate new ideas that you have not proposed in the past.
+- Be concise. Each idea should be no more than ten words.
+</idea instructions>
+
+<idea bank>
+{idea_str}
+</idea bank>
 
 <format instructions>
-Generate your output as a json with two keys: 1) "summary" with a string value of the summary; and 2) "suggestions" with a list of strings value of the suggestions.
+Generate your output as a json with two keys: 1) "summary" with a string value of the summary; 2) "ideas" with a list of strings value of the ideas; and 3) "probabilities" with a list of floats value of the probabilities of each idea based on your full distribution.
 {{
     "summary": "insert summary",
-    "suggestions": ["insert suggestion 1", "insert suggestion 2", "insert suggestion 3"]
+    "ideas": ["insert idea 1", "insert idea 2", "insert idea 3"],
+    "probabilities": [float probability 1, float probability 2, float probability 3],
 }}
 Do not generate anything else
 </format instructions>
 """
 
-        # Use new Responses API with Pydantic parsing
+        idea_seed_bank = [
+            "Hold-to-charge actions",
+            "Long-press alternatives",
+            "Double-click versus single-click ambiguity",
+            "Drag-based decisions",
+            "Cancelable actions",
+            "Input buffering",
+            "Gesture-like mouse patterns",
+            "Scroll-wheel mechanics",
+            "Right-click interactions",
+            "Multi-step inputs",
+            "Delayed confirmation inputs",
+            "Hover-duration triggers",
+            "Click-and-hold paths",
+            "Momentum-based dragging",
+            "Precision timing inputs",
+
+            "Squash-and-stretch animations",
+            "Screen shake on events",
+            "Anticipation animations",
+            "Overshoot transitions",
+            "Elastic UI elements",
+            "Motion tied to performance",
+            "Color shifts on success",
+            "Visual recoil effects",
+            "Subtle idle animations",
+            "Afterimage trails",
+            "Shake intensity scaling",
+            "Flash feedback on failure",
+            "Deforming UI elements",
+            "Animated emphasis pulses",
+            "Dynamic shadow responses",
+
+            "Slow motion moments",
+            "Rewind last action",
+            "Countdown pressure",
+            "Time-based tradeoffs",
+            "Pauses with consequences",
+            "Speed ramps over time",
+            "Time freezing zones",
+            "Delayed outcomes",
+            "Time-limited choices",
+            "Accelerating difficulty",
+            "Hidden timers",
+            "Time debt mechanics",
+            "Recovery cooldowns",
+            "Reversible timelines",
+            "Time-based penalties",
+
+            "Daily random seeds",
+            "Rare random events",
+            "Controlled randomness sliders",
+            "Weighted randomness",
+            "Streak-based luck",
+            "Unpredictable modifiers",
+            "Randomized layouts",
+            "Dice-roll mechanics",
+            "Shuffled rules mid-session",
+            "Random UI mutations",
+            "Chaos escalation",
+            "Soft randomness biasing",
+            "Probability reveals",
+            "Fake randomness illusions",
+            "Seed preview toggles",
+
+            "Invert controls temporarily",
+            "Hide score until end",
+            "Punish optimization",
+            "Reward inefficiency",
+            "One mistake changes rules",
+            "Permanent consequences",
+            "One-shot decisions",
+            "Risk-everything buttons",
+            "Soft failure states",
+            "Dynamic rule swapping",
+            "Player-chosen handicaps",
+            "Self-imposed challenges",
+            "Delayed rewards",
+            "Trade safety for power",
+            "Unstable mechanics",
+
+            "Tempting bad choices",
+            "Visible regret mechanics",
+            "Loss aversion traps",
+            "Illusion of control",
+            "Bluffing against UI",
+            "Fake difficulty sliders",
+            "Overconfidence penalties",
+            "Delayed gratification",
+            "Confidence meters",
+            "Anxiety-inducing feedback",
+            "Risk versus reward dilemmas",
+            "Moral tradeoff prompts",
+            "Self-competition mechanics",
+            "Pressure escalation",
+            "Choice overload moments",
+
+            "Wraparound screens",
+            "Hidden offscreen content",
+            "Portal-like transitions",
+            "Perspective illusions",
+            "Rotating playfields",
+            "Collapsing layouts",
+            "Camera-relative movement",
+            "Nested play areas",
+            "Zoom-based mechanics",
+            "Infinite scrolling worlds",
+            "Shifting coordinate systems",
+            "Non-rectangular layouts",
+            "Dynamic resizing arenas",
+            "Edge-triggered behaviors",
+            "Spatial memory challenges",
+
+            "Unlockable modes",
+            "Cosmetic-only rewards",
+            "Persistent local state",
+            "Visual progression indicators",
+            "Title or rank systems",
+            "Achievements without points",
+            "Historical session logs",
+            "Mode mutations",
+            "Permanent cosmetic scars",
+            "Replay viewing",
+            "Session summaries",
+            "Progress metaphors",
+            "Unlockable UI variants",
+            "Meta challenges",
+            "Completion collections",
+
+            "Hidden keyboard shortcuts",
+            "Secret click zones",
+            "Rare visual events",
+            "Fourth-wall breaks",
+            "Fake error messages",
+            "Self-aware UI text",
+            "Developer commentary popups",
+            "Intentional UI glitches",
+            "Unexpected endings",
+            "Hidden achievements",
+            "Contextual jokes",
+            "Unannounced features",
+            "Surprise animations",
+            "Secret modes",
+            "Debug-style reveals",
+
+            "Playful onboarding flows",
+            "Interactive tutorials",
+            "Mood-based themes",
+            "Time-of-day styling",
+            "Personality quizzes",
+            "Progress metaphors",
+            "Micro-challenges",
+            "Playful empty states",
+            "Interactive loading screens",
+            "UI reacts to user behavior",
+            "Guided discovery flows",
+            "Narrative-driven navigation",
+            "Exploratory layouts",
+            "User-driven customization",
+            "Context-aware tips",
+
+            "Limited visibility modes",
+            "Input restrictions",
+            "Information asymmetry",
+            "Resource scarcity",
+            "Forced minimalism",
+            "Single-action limits",
+            "Cooldown-only interactions",
+            "No-undo challenges",
+            "UI degradation over time",
+            "Constraint toggles",
+            "Adaptive constraints",
+            "Self-selected limitations",
+            "Environmental handicaps",
+            "Progressive restriction",
+            "Constraint rewards",
+
+            "Motion reduction toggles",
+            "Colorblind-safe modes",
+            "High-contrast themes",
+            "One-handed modes",
+            "Speed adjustment controls",
+            "Input forgiveness",
+            "Panic reset buttons",
+            "Graceful failure states",
+            "Intentional error recovery",
+            "Visual clarity modes",
+            "Feedback customization",
+            "Comfort settings",
+            "Clarity-first UI variants",
+            "Reduced chaos modes",
+            "Adaptive difficulty"
+        ]
+        random.shuffle(idea_seed_bank)
+        idea_str = "\n".join(['- ' + idea for idea in idea_seed_bank])
         resp = client.responses.parse(
             model=SUMMARY_MODEL,
             input=[
-                {"role": "system", "content": "Summarize changes and propose follow-ups as JSON."},
-                {"role": "user", "content": prompt.format(user_query=user_query, final_files_blob=parse_code(final_lang_map), edits_blob=parse_code(edits_map))},
+                {"role": "system", "content": "Summarize changes and propose follow-up ideas as JSON."},
+                {"role": "user", "content": prompt.format(user_query=user_query, idea_str=idea_str, final_files_blob=parse_code(final_lang_map), edits_blob=parse_code(edits_map))},
             ],
             temperature=1.0,
             text_format=SummaryResponse,
         )
-        parsed: SummaryResponse = resp.output_parsed  # type: ignore
-        return {"summary": parsed.summary, "suggestions": parsed.suggestions}
+        parsed: SummaryResponse = resp.output_parsed 
+        return {"summary": parsed.summary, "suggestions": parsed.ideas}
     except Exception as e:
         print(f"[agent_stream] summary helper error: {e}")
         return {"summary": "", "suggestions": []}
@@ -465,41 +935,22 @@ Do not generate anything else
 
 
 @router.post("/api/agent-chat")
-async def agent_chat_endpoint(request_data: dict):
+async def agent_chat_endpoint(request_data: dict, db: Session = Depends(get_db)):
     """Non-streaming agent run using Aider; returns messages and changed files."""
     try:
-        print("[agent_chat] called")
         prompt = request_data.get("prompt", "")
         incoming_files = request_data.get("files", {})
+        user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
+        temp_dir_uuid = request_data.get("tempDirUuid") or request_data.get("temp_dir_uuid")
 
         if not prompt:
             return JSONResponse(status_code=400, content={"error": "Prompt is required"})
 
-        # Prepare temp workspace with the required filenames (repo-local tmp directory)
-        repo_root = Path(__file__).resolve().parent.parent
-        tmp_root = repo_root / "tmp"
-        tmp_root.mkdir(parents=True, exist_ok=True)
-        temp_dir = tempfile.mkdtemp(prefix="aider_", dir=str(tmp_root))
+        # Use the same workspace creation function
+        fnames, temp_dir, file_map = _create_temp_workspace(incoming_files, user_id_value, temp_dir_uuid)
         try:
-            print(f"[agent_chat] temp_dir: {temp_dir}")
-            print(f"[agent_chat] incoming files keys: {list(incoming_files.keys())}")
-            file_map = {
-                "index.html": incoming_files.get("index.html", ""),
-                "frontend.js": incoming_files.get("frontend.js", ""),
-                "styles.css": incoming_files.get("styles.css", ""),
-            }
-
-            fnames = []
-            for fname, content in file_map.items():
-                fpath = Path(temp_dir) / fname
-                fpath.write_text(content or "", encoding="utf-8")
-                fnames.append(str(fpath))
-            print(f"[agent_chat] wrote files: {fnames}")
-
             # Run silent capture
-            print(f"[agent_chat] running run_and_capture_silent, prompt_len={len(prompt)}")
-            result = run_and_capture_silent(prompt, fnames)
-            print(f"[agent_chat] completed; messages={len(result.get('messages', []))}")
+            result = run_and_capture_silent(prompt, fnames, temp_dir)
 
             # Read back any changed files
             changed_files = []
@@ -509,15 +960,18 @@ async def agent_chat_endpoint(request_data: dict):
                     "path": p.name,
                     "content": p.read_text(encoding="utf-8")
                 })
-            print(f"[agent_chat] returning changedFiles={len(changed_files)}")
 
+            # Return temp_dir UUID so frontend can reuse it
+            temp_dir_uuid_emitted = _extract_uuid_from_temp_dir(temp_dir)
             return {
                 "messages": result.get("messages", []),
-                "changedFiles": changed_files
+                "changedFiles": changed_files,
+                "tempDirUuid": temp_dir_uuid_emitted
             }
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            print(f"[agent_chat] cleaned temp_dir: {temp_dir}")
+            # Never delete temp_dir - we want to keep it for conversation history
+            # It will only be deleted when user clears history
+            pass
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -534,9 +988,9 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
       then capture content inside triple backtick fences as the edit and emit tool_result when closed.
     """
     try:
-        print("[agent_stream] called")
         prompt = request_data.get("prompt", "")
         incoming_files = request_data.get("files", {})
+        temp_dir_uuid = request_data.get("tempDirUuid") or request_data.get("temp_dir_uuid")
         task_slug = request_data.get("taskId") or request_data.get("task_id")
         task_name = request_data.get("taskName") or request_data.get("task_name")
         user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
@@ -558,11 +1012,9 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
         except Exception:
             pass
 
-        def event_generator(prompt_=prompt):
-            print(f"[agent_stream] incoming files keys: {list(incoming_files.keys())}")
+        def event_generator(prompt_=prompt, temp_dir_uuid_=temp_dir_uuid, user_id_=user_id_value):
             # Use persistent workspace and coder; sync incoming to disk
-            fnames, temp_dir, file_map = _create_temp_workspace(incoming_files)
-            print(f"[agent_stream] temp_dir: {temp_dir}")
+            fnames, temp_dir, file_map = _create_temp_workspace(incoming_files, user_id_, temp_dir_uuid_)
 
             # Maintain in-memory contents for each filename (no further disk writes during stream until end)
             file_contents: Dict[str, str] = {}
@@ -570,21 +1022,21 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
             # Track raw SEARCH/REPLACE blocks per filename for summarization
             changed_edit_blocks: Dict[str, str] = {}
             file_diff_stats: Dict[str, Dict[str, int]] = {}
+            # Track which files have already had tool_result sent to prevent duplicates
+            files_sent_tool_result: set = set()
             summary_text: str = ""
             assistant_log_suggestions: List[str] = []
             for fname, content in file_map.items():
                 stripped = (content or "").rstrip("\n")
                 file_contents[fname] = stripped
                 initial_contents[fname] = stripped
-            print(f"[agent_stream] using files: {fnames}")
 
-            # Fresh coder per request
-            coder, io = make_coder(fnames)
+            # Use temp directory UUID-based coder to maintain conversation history
+            coder, io = _get_or_create_coder_for_temp_dir(temp_dir, fnames)
             io.pretty = False
             coder.stream = True
             coder.suggest_shell_commands = False
             coder.dry_run = True
-            print(f"[agent_stream] start streaming; prompt_len={len(prompt_)}")
 
             buffer = ""
             in_tool = False
@@ -638,7 +1090,6 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 in_tool = True
                                 current_filename = basename
                                 raw_lines = [line]
-                                print(f"[agent_stream] tool_start: {current_filename}")
                                 # Emit a tool start without assistant text; frontend will show the loading card
                                 target_type = filetype_map.get(current_filename)
                                 yield (json.dumps({
@@ -660,12 +1111,10 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             if line.strip().startswith("```"):
                                 in_fence = True
                                 fence_lang_seen = False
-                                print(f"[agent_stream] fence_open for {current_filename}")
                                 edit_lines = []
                                 raw_lines.append(line)
                             # ignore other lines until fence starts, but forward as tool progress
                             elif line.strip():
-                                print(f"[agent_stream] tool_progress for {current_filename}: {line[:120]}")
                                 yield (json.dumps({
                                     "type": "tool_progress",
                                     "filename": current_filename,
@@ -696,29 +1145,32 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                             changed_edit_blocks[target_name] = content_str
                                         except Exception:
                                             pass
-                                        try:
-                                            import difflib
-                                            a_lines = old_text_current.splitlines()
-                                            b_lines = new_text_stripped.splitlines()
-                                            additions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('+ '))
-                                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                                        except Exception:
-                                            additions = 0
-                                            deletions = 0
-                                        existing_stats = file_diff_stats.get(target_name, {"additions": 0, "deletions": 0})
-                                        existing_stats["additions"] = existing_stats.get("additions", 0) + additions
-                                        existing_stats["deletions"] = existing_stats.get("deletions", 0) + deletions
-                                        file_diff_stats[target_name] = existing_stats
-                                        diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                                        yield (json.dumps({
-                                            "state": "tool_result",
-                                            "data": {
-                                                "target_files": [target_type] if target_type else [],
-                                                "diff_stats": diff_stats,
-                                                "filename": target_name,
-                                                "updated_content": new_text_stripped,
-                                            },
-                                        }) + "\n").encode("utf-8")
+                                        # Only send tool_result if we haven't already sent it for this file
+                                        if target_name not in files_sent_tool_result:
+                                            try:
+                                                import difflib
+                                                # Compare against initial content, not intermediate state
+                                                old_text_initial = initial_contents.get(target_name, "")
+                                                a_lines = old_text_initial.splitlines()
+                                                b_lines = new_text_stripped.splitlines()
+                                                additions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('+ '))
+                                                deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                                            except Exception:
+                                                additions = 0
+                                                deletions = 0
+                                            # Store final diff stats (not accumulated)
+                                            file_diff_stats[target_name] = {"additions": additions, "deletions": deletions}
+                                            diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                            yield (json.dumps({
+                                                "state": "tool_result",
+                                                "data": {
+                                                    "target_files": [target_type] if target_type else [],
+                                                    "diff_stats": diff_stats,
+                                                    "filename": target_name,
+                                                    "updated_content": new_text_stripped,
+                                                },
+                                            }) + "\n").encode("utf-8")
+                                            files_sent_tool_result.add(target_name)
                                         # reset state
                                         in_tool = False
                                         in_fence = False
@@ -744,39 +1196,35 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 # Non S/R: update in-memory content only (strip trailing newlines)
                                 content_str_stripped = content_str.rstrip("\n")
                                 file_contents[current_filename] = content_str_stripped
-                                print(f"[agent_stream] fence_close for {current_filename}; bytes={len(content_str)}")
-                                # Print updated file name and content
-                                try:
-                                    print(f"[agent_stream] updated: {current_filename}")
-                                    print(content_str_stripped)
-                                except Exception:
-                                    pass
                                 target_type = filetype_map.get(current_filename)
-                                # basic diff stats
-                                try:
-                                    import difflib
-                                    a_lines = old_text_current.splitlines()
-                                    b_lines = content_str.splitlines()
-                                    diff = difflib.ndiff(a_lines, b_lines)
-                                    additions = sum(1 for d in diff if d.startswith('+ ') )
-                                    deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                                except Exception:
-                                    additions = 0
-                                    deletions = 0
-                                existing_stats = file_diff_stats.get(current_filename, {"additions": 0, "deletions": 0})
-                                existing_stats["additions"] = existing_stats.get("additions", 0) + additions
-                                existing_stats["deletions"] = existing_stats.get("deletions", 0) + deletions
-                                file_diff_stats[current_filename] = existing_stats
-                                diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                                yield (json.dumps({
-                                    "state": "tool_result",
-                                    "data": {
-                                        "target_files": [target_type] if target_type else [],
-                                        "diff_stats": diff_stats,
-                                        "filename": current_filename,
-                                        "updated_content": content_str,
-                                    },
-                                }) + "\n").encode("utf-8")
+                                # Only send tool_result if we haven't already sent it for this file
+                                if current_filename not in files_sent_tool_result:
+                                    # basic diff stats
+                                    try:
+                                        import difflib
+                                        # Compare against initial content, not intermediate state
+                                        old_text_initial = initial_contents.get(current_filename, "")
+                                        a_lines = old_text_initial.splitlines()
+                                        b_lines = content_str.splitlines()
+                                        diff = difflib.ndiff(a_lines, b_lines)
+                                        additions = sum(1 for d in diff if d.startswith('+ ') )
+                                        deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                                    except Exception:
+                                        additions = 0
+                                        deletions = 0
+                                    # Store final diff stats (not accumulated)
+                                    file_diff_stats[current_filename] = {"additions": additions, "deletions": deletions}
+                                    diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                    yield (json.dumps({
+                                        "state": "tool_result",
+                                        "data": {
+                                            "target_files": [target_type] if target_type else [],
+                                            "diff_stats": diff_stats,
+                                            "filename": current_filename,
+                                            "updated_content": content_str,
+                                        },
+                                    }) + "\n").encode("utf-8")
+                                    files_sent_tool_result.add(current_filename)
                                 # Log assistant ideation step (implicit content in messages already handled via restate)
                                 # reset state for possible next tool
                                 in_tool = False
@@ -809,7 +1257,6 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             updated_payload_text = new_text.rstrip("\n")
                             updated_target_name = tname
                             file_contents[updated_target_name] = updated_payload_text
-                            print(f"[agent_stream] fence_close (EOF) S/R applied in-memory for {updated_target_name}; bytes={len(new_text)}")
                             # store edit block for this file
                             try:
                                 changed_edit_blocks[updated_target_name] = content_str
@@ -831,38 +1278,34 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                     else:
                         updated_payload_text = content_str.rstrip("\n")
                         file_contents[updated_target_name] = updated_payload_text
-                        print(f"[agent_stream] fence_close (EOF) for {current_filename}; bytes={len(content_str)}")
-                    # Print updated file name and content
-                    try:
-                        print(f"[agent_stream] updated: {updated_target_name}")
-                        print(updated_payload_text)
-                    except Exception:
-                        pass
                     target_type = filetype_map.get(updated_target_name)
-                    try:
-                        import difflib
-                        a_lines = old_text.splitlines()
-                        b_lines = updated_payload_text.splitlines()
-                        diff = difflib.ndiff(a_lines, b_lines)
-                        additions = sum(1 for d in diff if d.startswith('+ ') )
-                        deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                    except Exception:
-                        additions = 0
-                        deletions = 0
-                    existing_stats = file_diff_stats.get(updated_target_name, {"additions": 0, "deletions": 0})
-                    existing_stats["additions"] = existing_stats.get("additions", 0) + additions
-                    existing_stats["deletions"] = existing_stats.get("deletions", 0) + deletions
-                    file_diff_stats[updated_target_name] = existing_stats
-                    diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                    yield (json.dumps({
-                        "state": "tool_result",
-                        "data": {
-                            "target_files": [target_type] if target_type else [],
-                            "diff_stats": diff_stats,
-                            "filename": updated_target_name,
-                            "updated_content": (updated_payload_text or content_str),
-                        },
-                    }) + "\n").encode("utf-8")
+                    # Only send tool_result if we haven't already sent it for this file
+                    if updated_target_name not in files_sent_tool_result:
+                        try:
+                            import difflib
+                            # Compare against initial content, not intermediate state
+                            old_text_initial = initial_contents.get(updated_target_name, "")
+                            a_lines = old_text_initial.splitlines()
+                            b_lines = updated_payload_text.splitlines()
+                            diff = difflib.ndiff(a_lines, b_lines)
+                            additions = sum(1 for d in diff if d.startswith('+ ') )
+                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                        except Exception:
+                            additions = 0
+                            deletions = 0
+                        # Store final diff stats (not accumulated)
+                        file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
+                        diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                        yield (json.dumps({
+                            "state": "tool_result",
+                            "data": {
+                                "target_files": [target_type] if target_type else [],
+                                "diff_stats": diff_stats,
+                                "filename": updated_target_name,
+                                "updated_content": (updated_payload_text or content_str),
+                            },
+                        }) + "\n").encode("utf-8")
+                        files_sent_tool_result.add(updated_target_name)
                     in_tool = False
                     in_fence = False
                     fence_lang_seen = False
@@ -876,7 +1319,6 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 tail_text = (message_accum + buffer)
                 if tail_text:
                     clean_tail = _sanitize_message_text(tail_text)
-                    print(f"[agent_stream] flush message: {clean_tail[:120]}")
                     yield (json.dumps({
                         "state": "restate",
                         "data": {"restate": clean_tail},
@@ -887,6 +1329,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                         pass
 
                 # Persist updated contents back to disk for next run
+                # Files are already in temp_dir, so coder will see them on next request
                 try:
                     for fname, content in file_contents.items():
                         Path(temp_dir).joinpath(fname).write_text(content or "", encoding="utf-8")
@@ -969,16 +1412,29 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                         print(f"[agent_stream] summary error: {_summary_err}")
                 generated_code_payload: Dict[str, Any] = {}
                 type_to_fname = {"html": "index.html", "css": "styles.css", "js": "frontend.js"}
+                # Recalculate final diff stats for all changed files (in case file was edited multiple times)
                 for ftype, fname in type_to_fname.items():
                     final_content = (final_files_map.get(ftype) or "").rstrip("\n")
                     if final_content:
-                        stats = file_diff_stats.get(fname, {})
+                        # Calculate final diff stats comparing final state vs initial state
+                        try:
+                            import difflib
+                            old_text_initial = initial_contents.get(fname, "")
+                            a_lines = old_text_initial.splitlines()
+                            b_lines = final_content.splitlines()
+                            additions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('+ '))
+                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                        except Exception:
+                            # Fallback to stored stats if calculation fails
+                            stats = file_diff_stats.get(fname, {})
+                            additions = stats.get("additions", 0)
+                            deletions = stats.get("deletions", 0)
                         generated_code_payload[ftype] = {
                             "content": final_content,
                             "diff_stats": {
-                                "additions": stats.get("additions", 0),
-                                "deletions": stats.get("deletions", 0),
-                                "total_changes": stats.get("additions", 0) + stats.get("deletions", 0),
+                                "additions": additions,
+                                "deletions": deletions,
+                                "total_changes": additions + deletions,
                             },
                         }
 
@@ -997,7 +1453,13 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                         )
                 except Exception as log_error:
                     logger.error("Failed to persist assistant log entry: %s", log_error, exc_info=True)
-                print(f"[agent_stream] complete; files={len(final_files_list)}")
+                
+                # Emit the temp_dir UUID so frontend can reuse it
+                temp_dir_uuid_emitted = _extract_uuid_from_temp_dir(temp_dir)
+                yield (json.dumps({
+                    "state": "session_uuid",
+                    "data": {"tempDirUuid": temp_dir_uuid_emitted},
+                }) + "\n").encode("utf-8")
 
                 # yield (json.dumps({
                 #     "state": "complete",
@@ -1008,14 +1470,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 # }) + "\n").encode("utf-8")
 
             except Exception as stream_error:
-                print(f"[agent_stream] error: {stream_error}")
                 yield (json.dumps({
                     "state": "error",
                     "data": {"message": str(stream_error)},
                 }) + "\n").encode("utf-8")
             finally:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                print(f"[agent_stream] cleaned temp_dir: {temp_dir}")
+                # Never delete temp_dir - we want to keep it for conversation history
+                # It will only be deleted when user clears history
+                pass
 
         return StreamingResponse(event_generator(), media_type="application/x-ndjson")
     except Exception as e:
@@ -1073,9 +1535,114 @@ async def get_agent_history():
 
 
 @router.post("/api/agent-history/clear")
-async def clear_agent_history():
+async def clear_agent_history(request_data: dict, db: Session = Depends(get_db)):
+    """Clear agent history for a user by deleting their entire temp folder and Aider instance."""
+    global _coder_instances, _user_active_uuid
     try:
         MESSAGE_HISTORY.clear()
-        return {"ok": True}
+        user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
+        
+        if user_id_value is not None:
+            # Clear all Aider instances for this user using proper user_id extraction
+            keys_to_remove = []
+            for cache_key, instance in _coder_instances.items():
+                instance_user_id = instance.get("user_id")
+                if instance_user_id == user_id_value:
+                    keys_to_remove.append(cache_key)
+                else:
+                    # Fallback: check temp_dir path if user_id not stored
+                    temp_dir = instance.get("temp_dir", "")
+                    if temp_dir:
+                        extracted_user_id = _extract_user_id_from_temp_dir(temp_dir)
+                        if extracted_user_id == user_id_value:
+                            keys_to_remove.append(cache_key)
+            
+            for cache_key in keys_to_remove:
+                logger.info(f"Clearing Aider instance for user {user_id_value}: {cache_key}")
+                del _coder_instances[cache_key]
+            
+            # Clear user's active UUID so a new one will be created next time
+            if user_id_value in _user_active_uuid:
+                del _user_active_uuid[user_id_value]
+            
+            # Delete the entire user folder
+            repo_root = Path(__file__).resolve().parent.parent
+            user_tmp_root = repo_root / "tmp" / str(user_id_value)
+            if user_tmp_root.exists():
+                shutil.rmtree(user_tmp_root, ignore_errors=True)
+                logger.info(f"Deleted temp directory for user {user_id_value}: {user_tmp_root}")
+        else:
+            # Clear all if no user_id specified
+            logger.info("Clearing all Aider instances (no user_id provided)")
+            _coder_instances.clear()
+            _user_active_uuid.clear()
+        
+        return {"ok": True, "cleared_instances": len(keys_to_remove) if user_id_value else len(_coder_instances)}
+    except Exception as e:
+        logger.error(f"Error clearing agent history: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# --------------------------
+# Memory management and monitoring endpoints
+# --------------------------
+@router.get("/api/agent-instances/stats")
+async def get_agent_instances_stats():
+    """Get statistics about active Coder instances for monitoring."""
+    global _coder_instances
+    try:
+        current_time = time.time()
+        instances_info = []
+        total_io_messages = 0
+        user_instance_count: Dict[int, int] = {}
+        
+        for cache_key, instance in _coder_instances.items():
+            last_used = instance.get("last_used", 0)
+            age_seconds = current_time - last_used
+            io = instance.get("io")
+            io_message_count = len(io.messages) if io and hasattr(io, "messages") else 0
+            total_io_messages += io_message_count
+            user_id = instance.get("user_id")
+            
+            # Track instances per user
+            if user_id is not None:
+                user_instance_count[user_id] = user_instance_count.get(user_id, 0) + 1
+            
+            instances_info.append({
+                "temp_dir": instance.get("temp_dir", ""),
+                "user_id": user_id,
+                "last_used_seconds_ago": int(age_seconds),
+                "io_message_count": io_message_count,
+            })
+        
+        # Sort by last_used (oldest first)
+        instances_info.sort(key=lambda x: x["last_used_seconds_ago"], reverse=True)
+        
+        # Find users with multiple instances (shouldn't happen, but useful for debugging)
+        users_with_multiple = {uid: count for uid, count in user_instance_count.items() if count > 1}
+        
+        return {
+            "total_instances": len(_coder_instances),
+            "max_instances": MAX_CODER_INSTANCES,
+            "idle_timeout_seconds": INSTANCE_IDLE_TIMEOUT_SECONDS,
+            "total_io_messages": total_io_messages,
+            "unique_users": len(user_instance_count),
+            "users_with_multiple_instances": users_with_multiple,  # Should be empty if working correctly
+            "instances": instances_info[:20],  # Return top 20 oldest instances
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/api/agent-instances/cleanup")
+async def cleanup_agent_instances():
+    """Manually trigger cleanup of inactive instances."""
+    try:
+        evicted_count = _evict_inactive_instances()
+        return {
+            "ok": True,
+            "evicted_count": evicted_count,
+            "remaining_instances": len(_coder_instances),
+        }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

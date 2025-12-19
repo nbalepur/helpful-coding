@@ -2851,8 +2851,11 @@ Do not generate anything else.
 
 def generate_ui_features(html_code: str, css_code: str, js_code: str) -> List[str]:
 
-    random_model = random.choice(["openai/gpt-5.1-2025-11-13", "anthropic/claude-sonnet-4-5-20250929", "gemini/gemini-3-pro-preview"])
-    backup_model = "gemini/gemini-3-pro-preview"
+    # random_model = random.choice(["openai/gpt-5.1-2025-11-13", "anthropic/claude-sonnet-4-5-20250929", "gemini/gemini-3-pro-preview"])
+    # backup_model = "gemini/gemini-3-pro-preview"
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
 
     prompt = """
 <task>

@@ -114,17 +114,17 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   const haltBtnRef = useRef<HTMLButtonElement>(null);
   const sendBtnRef = useRef<HTMLButtonElement>(null);
 
-  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; placement: 'top' | 'left' } | null>(null);
 
   const showTooltip = useCallback((el: HTMLElement | null, text: string, placement: 'top' | 'left' = 'top') => {
     if (!el) return;
     const rect = el.getBoundingClientRect();
     if (placement === 'left') {
       // Position tooltip to the left of the element, vertically centered, with extra offset
-      setTooltip({ text, x: rect.left - 12, y: rect.top + rect.height / 2 });
+      setTooltip({ text, x: rect.left - 12, y: rect.top + rect.height / 2, placement });
     } else {
-      // Position tooltip 14px above the element
-      setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 32 });
+      // Position tooltip 32px above the element, centered horizontally
+      setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 32, placement });
     }
   }, []);
 
@@ -285,6 +285,53 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     return () => clearTimeout(timeout);
   }, [renderedItems.messages]);
 
+  // Continuous scrolling during text animation
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    if (!messagesEndRef.current) return;
+    if (!awaitingResponse) return;
+
+    const container = messagesContainerRef.current;
+    const messagesEnd = messagesEndRef.current;
+
+    // Check if there's an active animation (message that hasn't completed)
+    const hasActiveAnimation = renderedItems.messages.some(msg => {
+      if (msg.type === 'assistant' || (msg.type === 'tool' && msg.status === 'done')) {
+        return msg.id && !animatedMessageIds.has(msg.id);
+      }
+      return false;
+    });
+
+    if (!hasActiveAnimation) return;
+
+    // Use requestAnimationFrame for smooth scrolling during animation
+    let animationFrameId: number;
+    let lastScrollTime = 0;
+    const scrollThrottle = 50; // Throttle to every 50ms for performance
+
+    const scrollLoop = () => {
+      const now = Date.now();
+      if (now - lastScrollTime >= scrollThrottle) {
+        try {
+          // Use instant scrolling during animation for better responsiveness
+          container.scrollTop = container.scrollHeight;
+        } catch (error) {
+          // Fallback
+        }
+        lastScrollTime = now;
+      }
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(scrollLoop);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [awaitingResponse, renderedItems.messages, animationCompletionCounter]);
+
   // Auto-resize textarea based on content
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -352,7 +399,11 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
           position: 'fixed', 
           top: tooltip.y, 
           left: tooltip.x, 
-          transform: tooltip.x > window.innerWidth / 2 ? 'translateX(-100%) translateY(-50%)' : 'translateX(-8px) translateY(-50%)', 
+          transform: tooltip.placement === 'top' 
+            ? 'translate(-50%, -100%) translateY(-8px)' 
+            : tooltip.x > window.innerWidth / 2 
+              ? 'translateX(-100%) translateY(-50%)' 
+              : 'translateX(-8px) translateY(-50%)', 
           zIndex: 9999 
         }}>
           <div className="px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 shadow-lg whitespace-nowrap relative">
@@ -361,9 +412,10 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         </div>,
         document.body
       )}
-      {/* Placement toggle button row - transparent, minimal space */}
-      {assistantPlacement && onAssistantPlacementChange && (
-        <div className="flex items-center justify-end px-1 py-1 flex-shrink-0 bg-black">
+      {/* Header row with title and placement toggle button */}
+      <div className="flex items-center justify-between px-2 py-1 flex-shrink-0 bg-black border-b border-white/20">
+        <span className="text-xs text-gray-400 font-medium">AI Assistant</span>
+        {assistantPlacement && onAssistantPlacementChange && (
           <button
             onClick={() => onAssistantPlacementChange(assistantPlacement === 'bottom' ? 'side' : 'bottom')}
             className="px-2 py-1 text-xs rounded transition-colors relative group flex-shrink-0 h-7 w-7 flex items-center justify-center bg-gray-700/50 hover:bg-gray-600 text-gray-400 hover:text-gray-300"
@@ -378,8 +430,8 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               <PanelBottom size={14} />
             )}
           </button>
-        </div>
-      )}
+        )}
+      </div>
       {/* Messages area grows to fill available space */}
       <div
         ref={messagesContainerRef}
@@ -474,40 +526,38 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         </div>
       </div>
       
-      {/* Suggestions area - sizes with its content; show only after summary animation completes */}
-      {shouldShowSuggestions && (
-        <div
-          className="w-full bg-[#0a0a0a] flex justify-center px-3 py-3 flex-none"
-        >
-          <div className="w-full flex flex-col items-center justify-end gap-2">
-            {renderedItems.suggestions.map((item) => {
-              const suggestions = item.suggestions ?? [];
-              if (suggestions.length === 0) return null;
-              
-              return (
-                <div
-                  key={item.id}
-                  className="w-full text-[12px] text-gray-200 suggestion-animate"
-                >
-                  <div className="flex flex-wrap gap-3 justify-center pt-1 pb-1">
-                    {suggestions.map((suggestion, idx) => (
-                      <button
-                        key={`${item.id}-suggestion-${idx}`}
-                        onClick={() => handleSuggestionClickInternal(suggestion)}
-                        className="px-3 py-1 text-xs rounded-md bg-blue-600/10 text-blue-300 hover:bg-blue-600/20 transition-all duration-200 hover:-translate-y-0.5"
-                        style={{ border: '1px solid rgba(96, 165, 250, 0.4)', borderStyle: 'solid', borderWidth: '1px' }}
-                        type="button"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
+      {/* Suggestions area - always visible with border */}
+      <div
+        className="w-full bg-[#0a0a0a] flex justify-center px-3 py-3 flex-none border-t border-white/20"
+      >
+        <div className="w-full flex flex-col items-center justify-end gap-2">
+          {renderedItems.suggestions.map((item) => {
+            const suggestions = item.suggestions ?? [];
+            if (suggestions.length === 0) return null;
+            
+            return (
+              <div
+                key={item.id}
+                className="w-full text-[12px] text-gray-200 suggestion-animate"
+              >
+                <div className="flex flex-wrap gap-3 justify-center pt-1 pb-1">
+                  {suggestions.map((suggestion, idx) => (
+                    <button
+                      key={`${item.id}-suggestion-${idx}`}
+                      onClick={() => handleSuggestionClickInternal(suggestion)}
+                      className="px-3 py-1 text-xs rounded-md bg-blue-600/10 text-blue-300 hover:bg-blue-600/20 transition-all duration-200 hover:-translate-y-0.5"
+                      style={{ border: '1px solid rgba(96, 165, 250, 0.4)', borderStyle: 'solid', borderWidth: '1px' }}
+                      type="button"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
       {/* Toolbar outside the iframe, inside the assistant terminal */}
       <div className="flex flex-col gap-2 p-2 bg-gray-800/50">
         <div className="flex gap-2 items-center">
