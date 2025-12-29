@@ -30,8 +30,10 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False, index=True)
+    title = Column(String(255), nullable=True)
+    label = Column(String(255), nullable=True, index=True)
     description = Column(Text)
-    # Store raw files array from dummy_tasks.json (names, languages, content paths/inline)
+    # Store raw files array from tasks.json (names, languages, content paths/inline)
     files = Column(JSON)
     code_start_date = Column(Date, nullable=True)
     voting_start_date = Column(Date, nullable=True)

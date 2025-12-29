@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Snackbar, { SnackbarMessage } from "./Snackbar";
 
 interface SnackbarContextType {
-  showSnackbar: (message: string, duration?: number) => void;
+  showSnackbar: (message: string | ReactNode, duration?: number) => void;
 }
 
 const SnackbarContext = createContext<SnackbarContextType | undefined>(undefined);
@@ -30,7 +30,7 @@ export const SnackbarProvider = ({ children }: SnackbarProviderProps) => {
     setIsMounted(true);
   }, []);
 
-  const showSnackbar = useCallback((message: string, duration?: number) => {
+  const showSnackbar = useCallback((message: string | ReactNode, duration?: number) => {
     const id = `snackbar-${Date.now()}-${Math.random()}`;
     const newSnackbar: SnackbarMessage = {
       id,

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, ReactNode } from "react";
 import { X } from "lucide-react";
 
 export interface SnackbarMessage {
   id: string;
-  message: string;
+  message: string | ReactNode;
   duration?: number; // in milliseconds, default 7000
 }
 
@@ -67,7 +67,7 @@ const Snackbar = ({ message, onClose }: SnackbarProps) => {
         opacity: isVisible && !isExiting ? 1 : 0,
       }}
     >
-      <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{message.message}</span>
+      <span style={{ flex: 1 }}>{message.message}</span>
       <button
         onClick={handleClose}
         aria-label="Close notification"

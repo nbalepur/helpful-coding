@@ -1,7 +1,7 @@
 // Task logic functions for loading and managing tasks
 
 /**
- * Loads the current task based on task index from dummy_tasks.json
+ * Loads the current task based on task index from tasks.json
  * @param {number} taskIndex - Index of the task to load
  * @param {string} response_id - Response ID for tracking
  * @param {string} task_id - Task ID for tracking
@@ -13,6 +13,7 @@
  * @param {Array} telemetry - Telemetry data array
  * @param {Function} setTelemetry - Function to set telemetry state
  * @param {any} actualEditorRef - Reference to the actual editor
+ * @param {number|null} userId - User ID for loading user-specific code files
  */
 export async function loadCurrentTask(
   taskIndex,
@@ -25,28 +26,41 @@ export async function loadCurrentTask(
   function_signatures,
   telemetry,
   setTelemetry,
-  actualEditorRef
+  actualEditorRef,
+  userId = null
 ) {
   try {
-    // Fetch tasks from API (proxied to backend DB)
-    const response = await fetch('/api/tasks');
+    // Fetch tasks from API (proxied to backend DB) - include userId for correct status
+    const userIdParam = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    const response = await fetch(`/api/tasks${userIdParam}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }
     const data = await response.json();
     const tasks = data.tasks || [];
     
-    // Validate task index
-    if (taskIndex < 0 || taskIndex >= tasks.length) {
-      console.error(`Invalid task index: ${taskIndex}. Available tasks: ${tasks.length}`);
+    // Use task_id to find the task instead of taskIndex (which is always 0)
+    // This ensures we load the correct task regardless of taskIndex
+    let currentTask = null;
+    if (task_id && task_id !== 'playground') {
+      currentTask = tasks.find(t => t.id === task_id);
+    } else if (taskIndex >= 0 && taskIndex < tasks.length) {
+      // Fallback to taskIndex if task_id is not available
+      currentTask = tasks[taskIndex];
+    }
+    
+    if (!currentTask) {
+      console.error(`Task not found: task_id=${task_id}, taskIndex=${taskIndex}, available tasks: ${tasks.length}`);
       return;
     }
     
-    const currentTask = tasks[taskIndex];
+    // Use the actual index of the found task for logging
+    const actualTaskIndex = tasks.findIndex(t => t.id === currentTask.id);
     
-    // Fetch files for the selected task and populate editor
+    // Fetch files for the selected task and populate editor - include userId to load saved code
     if (editor && currentTask?.id) {
-      const filesRes = await fetch(`/api/task-files?taskId=${encodeURIComponent(currentTask.id)}`);
+      const filesUserIdParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+      const filesRes = await fetch(`/api/task-files?taskId=${encodeURIComponent(currentTask.id)}${filesUserIdParam}`);
       const filesData = filesRes.ok ? await filesRes.json() : { files: [] };
       const files = Array.isArray(filesData.files) ? filesData.files : [];
 
@@ -82,7 +96,7 @@ export async function loadCurrentTask(
     
     // Set up initial message with task description
     const initialMessage = {
-      id: `task-${taskIndex}-${Date.now()}`,
+      id: `task-${currentTask.id}-${Date.now()}`,
       type: 'system',
       content: `**Task: ${currentTask.name}**\n\n${currentTask.description}`,
       timestamp: new Date().toISOString(),
@@ -94,7 +108,7 @@ export async function loadCurrentTask(
     // Log telemetry for task loading
     const taskLoadTelemetry = {
       type: 'task_loaded',
-      taskIndex,
+      taskIndex: actualTaskIndex >= 0 ? actualTaskIndex : taskIndex,
       taskName: currentTask.name,
       timestamp: new Date().toISOString(),
       response_id,
@@ -105,7 +119,7 @@ export async function loadCurrentTask(
     
     setTelemetry([...telemetry, taskLoadTelemetry]);
     
-    console.log(`Loaded task ${taskIndex}: ${currentTask.name}`);
+    console.log(`Loaded task ${currentTask.id} (index ${actualTaskIndex >= 0 ? actualTaskIndex : taskIndex}): ${currentTask.name}`);
     
   } catch (error) {
     console.error('Error loading current task:', error);
@@ -130,7 +144,7 @@ export async function loadCurrentTask(
  */
 export async function getTaskData(taskIndex) {
   try {
-    const response = await fetch('/data/dummy_tasks.json');
+    const response = await fetch('/data/tasks.json');
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }

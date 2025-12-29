@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Load tasks from data/dummy_tasks.json into the database `projects` table.
+Load tasks from data/tasks.json into the database `projects` table.
 
 Maps common starter files by filename:
 - index.html -> Project.html_starter_file
@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from database.config import SessionLocal, create_tables  # type: ignore
 from database.sqlalchemy_models import Project  # type: ignore
+from sqlalchemy.orm import Session
 
 
 def read_text_file(repo_relative_path: str) -> str:
@@ -38,13 +39,13 @@ def read_text_file(repo_relative_path: str) -> str:
 
 
 def load_description(task: Dict[str, Any]) -> str:
-    """Store description exactly as in dummy_tasks.json (string)."""
+    """Store description exactly as in tasks.json (string)."""
     desc = task.get("description", "")
     return desc or ""
 
 
 def extract_files_json(task: Dict[str, Any]):
-    """Return the raw files array (paths or inline) exactly as in dummy_tasks.json."""
+    """Return the raw files array (paths or inline) exactly as in tasks.json."""
     files = task.get("files")
     return files if isinstance(files, list) else []
 
@@ -66,7 +67,7 @@ def main() -> int:
     # Ensure tables exist
     create_tables()
 
-    data_path = REPO_ROOT / "data" / "dummy_tasks.json"
+    data_path = REPO_ROOT / "data" / "tasks.json"
     if not data_path.exists():
         print(f"❌ Not found: {data_path}")
         return 1
@@ -77,6 +78,7 @@ def main() -> int:
     db = SessionLocal()
     try:
         created = 0
+        updated = 0
         for task in tasks:
             name = task.get("name")
             if not name:
@@ -85,6 +87,8 @@ def main() -> int:
             # Upsert-like behavior: if a project with same name exists, update it
             existing = db.query(Project).filter(Project.name == name).first()
 
+            title = task.get("title")
+            label = task.get("label")
             description_text = load_description(task)
             files_json = extract_files_json(task)
             code_start = parse_date_field(task, "code_start_date")
@@ -92,14 +96,19 @@ def main() -> int:
             voting_end = parse_date_field(task, "voting_end_date")
 
             if existing:
+                existing.title = title
+                existing.label = label
                 existing.description = description_text
                 existing.files = files_json
                 existing.code_start_date = code_start
                 existing.voting_start_date = voting_start
                 existing.voting_end_date = voting_end
+                updated += 1
             else:
                 project = Project(
                     name=name,
+                    title=title,
+                    label=label,
                     description=description_text,
                     files=files_json,
                     code_start_date=code_start,
@@ -108,9 +117,16 @@ def main() -> int:
                 )
                 db.add(project)
                 created += 1
-
-        db.commit()
-        print(f"✅ Loaded tasks into projects table. New created: {created}, total now: {db.query(Project).count()}")
+            
+            # Commit each insert individually to avoid bulk insert parameter binding issues
+            try:
+                db.commit()
+            except Exception as commit_error:
+                db.rollback()
+                print(f"⚠️  Error committing task '{name}': {commit_error}")
+                # Try to continue with next task
+                continue
+        print(f"✅ Loaded tasks into projects table. New created: {created}, updated: {updated}, total now: {db.query(Project).count()}")
         return 0
     except Exception as e:
         db.rollback()

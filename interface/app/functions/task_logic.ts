@@ -1,7 +1,7 @@
 // Task logic functions for loading and managing tasks
 
 /**
- * Loads the current task based on task index from dummy_tasks.json
+ * Loads the current task based on task index from tasks.json
  * @param {number} taskIndex - Index of the task to load
  * @param {string} response_id - Response ID for tracking
  * @param {string} task_id - Task ID for tracking
@@ -28,8 +28,8 @@ export async function loadCurrentTask(
   actualEditorRef
 ) {
   try {
-    // Fetch the dummy tasks data
-    const response = await fetch('/data/dummy_tasks.json');
+    // Fetch the tasks data
+    const response = await fetch('/data/tasks.json');
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }
@@ -141,7 +141,7 @@ export async function loadCurrentTask(
  */
 export async function getTaskData(taskIndex) {
   try {
-    const response = await fetch('/data/dummy_tasks.json');
+    const response = await fetch('/data/tasks.json');
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }

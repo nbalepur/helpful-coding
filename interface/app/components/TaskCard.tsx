@@ -9,7 +9,8 @@ import {
   ChevronDown, 
   ChevronUp,
   Bookmark,
-  BookmarkCheck
+  BookmarkCheck,
+  FlaskConical
 } from 'lucide-react';
 import TaskInstructionNew from './TaskInstructionNew';
 
@@ -33,11 +34,24 @@ interface TaskCardProps {
   disableHover?: boolean;
 }
 
+// Extract text from HTML description
+const getTextFromHtml = (html: string): string => {
+  if (typeof window === 'undefined') {
+    // Server-side: strip HTML tags
+    return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
+  // Client-side: use DOM parser
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+};
+
 const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = false }) => {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleTaskClick = () => {
+    // Use standard vibe route for all tasks including playground
     router.push(`/vibe/${task.id}`);
   };
 
@@ -63,7 +77,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
             <div className={`peer h-5 w-5 relative transition-transform cursor-help ${!disableHover ? 'hover:scale-110' : ''}`}>
               <Circle className="h-5 w-5 text-yellow-500" strokeWidth={1.5} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                <div className="h-2 w-2 bg-yellow-500 rounded-full"></div>
               </div>
             </div>
             <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
@@ -104,26 +118,47 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
     );
   };
 
+  const isPlayground = task.id === 'playground';
+  
   return (
-    <div className={`bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 transition-all duration-300 ease-out ${!disableHover ? 'hover:border-gray-600/50 hover:shadow-lg hover:shadow-black/20' : ''}`}>
+    <div 
+      className={`bg-gray-800/50 backdrop-blur-sm rounded-xl transition-all duration-300 ease-out ${
+        isPlayground 
+          ? `border border-green-600/60 ${!disableHover ? 'hover:border-green-500/80 hover:shadow-lg hover:shadow-green-500/30' : ''}`
+          : `border border-gray-700/50 ${!disableHover ? 'hover:border-gray-600/50 hover:shadow-lg hover:shadow-black/20' : ''}`
+      }`}
+    >
       {/* Main Task Row */}
       <div 
         className={`p-4 cursor-pointer group transition-all duration-300 ease-out ${!disableHover ? 'hover:bg-gray-700/30' : ''}`}
         onClick={handleTaskClick}
       >
         <div className="flex items-center space-x-4">
-          {/* Status Icon */}
+          {/* Status Icon - Use test tube icon for playground */}
           <div className="flex-shrink-0">
-            {getStatusIcon(task.status)}
+            {isPlayground ? (
+              <div className="relative">
+                <FlaskConical className={`peer h-5 w-5 text-green-500 transition-colors cursor-help ${!disableHover ? 'hover:text-green-400' : ''}`} />
+                <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
+                  {task.status === 'completed' ? 'Completed' : 'Practice Task'}
+                </div>
+              </div>
+            ) : (
+              getStatusIcon(task.status)
+            )}
           </div>
 
           {/* Task Info */}
           <div className="flex-1 min-w-0">
-            <h3 className={`text-lg font-medium text-white transition-colors duration-300 ${!disableHover ? 'group-hover:text-blue-400' : ''}`}>
-              {task.name}
+            <h3 className={`text-lg font-medium transition-colors duration-300 ${
+              isPlayground 
+                ? `text-white ${!disableHover ? 'group-hover:text-white' : ''}`
+                : `text-white ${!disableHover ? 'group-hover:text-blue-400' : ''}`
+            }`}>
+              {(task as any).title || task.name}
             </h3>
-            <p className="text-sm text-gray-400 mt-1 line-clamp-2">
-              {task.description}
+            <p className="text-sm text-gray-400 mt-1 line-clamp-2 overflow-hidden text-ellipsis break-words">
+              {getTextFromHtml(task.description)}
             </p>
           </div>
 
@@ -172,6 +207,9 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
           <div className="pt-4">
             <TaskInstructionNew
               taskDescription={task.description}
+              taskName={(task as any).title || task.name}
+              taskLabel={(task as any).label}
+              example={(task as any).example}
               showHeader={false}
               compact={true}
             />
@@ -180,10 +218,22 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
             <div className="pt-4 border-t border-gray-700/50 mt-4">
               <button
                 onClick={handleTaskClick}
-                className={`w-full bg-blue-600 text-white font-medium py-3 px-4 rounded-lg transition-all duration-300 ease-out flex items-center justify-center space-x-2 ${!disableHover ? 'hover:bg-blue-700 hover:scale-105' : ''}`}
+                className={`w-full text-white font-medium py-3 px-4 rounded-lg transition-all duration-300 ease-out flex items-center justify-center space-x-2 ${
+                  isPlayground 
+                    ? `bg-green-600 ${!disableHover ? 'hover:bg-green-700 hover:scale-105' : ''}`
+                    : `bg-blue-600 ${!disableHover ? 'hover:bg-blue-700 hover:scale-105' : ''}`
+                }`}
               >
                 <Play className="h-4 w-4" />
-                <span>Get Started</span>
+                <span>
+                  {isPlayground
+                    ? 'Open Tutorial'
+                    : task.status === 'completed' 
+                    ? 'Edit Submission' 
+                    : task.status === 'in-progress' 
+                    ? 'Continue Vibing' 
+                    : 'Get Started'}
+                </span>
               </button>
             </div>
           </div>

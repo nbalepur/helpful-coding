@@ -15,7 +15,8 @@ import {
   Zap,
   Coffee,
   Smile,
-  User
+  User,
+  FlaskConical
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
 
@@ -49,10 +50,11 @@ export default function Sidebar({
   }, []);
 
   const navigationItems = [
-    { id: 'tasks', icon: Grid3X3, label: 'Tasks' },
+    { id: 'tasks', icon: Grid3X3, label: 'All Tasks' },
+    { id: 'playground', icon: FlaskConical, label: 'Playground (Tutorial)' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
-    { id: 'about', icon: Info, label: 'About' },
+    { id: 'about', icon: Info, label: 'Instructions' },
   ] as const;
 
   // Feedback removed; About moved into navigation
@@ -165,6 +167,7 @@ export default function Sidebar({
                 {navigationItems.map((item) => {
                   const routeMap: Record<string, string> = {
                     'tasks': '/browse',
+                    'playground': '/vibe?task=playground',
                     'leaderboard': '/leaderboard',
                     'skill-check': '/skill-check',
                     'about': '/about',

@@ -120,8 +120,117 @@ export default function LeaderboardPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-start pt-8">
-      <h1 className="text-4xl font-semibold text-white mb-2">Leaderboard</h1>
+    <div className="flex-1 flex flex-col items-center justify-start pt-8 relative">
+      {/* Space Theme with Jam-Colored Stars */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Large stars */}
+        {[...Array(20)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 4 + 2;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.6 + 0.4;
+          
+          return (
+            <div
+              key={`star-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+                boxShadow: `0 0 ${size * 2}px ${color}, 0 0 ${size * 4}px ${color}`,
+              }}
+            />
+          );
+        })}
+        
+        {/* Medium stars */}
+        {[...Array(40)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 2 + 1;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.5 + 0.3;
+          
+          return (
+            <div
+              key={`medium-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+                boxShadow: `0 0 ${size * 1.5}px ${color}`,
+              }}
+            />
+          );
+        })}
+        
+        {/* Small twinkling dots */}
+        {[...Array(100)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 1.5 + 0.5;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.4 + 0.2;
+          
+          return (
+            <div
+              key={`dot-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+              }}
+            />
+          );
+        })}
+        
+        {/* Animated jam-like dots moving across screen */}
+        {[...Array(12)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 8 + 4;
+          const top = Math.random() * 100;
+          const duration = Math.random() * 30 + 40; // 40-70 seconds (slower)
+          const delay = Math.random() * 5; // 0-5 seconds delay
+          const direction = Math.random() > 0.5 ? 'left-to-right' : 'right-to-left';
+          
+          return (
+            <div
+              key={`animated-dot-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                top: `${top}%`,
+                left: direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
+                backgroundColor: color,
+                opacity: Math.random() * 0.6 + 0.4,
+                boxShadow: `0 0 ${size * 1.5}px ${color}, 0 0 ${size * 3}px ${color}`,
+                animation: `moveAcross${direction === 'left-to-right' ? 'Right' : 'Left'} ${duration}s linear ${delay}s infinite`,
+              }}
+            />
+          );
+        })}
+      </div>
+      
+      <div className="relative z-10 w-full flex flex-col items-center">
+        <h1 className="text-4xl font-semibold text-white mb-2">Leaderboard</h1>
       <p className="text-gray-400 text-base mb-8">
         Check out your performance on Vibe Jam! The top-performing users will be eligible for{" "}
         <Link href="/about" className="text-blue-400 hover:text-blue-300 underline">
@@ -236,6 +345,7 @@ export default function LeaderboardPage() {
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );

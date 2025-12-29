@@ -6,6 +6,7 @@ import LoginForm from "./LoginForm";
 import SignupForm from "./SignupForm";
 import IRBConsentForm from "./IRBConsentForm";
 import { useAuth } from "../utils/auth";
+import LoadingSpinner from "./LoadingSpinner";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -85,11 +86,11 @@ export default function LandingPage() {
 
   // Create demo items data
   const demoItems = [
-    { id: 1, title: "Tic Tac Toe Game", video: "/api/video/tictactoe_solution/demo.mp4" },
-    { id: 2, title: "Personal Website", video: "/api/video/tictactoe_solution/demo.mp4" },
-    { id: 3, title: "Calculator App", video: "/api/video/tictactoe_solution/demo.mp4" },
-    { id: 4, title: "Todo List", video: "/api/video/tictactoe_solution/demo.mp4" },
-    { id: 5, title: "Weather App", video: "/api/video/tictactoe_solution/demo.mp4" },
+    { id: 1, title: "Tic Tac Toe", video: "/videos/tic_tac_toe.mp4" },
+    { id: 2, title: "Endless Runner", video: "/videos/flappy_penguin.mp4" },
+    { id: 3, title: "Connect Four", video: "/videos/connect_four.mp4" },
+    { id: 4, title: "Typing Test", video: "/videos/typing_test.mp4" },
+    { id: 5, title: "Breakout", video: "/videos/breakout.mp4" },
   ];
 
   // Duplicate items for seamless infinite scroll
@@ -99,10 +100,10 @@ export default function LandingPage() {
   // Prevent hydration mismatch by not rendering content until mounted
   if (!isMounted) {
     return (
-      <div className="h-screen overflow-hidden bg-gray-900 text-white">
+      <div className="h-screen overflow-hidden bg-gray-900 text-white relative">
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <LoadingSpinner size="xl" color="white" className="mx-auto mb-4" />
             <p className="text-gray-400">Loading...</p>
           </div>
         </div>
@@ -111,12 +112,119 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-gray-900 text-white">
+    <div className="h-screen overflow-hidden bg-gray-900 text-white relative">
+      {/* Space Theme with Jam-Colored Stars */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Large stars */}
+        {[...Array(20)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899']; // Red-blue gradient colors
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 4 + 2;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.6 + 0.4;
+          
+          return (
+            <div
+              key={`star-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+                boxShadow: `0 0 ${size * 2}px ${color}, 0 0 ${size * 4}px ${color}`,
+              }}
+            />
+          );
+        })}
+        
+        {/* Medium stars */}
+        {[...Array(40)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 2 + 1;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.5 + 0.3;
+          
+          return (
+            <div
+              key={`medium-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+                boxShadow: `0 0 ${size * 1.5}px ${color}`,
+              }}
+            />
+          );
+        })}
+        
+        {/* Small twinkling dots */}
+        {[...Array(100)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 1.5 + 0.5;
+          const left = Math.random() * 100;
+          const top = Math.random() * 100;
+          const opacity = Math.random() * 0.4 + 0.2;
+          
+          return (
+            <div
+              key={`dot-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: color,
+                opacity: opacity,
+              }}
+            />
+          );
+        })}
+        
+        {/* Animated jam-like dots moving across screen */}
+        {[...Array(12)].map((_, i) => {
+          const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const size = Math.random() * 8 + 4;
+          const top = Math.random() * 100;
+          const duration = Math.random() * 30 + 40; // 40-70 seconds (slower)
+          const delay = Math.random() * 5; // 0-5 seconds delay
+          const direction = Math.random() > 0.5 ? 'left-to-right' : 'right-to-left';
+          
+          return (
+            <div
+              key={`animated-dot-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                top: `${top}%`,
+                left: direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
+                backgroundColor: color,
+                opacity: Math.random() * 0.6 + 0.4,
+                boxShadow: `0 0 ${size * 1.5}px ${color}, 0 0 ${size * 3}px ${color}`,
+                animation: `moveAcross${direction === 'left-to-right' ? 'Right' : 'Left'} ${duration}s linear ${delay}s infinite`,
+              }}
+            />
+          );
+        })}
+      </div>
       {/* Show loading state while checking authentication */}
       {isLoading && (
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <LoadingSpinner size="xl" color="white" className="mx-auto mb-4" />
             <p className="text-gray-400">Loading...</p>
           </div>
         </div>
@@ -152,7 +260,7 @@ export default function LandingPage() {
       {!isLoading && !showLoginForm && !showSignupForm && !showIRBForm && (
         <>
           {/* Main Content */}
-          <div className="flex flex-col items-center h-full px-4 text-center justify-center py-8">
+          <div className="flex flex-col items-center h-full px-4 text-center justify-center py-8 relative z-10">
         {/* Header */}
         <div className="text-center w-full mb-6">
           <div className="flex flex-row items-center justify-center mb-4 gap-4">
@@ -186,7 +294,7 @@ export default function LandingPage() {
                       <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                       <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <span className="ml-3 text-xs text-gray-400 font-medium">{item.title} - Demo {item.id}</span>
+                      <span className="ml-3 text-xs text-gray-400 font-medium">{item.title}</span>
                     </div>
                   </div>
                   <div className="bg-gray-900" style={{height: 'calc(33vh - 40px)', display: 'flex', alignItems: 'stretch'}}>

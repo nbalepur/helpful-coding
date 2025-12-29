@@ -5,10 +5,11 @@ import SkillCheckFlow from "../components/SkillCheckFlow";
 import { useAuth } from "../utils/auth";
 
 interface SkillCheckPageProps {
-  skillCheckMode: 'pre-test' | 'post-test' | 'locked';
+  skillCheckMode: 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
+  isCalculating?: boolean;
 }
 
-export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) {
+export default function SkillCheckPage({ skillCheckMode, isCalculating = false }: SkillCheckPageProps) {
   const { user } = useAuth();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   const [isStarted, setIsStarted] = useState(false);
@@ -66,8 +67,8 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
   const getDescription = () => {
     if (!isStarted || !currentQuestionType) {
       return skillCheckMode === 'pre-test' 
-        ? "Please complete the skill check before starting the main coding tasks."
-        : "Thank you for completing the main coding tasks! Please complete the skill check below to finish the research study.";
+        ? "Please complete the skill check before starting the website building tasks."
+        : "Thank you for completing the website building tasks! Please complete the skill check below to finish the research study.";
     }
     
     if (currentQuestionType === 'coding') {
@@ -80,10 +81,22 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
     return "Please answer the following question";
   };
   
+  // Show loading state while calculating to avoid flickering
+  if (isCalculating) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center pt-2 px-2 mx-auto w-full h-full">
+        <div className="flex items-center justify-center space-x-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+          <p className="text-gray-400 text-lg">Loading skill check...</p>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="flex-1 flex flex-col items-start justify-start pt-2 px-2 mx-auto w-full h-full">
       {!isStarted && (
-        <h1 className="text-3xl font-semibold text-white mb-2">
+        <h1 className="text-3xl font-semibold text-white mb-2 mt-4">
           {skillCheckMode === 'pre-test' 
             ? 'Pre-Test Skill Check'
             : skillCheckMode === 'post-test'
@@ -93,28 +106,45 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
       )}
       {/* Completion Message - Show if skill check is completed */}
       {!isStarted && (skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && !completionStatus.loading && completionStatus.completed && (
-        <div className="bg-green-900/20 rounded-lg border border-green-700/50 p-6 mb-4 w-full">
-          <p className="text-gray-300 text-lg mb-2">
+        <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
+          <p className="text-gray-300 text-lg">
             Thanks for completing the skill check! {skillCheckMode === 'pre-test' && (
               <>Head over to the{" "}
-              <Link href="/" className="text-green-400 hover:text-green-300 underline font-semibold">
+              <Link href="/" className="text-blue-400 hover:text-blue-300 underline font-semibold">
                 tasks page
               </Link>{" "}
               to start vibe coding 😈</>
             )}
             {skillCheckMode === 'post-test' && (
-              <>Thank you for completing the research study!</>
+              <>You have completed the research study. If you had fun building websites in VibeJam and want to do more, you can head over to the{" "}
+              <Link href="/browse" className="text-blue-400 hover:text-blue-300 underline font-semibold">
+                browse page
+              </Link>
+              , where we've unlocked 50+ tasks for you to refine your AI-assisted coding skills and compete with other users 🎉</>
             )}
           </p>
         </div>
       )}
       {/* Mode Message as Subheader - Only show when not started and not completed */}
       {!isStarted && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
-        skillCheckMode === 'locked' ? (
-          <div className="bg-red-950/40 rounded-lg border-2 border-red-600/60 p-4 mb-4 w-full mt-4 shadow-lg shadow-red-900/20 flex items-center justify-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-            <p className="text-white text-sm">
-              The skill check is currently locked and not available at this time. Please check back later.
+        skillCheckMode === 'locked-pre-test' ? (
+          <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
+            <p className="text-gray-300 text-lg">
+              Thanks for completing the skill check! Head over to the{" "}
+              <Link href="/browse" className="text-blue-400 hover:text-blue-300 underline font-semibold">
+                browse page
+              </Link>{" "}
+              to start building websites in VibeJam 🚀
+            </p>
+          </div>
+        ) : skillCheckMode === 'locked-post-test' ? (
+          <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
+            <p className="text-gray-300 text-lg">
+              <>You have completed the research study! If you had fun building websites in VibeJam and want to do more, you can head over to the{" "}
+                <Link href="/browse" className="text-blue-400 hover:text-blue-300 underline font-semibold">
+                  browse page
+                </Link>
+                , where we've unlocked 50+ tasks for you to refine your AI-assisted coding skills and compete with other users 🎉</>
             </p>
           </div>
         ) : (
@@ -125,13 +155,25 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
       )}
       <div className="flex flex-col gap-4 w-full flex-1 min-h-0">
         {/* Skill Check Flow - Show when started */}
-        {isStarted && skillCheckMode !== 'locked' ? (
+        {isStarted && skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' ? (
           <div className="flex-1 min-h-0 flex flex-col w-full">
             <SkillCheckFlow
               mode={skillCheckMode}
-              initialIndex={completionStatus.has_responses && !completionStatus.completed ? completionStatus.current_question_index : 0}
+              initialIndex={(() => {
+                const idx = completionStatus.has_responses && !completionStatus.completed ? completionStatus.current_question_index : 0;
+                // Debug: Log the initial index being used
+                if (completionStatus.has_responses && !completionStatus.completed) {
+                  console.log(`[SkillCheckPage] Resuming skill check:`, {
+                    current_question_index: completionStatus.current_question_index,
+                    question_number: completionStatus.current_question_index + 1,
+                    total_answered: completionStatus.current_question_index,
+                    has_responses: completionStatus.has_responses,
+                    completed: completionStatus.completed
+                  });
+                }
+                return idx;
+              })()}
               onComplete={() => {
-                alert("Skill check completed! Thank you for your participation.");
                 setIsStarted(false);
                 setCurrentQuestionType(null);
                 setCurrentCodeType(null);
@@ -163,7 +205,7 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
         ) : (
           <>
             {/* Instructions - Only show if not locked and not completed */}
-            {skillCheckMode !== 'locked' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
+            {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
           <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
             <h2 className="text-xl font-semibold text-white mb-3">What You'll Do</h2>
             <div className="text-gray-300 space-y-3 leading-relaxed text-sm">
@@ -184,7 +226,7 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
                       <li>
                         {skillCheckMode === 'pre-test' 
                           ? "Your programming experience and background"
-                          : "Your perceived effort when doing the tasks"}
+                          : "Your perceived effort when completing the tasks"}
                       </li>
                       <li>{"Your knowledge of frontend syntax and programming (HTML, CSS, JavaScript)"}</li>
                       <li>{"Your knowledge of user experience (UX) design principles"}</li>
@@ -208,14 +250,14 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
         )}
 
         {/* Time Estimate - Only show if not locked and not completed */}
-        {skillCheckMode !== 'locked' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
+        {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
           <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-4">
             <div className="flex items-start space-x-2">
               <Clock className="text-blue-400 mt-0.5 flex-shrink-0" size={18} />
               <div>
                 <h3 className="text-base font-semibold text-white mb-1">Time Commitment</h3>
                 <p className="text-gray-300 text-sm">
-                  The complete Skill Check assessment will take approximately <strong className="text-white">30 minutes</strong> to complete. 
+                  We expect the Skill Check assessment to take a maximum of <strong className="text-white">60 minutes</strong> to complete. 
                   Please set aside enough time to finish the assessment in one session.
                 </p>
               </div>
@@ -224,7 +266,7 @@ export default function SkillCheckPage({ skillCheckMode }: SkillCheckPageProps) 
         )}
 
         {/* Start Button - Only show if not locked, not completed, and loading is complete */}
-        {skillCheckMode !== 'locked' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && !completionStatus.loading && (
+        {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && !completionStatus.loading && (
           <div className="flex justify-center pt-2">
             <button
               onClick={() => setIsStarted(true)}

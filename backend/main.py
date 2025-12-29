@@ -189,7 +189,12 @@ async def serve_asset(file_path: str):
         elif lower.endswith('.mp4'):
             content_type = "video/mp4"
         
-        return FileResponse(abs_path, media_type=content_type)
+        # Create FileResponse with cache prevention headers
+        response = FileResponse(abs_path, media_type=content_type)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -301,17 +306,28 @@ def _slugify(name: str) -> str:
     return slug
 
 
+def _resolve_project_from_task_id(db: Session, task_id: str) -> Optional[Project]:
+    """Unified function to resolve Project from task_id. Always use this instead of project_id."""
+    if not task_id:
+        return None
+    normalized_task_id = _slugify(task_id)
+    for project in db.query(Project).all():
+        if _slugify(project.name) == normalized_task_id:
+            return project
+    return None
+
+
 @lru_cache(maxsize=1)
 def _load_dummy_task_metadata() -> Dict[str, Dict[str, Optional[str]]]:
     """
-    Load fallback metadata from data/dummy_tasks.json keyed by slugified name.
+    Load fallback metadata from data/tasks.json keyed by slugified name.
     Ensures we preserve important dates if legacy DB rows are missing them.
     """
     try:
         repo_root = Path(__file__).resolve().parent.parent
-        data_path = repo_root / "data" / "dummy_tasks.json"
+        data_path = repo_root / "data" / "tasks.json"
         if not data_path.exists():
-            print(f"[tasks-db] dummy_tasks.json not found at {data_path}")
+            print(f"[tasks-db] tasks.json not found at {data_path}")
             return {}
 
         payload = json.loads(data_path.read_text(encoding="utf-8"))
@@ -327,11 +343,53 @@ def _load_dummy_task_metadata() -> Dict[str, Dict[str, Optional[str]]]:
                 "code_start_date": task.get("code_start_date"),
                 "voting_start_date": task.get("voting_start_date"),
                 "voting_end_date": task.get("voting_end_date"),
+                "example": task.get("example", ""),
             }
         return lookup
     except Exception as exc:
         print(f"[tasks-db] Failed to load dummy task metadata: {exc}")
         return {}
+
+
+def _load_task_definition_from_json(task_slug: str) -> Optional[Dict[str, Any]]:
+    """
+    Load the full task definition (including files) from tasks.json using the slugified name.
+    Provides a fallback when the DB is missing or has incomplete records.
+    """
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        data_path = repo_root / "data" / "tasks.json"
+        if not data_path.exists():
+            print(f"[tasks-db] tasks.json not found at {data_path}")
+            return None
+
+        payload = json.loads(data_path.read_text(encoding="utf-8"))
+        tasks = payload.get("tasks", [])
+        for task in tasks:
+            name = task.get("name")
+            if name and _slugify(name) == task_slug:
+                return task
+    except Exception as exc:
+        print(f"[tasks-db] Failed to load task definition for slug '{task_slug}': {exc}")
+    return None
+
+
+def _normalize_project_files(raw_files: Any) -> List[Dict[str, Any]]:
+    """
+    Ensure project.files is a list of file configs.
+    Handles None, JSON strings, or already-parsed lists.
+    """
+    if isinstance(raw_files, list):
+        return raw_files
+    if isinstance(raw_files, str):
+        try:
+            parsed = json.loads(raw_files)
+            if isinstance(parsed, list):
+                return parsed
+            print(f"[tasks-db] Parsed project.files string but got {type(parsed)} instead of list")
+        except Exception as exc:
+            print(f"[tasks-db] Could not parse project.files JSON string: {exc}")
+    return []
 
 
 _SYNC_LOCK = threading.Lock()
@@ -340,7 +398,7 @@ _SYNC_COMPLETED = False
 
 def _sync_project_dates_from_dummy(db: Session) -> None:
     """
-    Populate missing project date fields by syncing from dummy_tasks.json once.
+    Populate missing project date fields by syncing from tasks.json once.
     This writes the data into the database so future reads don't require fallbacks.
     """
     global _SYNC_COMPLETED
@@ -484,16 +542,70 @@ class SubmissionFeedbackRequest(BaseModel):
 
 
 @app.get("/api/tasks-db", tags=["Tasks"])
-async def list_tasks_from_db(db: Session = Depends(get_db)):
+async def list_tasks_from_db(
+    user_id: Optional[int] = Query(default=None, alias="userId"),
+    db: Session = Depends(get_db)
+):
     try:
         _sync_project_dates_from_dummy(db)
         projects = db.query(Project).order_by(Project.id.asc()).all()
         tasks = []
         for p in projects:
+            # Determine status based on user's code and submissions
+            status = "not-started"
+            if user_id:
+                # Check if user has a submission (completed)
+                submission = (
+                    db.query(Submission)
+                    .filter(
+                        Submission.user_id == user_id,
+                        Submission.project_id == p.id
+                    )
+                    .first()
+                )
+                if submission:
+                    status = "completed"
+                else:
+                    # Check if user has saved code (in-progress)
+                    user_code = CodeCRUD.get_latest_by_user_and_project(
+                        db, user_id=user_id, project_id=p.id
+                    )
+                    if user_code and user_code.code:
+                        # Check if code is different from starter files (has edits)
+                        # For now, if code exists, consider it in-progress
+                        status = "in-progress"
+            
+            # Get example from dummy metadata if available
+            dummy_meta = _load_dummy_task_metadata()
+            task_meta = dummy_meta.get(_slugify(p.name), {})
+            example = task_meta.get("example", "")
+            
+            # For replication tasks, prepend the prefix to the description
+            description = p.description or ""
+            task_title = p.title or p.name
+            if p.label and p.label.lower() == "replication" and task_title:
+                prefix = f"Create your own version of {task_title}: "
+                description_stripped = description.strip()
+                # Try to prepend to the first paragraph if it starts with <p
+                if re.match(r'^\s*<p', description_stripped, re.IGNORECASE):
+                    # Insert the prefix right after the opening <p> tag
+                    description = re.sub(
+                        r'^(\s*<p[^>]*>)',
+                        rf'\1{prefix}',
+                        description_stripped,
+                        flags=re.IGNORECASE
+                    )
+                else:
+                    # Prepend a paragraph with the prefix
+                    description = f"<p><strong>{prefix}</strong></p>{description_stripped}"
+            
             tasks.append({
                 "id": _slugify(p.name),
                 "name": p.name,
-                "description": p.description or "",
+                "title": task_title,  # Use title if available, fallback to name
+                "label": p.label or "",  # Include label (replication or open-ended)
+                "description": description,
+                "example": example,  # Include example from tasks.json
                 "projectId": p.id,
                 "codeStartDate": p.code_start_date.isoformat() if p.code_start_date else None,
                 "votingStartDate": p.voting_start_date.isoformat() if p.voting_start_date else None,
@@ -506,10 +618,27 @@ async def list_tasks_from_db(db: Session = Depends(get_db)):
                 "appType": "Widget",
                 "estimatedTime": "30 min",
                 "preview": "📦",
-                "status": "not-started",
+                "status": status,
                 "saved": False,
             })
-        return {"tasks": tasks}
+        response = JSONResponse(content={"tasks": tasks})
+        # Prevent caching
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/clear-cache", tags=["Tasks"])
+async def clear_cache():
+    """Clear the LRU cache for task metadata (development/debugging only)"""
+    try:
+        _load_dummy_task_metadata.cache_clear()
+        response = JSONResponse(content={"message": "Cache cleared successfully"})
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -794,6 +923,165 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
     db.refresh(assignment)
     print(f"✅ Successfully created assignment: id={assignment.id}, user_id={assignment.user_id}")
     return assignment
+
+
+def _build_ordered_question_ids(
+    phase: str,
+    assignment: Optional[SkillCheckAssignment],
+    db: Session
+) -> list[str]:
+    """
+    Build the ordered list of question IDs in the exact same order as get_skill_check_questions.
+    
+    Order:
+    1. Experience (pre-test) or NASA TLI (post-test) questions
+    2. Frontend questions from assignment
+    3. UX questions from assignment
+    4. Normal coding questions from assignment
+    5. Debug coding questions from assignment
+    
+    Returns:
+        List of question IDs in the order they appear in the questions endpoint
+    """
+    config_key = "pre_test" if phase == "pre-test" else "post_test"
+    question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
+    ordered_question_ids = []
+    
+    # Section 1: Experience/NASA TLI questions
+    if phase == "pre-test":
+        experience_questions = db.query(ExperienceData).filter(
+            ExperienceData.id.in_(question_ids_config["experience"])
+        ).order_by(ExperienceData.id).all()
+        for q in experience_questions:
+            ordered_question_ids.append(f"exp_{q.id}")
+    else:
+        nasa_questions = db.query(NasaTLIData).filter(
+            NasaTLIData.id.in_(question_ids_config["nasa_tli"])
+        ).order_by(NasaTLIData.id).all()
+        for q in nasa_questions:
+            ordered_question_ids.append(f"nasa_{q.id}")
+    
+    # Section 2: Frontend questions (from assignment, in assignment order)
+    if assignment:
+        frontend_names = assignment.frontend_pre_test if phase == "pre-test" else assignment.frontend_post_test
+        frontend_names = frontend_names or []
+    else:
+        # Fallback: use configured IDs and look up names (backward compatibility)
+        frontend_ids = question_ids_config["frontend"]
+        frontend_questions_by_id = db.query(MCQAData).filter(
+            MCQAData.type == "frontend",
+            MCQAData.id.in_(frontend_ids)
+        ).all()
+        frontend_names = [q.name for q in frontend_questions_by_id if q.name]
+    
+    if frontend_names:
+        frontend_questions_raw = db.query(MCQAData).filter(
+            MCQAData.type == "frontend",
+            MCQAData.name.in_(frontend_names)
+        ).all()
+        frontend_questions_map = {q.name: q for q in frontend_questions_raw}
+        frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
+        
+        # Check if we should inject sanity_frontend question in this phase
+        should_inject_sanity_frontend = False
+        if assignment and assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == phase:
+            has_sanity = any(q.name == "sanity_frontend" for q in frontend_questions)
+            if not has_sanity:
+                should_inject_sanity_frontend = True
+        
+        # Inject sanity_frontend at a random position if needed
+        if should_inject_sanity_frontend:
+            sanity_frontend_q = db.query(MCQAData).filter(
+                MCQAData.type == "frontend",
+                MCQAData.name == "sanity_frontend"
+            ).first()
+            if sanity_frontend_q:
+                insert_position = random.randint(0, len(frontend_questions))
+                frontend_questions.insert(insert_position, sanity_frontend_q)
+        
+        for q in frontend_questions:
+            question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
+            ordered_question_ids.append(question_id)
+    
+    # Section 3: UX questions (from assignment, in assignment order)
+    if assignment:
+        ux_names = assignment.ux_pre_test if phase == "pre-test" else assignment.ux_post_test
+        ux_names = ux_names or []
+    else:
+        # Fallback: use configured IDs and look up names (backward compatibility)
+        ux_ids = question_ids_config["ux"]
+        ux_questions_by_id = db.query(MCQAData).filter(
+            MCQAData.type == "ux",
+            MCQAData.id.in_(ux_ids)
+        ).all()
+        ux_names = [q.name for q in ux_questions_by_id if q.name]
+    
+    if ux_names:
+        ux_questions_raw = db.query(MCQAData).filter(
+            MCQAData.type == "ux",
+            MCQAData.name.in_(ux_names)
+        ).all()
+        ux_questions_map = {q.name: q for q in ux_questions_raw}
+        ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
+        
+        # Check if we should inject sanity_ux question in this phase
+        should_inject_sanity_ux = False
+        if assignment and assignment.sanity_ux_phase and assignment.sanity_ux_phase == phase:
+            has_sanity = any(q.name == "sanity_ux" for q in ux_questions)
+            if not has_sanity:
+                should_inject_sanity_ux = True
+        
+        # Inject sanity_ux at a random position if needed
+        if should_inject_sanity_ux:
+            sanity_ux_q = db.query(MCQAData).filter(
+                MCQAData.type == "ux",
+                MCQAData.name == "sanity_ux"
+            ).first()
+            if sanity_ux_q:
+                insert_position = random.randint(0, len(ux_questions))
+                ux_questions.insert(insert_position, sanity_ux_q)
+        
+        for q in ux_questions:
+            question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
+            ordered_question_ids.append(question_id)
+    
+    # Section 4 & 5: Code questions (normal first, then debug)
+    if assignment:
+        if phase == "pre-test":
+            code_normal_names = assignment.code_pre_test or []
+            code_debug_names = assignment.debug_pre_test or []
+        else:
+            code_normal_names = assignment.code_post_test or []
+            code_debug_names = assignment.debug_post_test or []
+    else:
+        # Fallback: random selection logic (no persistent assignment)
+        code_normal_pre, code_normal_post, code_debug_pre, code_debug_post = _select_code_tasks_for_assignment(db)
+        if phase == "pre-test":
+            code_normal_names = code_normal_pre
+            code_debug_names = code_debug_pre
+        else:
+            code_normal_names = code_normal_post
+            code_debug_names = code_debug_post
+    
+    # Load all code tasks that actually exist
+    selected_task_names = list(set(code_normal_names + code_debug_names))
+    code_questions = db.query(CodeData).filter(
+        CodeData.task_name.in_(selected_task_names)
+    ).all() if selected_task_names else []
+    code_data_map = {q.task_name: q for q in code_questions}
+    
+    # Add code normal questions in order (only if they exist)
+    for task_name in code_normal_names:
+        if task_name in code_data_map:
+            ordered_question_ids.append(f"code_normal_{task_name}")
+    
+    # Add code debug questions in order (only if they exist)
+    for task_name in code_debug_names:
+        if task_name in code_data_map:
+            ordered_question_ids.append(f"code_debug_{task_name}")
+    
+    return ordered_question_ids
+
 
 @app.get("/api/skill-check/questions", tags=["Tasks"])
 async def get_skill_check_questions(
@@ -1523,9 +1811,14 @@ async def log_mcqa_response(request: dict, db: Session = Depends(get_db)):
                             if 0 <= idx < len(mcqa_question.choices):
                                 gold_answer_text.append(mcqa_question.choices[idx])
                     # Compare user's answer letters with correct answer
-                    user_answers = [a.strip().upper() for a in answer_letter]
+                    user_answers = [a.strip().upper() for a in answer_letter if a and a.strip()]
                     # Sort both for comparison (order doesn't matter for multi-select)
-                    correct = sorted(gold_answer_letter) == sorted(user_answers)
+                    # Ensure both lists are non-empty and match exactly
+                    if not gold_answer_letter or not user_answers:
+                        # If either is empty, they must both be empty to be correct
+                        correct = len(gold_answer_letter) == 0 and len(user_answers) == 0
+                    else:
+                        correct = sorted(gold_answer_letter) == sorted(user_answers)
                 else:
                     # If no answer in DB, default to True and leave gold_* empty
                     correct = True
@@ -1791,81 +2084,208 @@ async def get_skill_check_completion_status(
         config_key = "pre_test" if phase == "pre-test" else "post_test"
         question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
         
+        # Build sets for completion checking (needed to verify specific question IDs are answered)
         expected_mcqa_question_ids = set()
         expected_code_question_ids = set()
         
+        # Calculate total_expected directly from assignment arrays (simpler than counting sets)
+        total_expected_mcqa = 0
+        total_expected_code = 0
+        
         if phase == "pre-test":
-            # Experience questions: use same IDs as questions endpoint
-            for exp_id in question_ids_config["experience"]:
-                expected_mcqa_question_ids.add(f"exp_{exp_id}")
+            # Experience questions: query database to get actual count (not all IDs in config may exist)
+            experience_questions = db.query(ExperienceData).filter(
+                ExperienceData.id.in_(question_ids_config["experience"])
+            ).all()
+            experience_count = len(experience_questions)
+            total_expected_mcqa += experience_count
+            for q in experience_questions:
+                expected_mcqa_question_ids.add(f"exp_{q.id}")
             
             # Frontend questions from assignment (now stored as names)
+            # Only count questions that actually exist in the database (matching questions endpoint logic)
             if assignment.frontend_pre_test:
-                for mcqa_name in assignment.frontend_pre_test:
-                    # Assignment now stores names directly
-                    if mcqa_name:
-                        expected_mcqa_question_ids.add(f"frontend_{mcqa_name}")
+                frontend_names = [name for name in assignment.frontend_pre_test if name]
+                # Load questions that actually exist
+                frontend_questions_raw = db.query(MCQAData).filter(
+                    MCQAData.type == "frontend",
+                    MCQAData.name.in_(frontend_names)
+                ).all() if frontend_names else []
+                frontend_questions_map = {q.name: q for q in frontend_questions_raw}
+                frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
+                frontend_count = len(frontend_questions)
+                total_expected_mcqa += frontend_count
+                for q in frontend_questions:
+                    question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
+                    expected_mcqa_question_ids.add(question_id)
             
-            # Add sanity_frontend if assigned to pre-test
+            # Add sanity_frontend if assigned to pre-test and it exists in database
             if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "pre-test":
-                expected_mcqa_question_ids.add("frontend_sanity_frontend")
+                sanity_frontend_q = db.query(MCQAData).filter(
+                    MCQAData.type == "frontend",
+                    MCQAData.name == "sanity_frontend"
+                ).first()
+                if sanity_frontend_q:
+                    total_expected_mcqa += 1
+                    expected_mcqa_question_ids.add("frontend_sanity_frontend")
             
             # UX questions from assignment (now stored as names)
+            # Only count questions that actually exist in the database (matching questions endpoint logic)
             if assignment.ux_pre_test:
-                for mcqa_name in assignment.ux_pre_test:
-                    # Assignment now stores names directly
-                    if mcqa_name:
-                        expected_mcqa_question_ids.add(f"ux_{mcqa_name}")
+                ux_names = [name for name in assignment.ux_pre_test if name]
+                # Load questions that actually exist
+                ux_questions_raw = db.query(MCQAData).filter(
+                    MCQAData.type == "ux",
+                    MCQAData.name.in_(ux_names)
+                ).all() if ux_names else []
+                ux_questions_map = {q.name: q for q in ux_questions_raw}
+                ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
+                ux_count = len(ux_questions)
+                total_expected_mcqa += ux_count
+                for q in ux_questions:
+                    question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
+                    expected_mcqa_question_ids.add(question_id)
             
-            # Add sanity_ux if assigned to pre-test
+            # Add sanity_ux if assigned to pre-test and it exists in database
             if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "pre-test":
-                expected_mcqa_question_ids.add("ux_sanity_ux")
+                sanity_ux_q = db.query(MCQAData).filter(
+                    MCQAData.type == "ux",
+                    MCQAData.name == "sanity_ux"
+                ).first()
+                if sanity_ux_q:
+                    total_expected_mcqa += 1
+                    expected_mcqa_question_ids.add("ux_sanity_ux")
             
             # Code normal questions from assignment
+            # Only count tasks that actually exist in the database (matching questions endpoint logic)
             if assignment.code_pre_test:
-                for task_name in assignment.code_pre_test:
-                    expected_code_question_ids.add(f"code_normal_{task_name}")
+                code_normal_names = [name for name in assignment.code_pre_test if name]
+                # Load tasks that actually exist
+                code_questions = db.query(CodeData).filter(
+                    CodeData.task_name.in_(code_normal_names)
+                ).all()
+                code_data_map = {q.task_name: q for q in code_questions}
+                code_normal_count = len([name for name in code_normal_names if name in code_data_map])
+                total_expected_code += code_normal_count
+                for task_name in code_normal_names:
+                    if task_name in code_data_map:
+                        expected_code_question_ids.add(f"code_normal_{task_name}")
             
             # Code debug questions from assignment
+            # Only count tasks that actually exist in the database (matching questions endpoint logic)
             if assignment.debug_pre_test:
-                for task_name in assignment.debug_pre_test:
-                    expected_code_question_ids.add(f"code_debug_{task_name}")
+                code_debug_names = [name for name in assignment.debug_pre_test if name]
+                # Load tasks that actually exist (reuse query if code_normal_names overlap)
+                if assignment.code_pre_test:
+                    all_code_names = list(set(code_debug_names + [name for name in assignment.code_pre_test if name]))
+                else:
+                    all_code_names = code_debug_names
+                code_questions = db.query(CodeData).filter(
+                    CodeData.task_name.in_(all_code_names)
+                ).all()
+                code_data_map = {q.task_name: q for q in code_questions}
+                code_debug_count = len([name for name in code_debug_names if name in code_data_map])
+                total_expected_code += code_debug_count
+                for task_name in code_debug_names:
+                    if task_name in code_data_map:
+                        expected_code_question_ids.add(f"code_debug_{task_name}")
         else:  # post-test
-            # NASA TLI questions: use same IDs as questions endpoint
-            for nasa_id in question_ids_config["nasa_tli"]:
-                expected_mcqa_question_ids.add(f"nasa_{nasa_id}")
+            # NASA TLI questions: query database to get actual count (not all IDs in config may exist)
+            nasa_questions = db.query(NasaTLIData).filter(
+                NasaTLIData.id.in_(question_ids_config["nasa_tli"])
+            ).all()
+            nasa_count = len(nasa_questions)
+            total_expected_mcqa += nasa_count
+            for q in nasa_questions:
+                expected_mcqa_question_ids.add(f"nasa_{q.id}")
             
             # Frontend questions from assignment (now stored as names)
+            # Only count questions that actually exist in the database (matching questions endpoint logic)
             if assignment.frontend_post_test:
-                for mcqa_name in assignment.frontend_post_test:
-                    # Assignment now stores names directly
-                    if mcqa_name:
-                        expected_mcqa_question_ids.add(f"frontend_{mcqa_name}")
+                frontend_names = [name for name in assignment.frontend_post_test if name]
+                # Load questions that actually exist
+                frontend_questions_raw = db.query(MCQAData).filter(
+                    MCQAData.type == "frontend",
+                    MCQAData.name.in_(frontend_names)
+                ).all() if frontend_names else []
+                frontend_questions_map = {q.name: q for q in frontend_questions_raw}
+                frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
+                frontend_count = len(frontend_questions)
+                total_expected_mcqa += frontend_count
+                for q in frontend_questions:
+                    question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
+                    expected_mcqa_question_ids.add(question_id)
             
-            # Add sanity_frontend if assigned to post-test
+            # Add sanity_frontend if assigned to post-test and it exists in database
             if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "post-test":
-                expected_mcqa_question_ids.add("frontend_sanity_frontend")
+                sanity_frontend_q = db.query(MCQAData).filter(
+                    MCQAData.type == "frontend",
+                    MCQAData.name == "sanity_frontend"
+                ).first()
+                if sanity_frontend_q:
+                    total_expected_mcqa += 1
+                    expected_mcqa_question_ids.add("frontend_sanity_frontend")
             
             # UX questions from assignment (now stored as names)
+            # Only count questions that actually exist in the database (matching questions endpoint logic)
             if assignment.ux_post_test:
-                for mcqa_name in assignment.ux_post_test:
-                    # Assignment now stores names directly
-                    if mcqa_name:
-                        expected_mcqa_question_ids.add(f"ux_{mcqa_name}")
+                ux_names = [name for name in assignment.ux_post_test if name]
+                # Load questions that actually exist
+                ux_questions_raw = db.query(MCQAData).filter(
+                    MCQAData.type == "ux",
+                    MCQAData.name.in_(ux_names)
+                ).all() if ux_names else []
+                ux_questions_map = {q.name: q for q in ux_questions_raw}
+                ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
+                ux_count = len(ux_questions)
+                total_expected_mcqa += ux_count
+                for q in ux_questions:
+                    question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
+                    expected_mcqa_question_ids.add(question_id)
             
-            # Add sanity_ux if assigned to post-test
+            # Add sanity_ux if assigned to post-test and it exists in database
             if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "post-test":
-                expected_mcqa_question_ids.add("ux_sanity_ux")
+                sanity_ux_q = db.query(MCQAData).filter(
+                    MCQAData.type == "ux",
+                    MCQAData.name == "sanity_ux"
+                ).first()
+                if sanity_ux_q:
+                    total_expected_mcqa += 1
+                    expected_mcqa_question_ids.add("ux_sanity_ux")
             
             # Code normal questions from assignment
+            # Only count tasks that actually exist in the database (matching questions endpoint logic)
             if assignment.code_post_test:
-                for task_name in assignment.code_post_test:
-                    expected_code_question_ids.add(f"code_normal_{task_name}")
+                code_normal_names = [name for name in assignment.code_post_test if name]
+                # Load tasks that actually exist
+                code_questions = db.query(CodeData).filter(
+                    CodeData.task_name.in_(code_normal_names)
+                ).all()
+                code_data_map = {q.task_name: q for q in code_questions}
+                code_normal_count = len([name for name in code_normal_names if name in code_data_map])
+                total_expected_code += code_normal_count
+                for task_name in code_normal_names:
+                    if task_name in code_data_map:
+                        expected_code_question_ids.add(f"code_normal_{task_name}")
             
             # Code debug questions from assignment
+            # Only count tasks that actually exist in the database (matching questions endpoint logic)
             if assignment.debug_post_test:
-                for task_name in assignment.debug_post_test:
-                    expected_code_question_ids.add(f"code_debug_{task_name}")
+                code_debug_names = [name for name in assignment.debug_post_test if name]
+                # Load tasks that actually exist (reuse query if code_normal_names overlap)
+                if assignment.code_post_test:
+                    all_code_names = list(set(code_debug_names + [name for name in assignment.code_post_test if name]))
+                else:
+                    all_code_names = code_debug_names
+                code_questions = db.query(CodeData).filter(
+                    CodeData.task_name.in_(all_code_names)
+                ).all()
+                code_data_map = {q.task_name: q for q in code_questions}
+                code_debug_count = len([name for name in code_debug_names if name in code_data_map])
+                total_expected_code += code_debug_count
+                for task_name in code_debug_names:
+                    if task_name in code_data_map:
+                        expected_code_question_ids.add(f"code_debug_{task_name}")
         
         # Get all MCQA responses for this user and phase
         mcqa_responses = db.query(UserMCQASkillResponse).filter(
@@ -1887,8 +2307,10 @@ async def get_skill_check_completion_status(
         
         # Debug logging
         print(f"🔍 COMPLETION-STATUS DEBUG:")
-        print(f"   Expected MCQA IDs: {sorted(expected_mcqa_question_ids)}")
-        print(f"   Answered MCQA IDs: {sorted(answered_mcqa_ids)}")
+        print(f"   Expected MCQA IDs ({len(expected_mcqa_question_ids)}): {sorted(expected_mcqa_question_ids)}")
+        print(f"   Answered MCQA IDs ({len(answered_mcqa_ids)}): {sorted(answered_mcqa_ids)}")
+        print(f"   Expected Code IDs ({len(expected_code_question_ids)}): {sorted(expected_code_question_ids)}")
+        print(f"   Answered Code IDs ({len(answered_code_ids)}): {sorted(answered_code_ids)}")
         print(f"   MCQA responses count: {len(mcqa_responses)}")
         print(f"   Code responses count: {len(code_responses)}")
         
@@ -1896,137 +2318,32 @@ async def get_skill_check_completion_status(
         all_mcqa_answered = expected_mcqa_question_ids.issubset(answered_mcqa_ids)
         all_code_answered = expected_code_question_ids.issubset(answered_code_ids)
         
-        total_expected = len(expected_mcqa_question_ids) + len(expected_code_question_ids)
+        # Use the directly calculated totals (simpler than counting sets)
+        total_expected = total_expected_mcqa + total_expected_code
         total_answered = len(answered_mcqa_ids) + len(answered_code_ids)
         has_responses = len(mcqa_responses) > 0 or len(code_responses) > 0
         completed = all_mcqa_answered and all_code_answered
         
-        print(f"   has_responses: {has_responses}, completed: {completed}, total_answered: {total_answered}/{total_expected}")
+        # Find missing questions for debugging
+        missing_mcqa = expected_mcqa_question_ids - answered_mcqa_ids
+        missing_code = expected_code_question_ids - answered_code_ids
         
-        # Build complete ordered list of all question IDs (matching get_skill_check_questions order)
+        print(f"   📊 SUMMARY:")
+        print(f"      Total Expected: {total_expected} (MCQA: {total_expected_mcqa}, Code: {total_expected_code})")
+        print(f"      Total Answered: {total_answered} (MCQA: {len(answered_mcqa_ids)}, Code: {len(answered_code_ids)})")
+        print(f"      has_responses: {has_responses}, completed: {completed}")
+        if missing_mcqa:
+            print(f"      ⚠️  Missing MCQA questions ({len(missing_mcqa)}): {sorted(missing_mcqa)}")
+        if missing_code:
+            print(f"      ⚠️  Missing Code questions ({len(missing_code)}): {sorted(missing_code)}")
+        
+        # Build ordered list using the same helper function as get_skill_check_questions
         # Then find first unanswered question in that list
         current_question_index = 0
         
         if not completed:
-            # Build ordered list exactly as get_skill_check_questions does
-            ordered_question_ids = []
-            
-            # Section 1: Experience/NASA TLI questions
-            # Must query the same way as get_skill_check_questions to get same IDs and order
-            config_key = "pre_test" if phase == "pre-test" else "post_test"
-            question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
-            
-            if phase == "pre-test":
-                # Load experience questions exactly as get_skill_check_questions does
-                experience_questions = db.query(ExperienceData).filter(
-                    ExperienceData.id.in_(question_ids_config["experience"])
-                ).order_by(ExperienceData.id).all()  # Explicit ordering to match questions endpoint
-                # Use actual IDs from database (same as questions endpoint)
-                for q in experience_questions:
-                    ordered_question_ids.append(f"exp_{q.id}")
-            else:
-                # Load NASA TLI questions exactly as get_skill_check_questions does
-                nasa_questions = db.query(NasaTLIData).filter(
-                    NasaTLIData.id.in_(question_ids_config["nasa_tli"])
-                ).order_by(NasaTLIData.id).all()  # Explicit ordering to match questions endpoint
-                # Use actual IDs from database (same as questions endpoint)
-                for q in nasa_questions:
-                    ordered_question_ids.append(f"nasa_{q.id}")
-            
-            # Section 2: Frontend questions (from assignment, in assignment order)
-            if assignment:
-                if phase == "pre-test":
-                    frontend_names = assignment.frontend_pre_test or []
-                else:
-                    frontend_names = assignment.frontend_post_test or []
-            else:
-                # Fallback: use configured IDs and look up names (backward compatibility)
-                config_key = "pre_test" if phase == "pre-test" else "post_test"
-                frontend_ids = SKILL_CHECK_QUESTION_IDS[config_key]["frontend"]
-                frontend_questions_by_id = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.id.in_(frontend_ids)
-                ).all()
-                frontend_names = [q.name for q in frontend_questions_by_id if q.name]
-            
-            # Build frontend question IDs using same logic as get_skill_check_questions
-            # Need to load questions to check if they have names
-            if frontend_names:
-                frontend_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.name.in_(frontend_names)
-                ).all()
-                frontend_questions_map = {q.name: q for q in frontend_questions_raw}
-                # Sort to match assignment order
-                for name in frontend_names:
-                    if name in frontend_questions_map:
-                        q = frontend_questions_map[name]
-                        # Use name as ID if available, fallback to numeric id (same as get_skill_check_questions)
-                        question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
-                        ordered_question_ids.append(question_id)
-                
-                # Add sanity_frontend if assigned to this phase
-                if assignment and assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == phase:
-                    ordered_question_ids.append("frontend_sanity_frontend")
-            
-            # Section 3: UX questions (from assignment, in assignment order)
-            if assignment:
-                if phase == "pre-test":
-                    ux_names = assignment.ux_pre_test or []
-                else:
-                    ux_names = assignment.ux_post_test or []
-            else:
-                # Fallback: use configured IDs and look up names (backward compatibility)
-                config_key = "pre_test" if phase == "pre-test" else "post_test"
-                ux_ids = SKILL_CHECK_QUESTION_IDS[config_key]["ux"]
-                ux_questions_by_id = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.id.in_(ux_ids)
-                ).all()
-                ux_names = [q.name for q in ux_questions_by_id if q.name]
-            
-            # Build UX question IDs using same logic as get_skill_check_questions
-            if ux_names:
-                ux_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.name.in_(ux_names)
-                ).all()
-                ux_questions_map = {q.name: q for q in ux_questions_raw}
-                # Sort to match assignment order
-                for name in ux_names:
-                    if name in ux_questions_map:
-                        q = ux_questions_map[name]
-                        # Use name as ID if available, fallback to numeric id (same as get_skill_check_questions)
-                        question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
-                        ordered_question_ids.append(question_id)
-                
-                # Add sanity_ux if assigned to this phase
-                if assignment and assignment.sanity_ux_phase and assignment.sanity_ux_phase == phase:
-                    ordered_question_ids.append("ux_sanity_ux")
-            
-            # Section 4: Code normal questions (from assignment, in assignment order)
-            if assignment:
-                if phase == "pre-test":
-                    code_normal_names = assignment.code_pre_test or []
-                else:
-                    code_normal_names = assignment.code_post_test or []
-            else:
-                code_normal_names = []
-            
-            for task_name in code_normal_names:
-                ordered_question_ids.append(f"code_normal_{task_name}")
-            
-            # Section 5: Code debug questions (from assignment, in assignment order)
-            if assignment:
-                if phase == "pre-test":
-                    code_debug_names = assignment.debug_pre_test or []
-                else:
-                    code_debug_names = assignment.debug_post_test or []
-            else:
-                code_debug_names = []
-            
-            for task_name in code_debug_names:
-                ordered_question_ids.append(f"code_debug_{task_name}")
+            # Use the helper function to build ordered list (guaranteed to match questions endpoint)
+            ordered_question_ids = _build_ordered_question_ids(phase, assignment, db)
             
             # Find first unanswered question in the ordered list
             all_answered_ids = answered_mcqa_ids | answered_code_ids
@@ -2037,6 +2354,13 @@ async def get_skill_check_completion_status(
             else:
                 # All questions answered (shouldn't happen if completed is False, but handle it)
                 current_question_index = len(ordered_question_ids)
+            
+            # Debug: Log the ordered list and current index
+            print(f"   📍 ORDERED LIST DEBUG:")
+            print(f"      Total questions in ordered list: {len(ordered_question_ids)}")
+            print(f"      First unanswered index: {current_question_index}")
+            print(f"      First unanswered question ID: {ordered_question_ids[current_question_index] if current_question_index < len(ordered_question_ids) else 'N/A'}")
+            print(f"      Ordered question IDs: {ordered_question_ids[:20]}..." if len(ordered_question_ids) > 20 else f"      Ordered question IDs: {ordered_question_ids}")
         
         return {
             "completed": completed,
@@ -2113,15 +2437,17 @@ async def log_navigation_event(request: dict, db: Session = Depends(get_db)):
 @app.get("/api/task-files-db", tags=["Tasks"])
 async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: Session = Depends(get_db)):
     try:
+        normalized_task_id = _slugify(taskId)
         # Find by slug of name
         _sync_project_dates_from_dummy(db)
-        project = None
-        for p in db.query(Project).all():
-            if _slugify(p.name) == taskId:
-                project = p
-                break
+        # Always resolve project from task_id (unified approach)
+        project = _resolve_project_from_task_id(db, taskId)
+        fallback_task = None
         if not project:
-            return JSONResponse(status_code=404, content={"error": "Task not found"})
+            # Fallback to tasks.json when DB row is missing (prevents empty editor)
+            fallback_task = _load_task_definition_from_json(normalized_task_id)
+            if not fallback_task:
+                return JSONResponse(status_code=404, content={"error": "Task not found"})
 
         # Helper to resolve a repo-relative path (e.g., data/code_files/...) to file content
         def resolve_content(value: str) -> str:
@@ -2149,18 +2475,28 @@ async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: 
                 return 'js'
             return None
 
-        files = []
+        files: List[Dict[str, Any]] = []
         user_code = None
+        project_files: List[Dict[str, Any]] = []
+
+        if project:
+            project_files = _normalize_project_files(project.files)
+        # If DB files are missing/empty, try dummy task definition as a fallback
+        if (not project_files or len(project_files) == 0) and fallback_task is None:
+            fallback_task = _load_task_definition_from_json(normalized_task_id)
+        if not project_files and fallback_task:
+            project_files = _normalize_project_files(fallback_task.get("files"))
         
         # If userId is provided, try to load saved code first
-        if userId:
+        if userId and project:
+            # Verify we're loading code for the correct project
             user_code = CodeCRUD.get_latest_by_user_and_project(db, user_id=userId, project_id=project.id)
         
         # If user has saved code, use it; otherwise use project starter files
         if user_code and user_code.code:
             # Use saved user code, mapping language keys to file names
             saved_code = user_code.code
-            for fileConfig in (project.files or []):
+            for fileConfig in project_files:
                 try:
                     name = fileConfig.get("name")
                     language = fileConfig.get("language", "plaintext")
@@ -2181,10 +2517,10 @@ async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: 
                         "language": language,
                     })
                 except Exception as e:
-                    print(f"Error loading file from user code: {e}")
+                    pass
         else:
             # No saved code, use project starter files
-            for fileConfig in (project.files or []):
+            for fileConfig in project_files:
                 try:
                     name = fileConfig.get("name")
                     language = fileConfig.get("language", "plaintext")
@@ -2197,15 +2533,29 @@ async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: 
                         "language": language,
                     })
                 except Exception as e:
-                    print(f"Error loading file from project.files: {e}")
+                    pass
+        # Derive metadata from DB when available, otherwise fallback task definition
+        project_name = project.name if project else (fallback_task.get("name") if fallback_task else None)
+        code_start_date = (
+            project.code_start_date.isoformat() if project and project.code_start_date
+            else fallback_task.get("code_start_date") if fallback_task else None
+        )
+        voting_start_date = (
+            project.voting_start_date.isoformat() if project and project.voting_start_date
+            else fallback_task.get("voting_start_date") if fallback_task else None
+        )
+        voting_end_date = (
+            project.voting_end_date.isoformat() if project and project.voting_end_date
+            else fallback_task.get("voting_end_date") if fallback_task else None
+        )
 
         return {
             "files": files,
-            "projectId": project.id,
-            "projectName": project.name,
-            "codeStartDate": project.code_start_date.isoformat() if project.code_start_date else None,
-            "votingStartDate": project.voting_start_date.isoformat() if project.voting_start_date else None,
-            "votingEndDate": project.voting_end_date.isoformat() if project.voting_end_date else None,
+            "projectId": project.id if project else None,
+            "projectName": project_name,
+            "codeStartDate": code_start_date,
+            "votingStartDate": voting_start_date,
+            "votingEndDate": voting_end_date,
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -2218,16 +2568,14 @@ async def log_code_snapshot(payload: CodeLogRequest, db: Session = Depends(get_d
         if not user:
             return JSONResponse(status_code=404, content={"error": "User not found"})
 
+        # Always resolve project from task_id (unified approach - ignore project_id)
         project = None
-        if payload.project_id is not None:
+        if payload.task_id:
+            project = _resolve_project_from_task_id(db, payload.task_id)
+        
+        # Only fallback to project_id if task_id is not provided (for backwards compatibility)
+        if project is None and payload.project_id is not None:
             project = db.query(Project).filter(Project.id == payload.project_id).first()
-
-        if project is None and payload.task_id:
-            slug = payload.task_id.lower()
-            for candidate in db.query(Project).all():
-                if _slugify(candidate.name) == slug:
-                    project = candidate
-                    break
 
         if project is None:
             return JSONResponse(status_code=404, content={"error": "Project not found"})
@@ -2269,16 +2617,14 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
         if not user:
             return JSONResponse(status_code=404, content={"error": "User not found"})
 
+        # Always resolve project from task_id (unified approach - ignore project_id)
         project = None
-        if payload.project_id is not None:
+        if payload.task_id:
+            project = _resolve_project_from_task_id(db, payload.task_id)
+        
+        # Only fallback to project_id if task_id is not provided (for backwards compatibility)
+        if project is None and payload.project_id is not None:
             project = db.query(Project).filter(Project.id == payload.project_id).first()
-
-        if project is None and payload.task_id:
-            slug = _slugify(payload.task_id)
-            for candidate in db.query(Project).all():
-                if _slugify(candidate.name) == slug:
-                    project = candidate
-                    break
 
         if project is None:
             return JSONResponse(status_code=404, content={"error": "Project not found"})
@@ -2472,18 +2818,17 @@ async def list_submissions(
     try:
         query = db.query(Submission)
 
-        if project_id is not None:
-            query = query.filter(Submission.project_id == project_id)
-        elif task_id:
-            slug = _slugify(task_id)
-            project = None
-            for candidate in db.query(Project).all():
-                if _slugify(candidate.name) == slug:
-                    project = candidate
-                    break
-            if project is None:
-                return JSONResponse(status_code=404, content={"error": "Project not found for taskId"})
+        # Always resolve project from task_id if provided (unified approach)
+        project = None
+        if task_id:
+            project = _resolve_project_from_task_id(db, task_id)
+        elif project_id is not None:
+            project = db.query(Project).filter(Project.id == project_id).first()
+        
+        if project:
             query = query.filter(Submission.project_id == project.id)
+        elif project_id is not None:
+            query = query.filter(Submission.project_id == project_id)
 
         # Convert string query params to booleans - handle None and empty strings
         filter_unseen_bool = filter_unseen is not None and str(filter_unseen).lower() == "true"
@@ -3043,26 +3388,40 @@ def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
     - Arrow functions: const bar = () => {}
     - Function expressions: const baz = function() {}
     
+    Falls back to regex-based parsing if esprima fails (e.g., due to modern syntax).
+    
     Returns a dictionary mapping function names to their complete definitions.
     """
     import esprima
+    import re
     
     functions_map = {}
     
     if not js_code:
         return functions_map
     
-    try:
-        # Parse the JavaScript code into an AST with location info
-        tree = esprima.parseScript(js_code, loc=True, range=True)
+    def extract_function_code(node):
+        """Extract the source code for a function node using range."""
+        if hasattr(node, 'range') and node.range:
+            # Use range to extract the exact source code
+            start, end = node.range
+            return js_code[start:end]
+        return None
+    
+    def parse_with_esprima():
+        """Try to parse with esprima, returning functions_map if successful."""
+        result = {}
         
-        def extract_function_code(node):
-            """Extract the source code for a function node using range."""
-            if hasattr(node, 'range') and node.range:
-                # Use range to extract the exact source code
-                start, end = node.range
-                return js_code[start:end]
-            return None
+        # Try with tolerant mode first (handles some syntax errors)
+        try:
+            tree = esprima.parseScript(js_code, loc=True, range=True, tolerant=True)
+        except Exception:
+            # If tolerant mode fails, try parseModule for ES6 modules
+            try:
+                tree = esprima.parseModule(js_code, loc=True, range=True, tolerant=True)
+            except Exception:
+                # Both failed, return empty
+                return result
         
         # Traverse the top-level statements in the program
         for node in tree.body:
@@ -3072,7 +3431,7 @@ def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
                     func_name = node.id.name
                     func_code = extract_function_code(node)
                     if func_code:
-                        functions_map[func_name] = func_code
+                        result[func_name] = func_code
             
             # Variable declarations that hold functions: const bar = () => {}
             elif node.type == "VariableDeclaration":
@@ -3086,20 +3445,147 @@ def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
                             if var_name:
                                 func_code = extract_function_code(decl)
                                 if func_code:
-                                    functions_map[var_name] = func_code
+                                    result[var_name] = func_code
                         
                         # Function expressions: const baz = function() {}
                         elif init.type == "FunctionExpression":
                             if var_name:
                                 func_code = extract_function_code(decl)
                                 if func_code:
-                                    functions_map[var_name] = func_code
+                                    result[var_name] = func_code
         
-    except Exception as e:
-        print(f"Error parsing JavaScript with esprima: {e}")
-        # Return empty dict on error
-        return functions_map
+        return result
     
+    def parse_with_regex_fallback():
+        """Fallback regex-based parser for basic function extraction."""
+        result = {}
+        
+        # Pattern 1: Function declarations: function name() { ... }
+        pattern1 = r'function\s+(\w+)\s*\([^)]*\)\s*\{'
+        for match in re.finditer(pattern1, js_code):
+            func_name = match.group(1)
+            start = match.start()
+            # Find matching closing brace
+            brace_count = 0
+            in_string = False
+            string_char = None
+            i = start
+            while i < len(js_code):
+                char = js_code[i]
+                # Handle string literals
+                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
+                    if not in_string:
+                        in_string = True
+                        string_char = char
+                    elif char == string_char:
+                        in_string = False
+                        string_char = None
+                elif not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            result[func_name] = js_code[start:i+1]
+                            break
+                i += 1
+        
+        # Pattern 2: Arrow functions: const name = () => { ... } or const name = () => ...
+        pattern2 = r'(?:const|let|var)\s+(\w+)\s*=\s*\([^)]*\)\s*=>\s*\{'
+        for match in re.finditer(pattern2, js_code):
+            func_name = match.group(1)
+            start = match.start()
+            # Find matching closing brace
+            brace_count = 0
+            in_string = False
+            string_char = None
+            i = start
+            # Skip to the => and then to the {
+            arrow_pos = js_code.find('=>', start)
+            if arrow_pos == -1:
+                continue
+            i = js_code.find('{', arrow_pos)
+            if i == -1:
+                continue
+            
+            while i < len(js_code):
+                char = js_code[i]
+                # Handle string literals
+                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
+                    if not in_string:
+                        in_string = True
+                        string_char = char
+                    elif char == string_char:
+                        in_string = False
+                        string_char = None
+                elif not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            result[func_name] = js_code[start:i+1]
+                            break
+                i += 1
+        
+        # Pattern 3: Function expressions: const name = function() { ... }
+        pattern3 = r'(?:const|let|var)\s+(\w+)\s*=\s*function\s*\([^)]*\)\s*\{'
+        for match in re.finditer(pattern3, js_code):
+            func_name = match.group(1)
+            start = match.start()
+            # Find matching closing brace
+            brace_count = 0
+            in_string = False
+            string_char = None
+            i = start
+            # Skip to the first {
+            func_start = js_code.find('function', start)
+            if func_start == -1:
+                continue
+            i = js_code.find('{', func_start)
+            if i == -1:
+                continue
+            
+            while i < len(js_code):
+                char = js_code[i]
+                # Handle string literals
+                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
+                    if not in_string:
+                        in_string = True
+                        string_char = char
+                    elif char == string_char:
+                        in_string = False
+                        string_char = None
+                elif not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            result[func_name] = js_code[start:i+1]
+                            break
+                i += 1
+        
+        return result
+    
+    # Try esprima first
+    try:
+        functions_map = parse_with_esprima()
+        if functions_map:
+            return functions_map
+    except Exception as e:
+        print(f"Error parsing JavaScript with esprima (attempting fallback): {e}")
+    
+    # Fall back to regex-based parsing
+    try:
+        functions_map = parse_with_regex_fallback()
+        if functions_map:
+            print(f"Used regex fallback parser, extracted {len(functions_map)} functions")
+            return functions_map
+    except Exception as e:
+        print(f"Error parsing JavaScript with regex fallback: {e}")
+    
+    # Return empty dict if both methods fail
     return functions_map
 
 
@@ -3230,7 +3716,7 @@ async def _generate_comprehension_questions(
         },
         {
             "question_name": "self_report_modify",
-            "question": f"{prefix}: I could easilyadd new features to my code without using AI tools.",
+            "question": f"{prefix}: I could easily add new features to my code without using AI tools.",
             "question_type": "mcqa",
             "choices": self_report_options,
              "answer": ""
@@ -3259,6 +3745,8 @@ async def _generate_comprehension_questions(
             "answer": self_report_options.index(choice_to_select) + 1
         }
         questions.insert(position_to_insert, sanity_question)
+
+    print(questions)
 
     return questions
 
@@ -3356,15 +3844,12 @@ async def check_user_submission(
         if not user:
             return JSONResponse(status_code=404, content={"error": "User not found"})
 
+        # Always resolve project from task_id if provided (unified approach)
         project = None
-        if project_id is not None:
+        if task_id:
+            project = _resolve_project_from_task_id(db, task_id)
+        elif project_id is not None:
             project = db.query(Project).filter(Project.id == project_id).first()
-        elif task_id:
-            slug = _slugify(task_id)
-            for candidate in db.query(Project).all():
-                if _slugify(candidate.name) == slug:
-                    project = candidate
-                    break
 
         if project is None:
             return JSONResponse(status_code=404, content={"error": "Project not found"})
@@ -3935,9 +4420,9 @@ async def get_task(task_name: str):
     try:
         backend_dir = os.path.dirname(__file__)
         repo_root = os.path.abspath(os.path.join(backend_dir, ".."))
-        data_path = os.path.join(repo_root, "data", "dummy_tasks.json")
+        data_path = os.path.join(repo_root, "data", "tasks.json")
         if not os.path.exists(data_path):
-            return JSONResponse(status_code=404, content={"error": "dummy_tasks.json not found"})
+            return JSONResponse(status_code=404, content={"error": "tasks.json not found"})
 
         with open(data_path, "r", encoding="utf-8") as f:
             payload = json.load(f)

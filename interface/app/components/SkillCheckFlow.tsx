@@ -7,6 +7,7 @@ import { ENV } from "../config/env";
 import { useAuth } from "../utils/auth";
 import { useSnackbar } from "./SnackbarProvider";
 import ReportModal from "./ReportModal";
+import LoadingSpinner from "./LoadingSpinner";
 
 interface Question {
   id: string;
@@ -112,9 +113,16 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     }
   }, [currentIndex, questions, answers, codingLanguage, userId]);
 
-  // Show report button after 30 seconds for each question
+  // Show report button after 30 seconds for each question (except experience and NASA TLI)
   useEffect(() => {
     if (questions.length > 0 && currentIndex < questions.length) {
+      const currentQuestion = questions[currentIndex];
+      // Don't show report button for experience or NASA TLI questions
+      if (currentQuestion && (currentQuestion.type === 'experience' || currentQuestion.type === 'nasa_tli')) {
+        setShowReportButton(false);
+        return;
+      }
+      
       // Reset report button visibility when question changes
       setShowReportButton(false);
       
@@ -128,7 +136,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         clearTimeout(timer);
       };
     }
-  }, [currentIndex, questions.length]);
+  }, [currentIndex, questions.length, questions]);
 
   // Clear test results when switching between Python and JavaScript
   useEffect(() => {
@@ -155,6 +163,13 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       setLoading(false);
       // Set initial index if provided and valid
       const startIndex = (initialIndex >= 0 && initialIndex < filteredQuestions.length) ? initialIndex : 0;
+      console.log(`[SkillCheckFlow] Setting initial index:`, {
+        initialIndex,
+        filteredQuestionsLength: filteredQuestions.length,
+        startIndex,
+        question_number: startIndex + 1,
+        question_id: filteredQuestions[startIndex]?.id
+      });
       setCurrentIndex(startIndex);
       // Notify parent of initial question type
       if (onQuestionChange && filteredQuestions.length > 0) {
@@ -219,6 +234,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       // Normalize the raw answer into either selected values or selected keys
       let selectedValues: string[] = [];
       let selectedKeys: string[] = [];
+      let selectedIndices: number[] = [];
       
       if (typeof answer === 'string') {
         if (usesLetterKeys) {
@@ -236,8 +252,12 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           selectedValues = answer as string[];
         }
       } else if (answer && typeof answer === 'object') {
-        // Object format, typically { selected: [...], other: string }
-        if (Array.isArray((answer as any).selected)) {
+        // Check if answer has index (from radio button with data-choice-index)
+        if (typeof (answer as any).index === 'number' && (answer as any).index >= 0) {
+          // Use index directly - most reliable method
+          selectedIndices.push((answer as any).index);
+        } else if (Array.isArray((answer as any).selected)) {
+          // Object format with selected array, typically { selected: [...], other: string }
           if (usesLetterKeys) {
             selectedKeys = (answer as any).selected as string[];
           } else {
@@ -252,10 +272,18 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           }
         }
       }
-      // Map selected values/keys to answerText and answerLetter when we have choices
+      // Map selected values/keys/indices to answerText and answerLetter when we have choices
       if (choices.length) {
-        if (usesLetterKeys) {
-          // Keys like "A", "B", "C" -> index + text
+        // Priority 1: Use indices if available (most reliable)
+        if (selectedIndices.length > 0) {
+          selectedIndices.forEach((idx) => {
+            if (idx >= 0 && idx < choices.length) {
+              answerText.push(choices[idx]);
+              answerLetter.push(String.fromCharCode(65 + idx)); // A, B, C, ...
+            }
+          });
+        } else if (usesLetterKeys) {
+          // Priority 2: Keys like "A", "B", "C" -> index + text
           selectedKeys.forEach((key) => {
             const upper = key.toUpperCase();
             const index = upper.charCodeAt(0) - 65; // A=0, B=1, ...
@@ -265,7 +293,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             }
           });
         } else {
-          // Values are the actual choice texts
+          // Priority 3: Values are the actual choice texts (fallback, may fail due to text matching)
           selectedValues.forEach((value) => {
             const idx = choices.indexOf(value);
             if (idx >= 0) {
@@ -336,17 +364,18 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         
         // Show snackbar notification when navigation is detected and exceeds threshold
         if (showNotification && timeAwayMs !== null && timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS) {
-          showSnackbar('⚠️ We noticed that you navigated away from the page. Do not leave the page to look up answers.', 5000);
+          showSnackbar('We noticed that you navigated away from the page. Do not leave the page to look up answers.', 5000);
         }
       } catch (error) {
         console.error('Failed to log navigation event:', error);
       }
     };
 
-    // Track visibility changes (tab switching, minimizing window, etc.)
+    // Track visibility changes (tab switching, new windows, etc.)
+    // Only tracks actual tab/window switches, NOT iframe clicks or other in-page interactions
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // User navigated away (tab hidden, window minimized, etc.)
+        // User navigated away (tab hidden, new window opened, window minimized, etc.)
         if (!isNavigatedAwayRef.current) {
           isNavigatedAwayRef.current = true;
           navigationAwayTimeRef.current = Date.now();
@@ -360,24 +389,6 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           logNavigationEvent(durationAway, true); // Log when they return with duration and show notification
           navigationAwayTimeRef.current = null;
         }
-      }
-    };
-
-    // Track window blur/focus (losing focus to another window/app)
-    const handleBlur = () => {
-      if (!isNavigatedAwayRef.current) {
-        isNavigatedAwayRef.current = true;
-        navigationAwayTimeRef.current = Date.now();
-        logNavigationEvent(null); // Log when they leave (no duration yet)
-      }
-    };
-
-    const handleFocus = () => {
-      if (isNavigatedAwayRef.current && navigationAwayTimeRef.current) {
-        const durationAway = Date.now() - navigationAwayTimeRef.current;
-        isNavigatedAwayRef.current = false;
-        logNavigationEvent(durationAway, true); // Log when they return with duration and show notification
-        navigationAwayTimeRef.current = null;
       }
     };
 
@@ -406,15 +417,13 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       }
     };
 
+    // Only track visibilitychange (tab/window switches) and beforeunload (page navigation)
+    // Removed blur/focus listeners as they fire on iframe clicks and other in-page interactions
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [questions, currentIndex, userId, mode, showSnackbar, NAVIGATION_WARNING_THRESHOLD_MS]);
@@ -604,7 +613,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       // Close modal and move to next question
       setShowReportModal(false);
       
-      // Move to next question
+      // Move to next question or complete if it's the last question
       if (currentIndex < questions.length - 1) {
         const nextIndex = currentIndex + 1;
         setCurrentIndex(nextIndex);
@@ -620,6 +629,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         if (onQuestionChange && questions[nextIndex]) {
           onQuestionChange(questions[nextIndex].type, questions[nextIndex].code_type);
         }
+      } else {
+        // Last question - complete the skill check
+        handleComplete();
       }
     } catch (error) {
       console.error('Failed to submit report:', error);
@@ -627,7 +639,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     } finally {
       setIsSubmittingReport(false);
     }
-  }, [userId, questions, currentIndex, mode, onQuestionChange]);
+  }, [userId, questions, currentIndex, mode, onQuestionChange, handleComplete]);
 
   const handleEditorChange = (value: string | undefined) => {
     const currentQuestion = questions[currentIndex];
@@ -728,72 +740,62 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       background: #1e1e1e;
       border: 1px solid #374151;
       border-radius: 0;
-      padding: 12px 32px 12px 16px;
-      margin-bottom: 12px;
+      margin-bottom: 0;
       font-size: 13px;
       line-height: 1.7;
       color: #ce9178;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      flex-shrink: 0;
       font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
       user-select: none;
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
-      pointer-events: none;
       position: relative;
-    }
-    .docstring-container.collapsed {
-      padding: 12px 32px 12px 16px;
-    }
-    .docstring-container.collapsed .docstring-content {
-      display: none;
-    }
-    .docstring-header {
-      display: none;
-      font-weight: 600;
-      color: #ce9178;
-      font-size: 13px;
-    }
-    .docstring-container.collapsed .docstring-header {
-      display: block;
-    }
-    .docstring-content {
-      display: block;
-    }
-    .docstring-collapse-button {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: transparent;
-      border: none;
-      color: #9ca3af;
-      width: 20px;
-      height: 20px;
-      cursor: pointer;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: color 0.2s;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .docstring-content-wrapper {
+      padding: 12px 16px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      white-space: pre-wrap;
+      word-wrap: break-word;
       pointer-events: auto;
+    }
+    .docstring-resize-handle {
+      height: 8px;
+      background: transparent;
+      cursor: row-resize;
+      flex-shrink: 0;
+      position: relative;
+      transition: background 0.2s;
       user-select: none;
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
-      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      margin: 0;
+      width: 100%;
     }
-    .docstring-collapse-button svg {
-      width: 16px;
-      height: 16px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .docstring-resize-handle:hover {
+      background: rgba(55, 65, 81, 0.3);
     }
-    .docstring-collapse-button:hover {
-      color: #e5e7eb;
+    .docstring-resize-handle::before {
+      content: '';
+      width: 100%;
+      height: 2px;
+      background-color: #374151;
+      transition: background-color 0.2s;
+      opacity: 1;
+    }
+    .docstring-resize-handle:hover::before {
+      background-color: #4b5563;
+      height: 3px;
     }
     .docstring-container strong {
       font-weight: bold;
@@ -876,7 +878,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       background-color: #4b5563;
     }
     .test-cases-section {
-      flex: 1 1 50%;
+      flex: 1;
       min-height: 0;
       padding-top: 12px;
       display: flex;
@@ -940,13 +942,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       display: block;
     }
     .test-your-code-section {
-      flex: 1 1 50%;
-      min-height: 0;
-      border-bottom: 1px solid #374151;
+      flex-shrink: 0;
       padding-bottom: 12px;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow: visible;
     }
     .test-your-code-header {
       font-weight: 600;
@@ -1006,40 +1006,15 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       color: #6b7280;
       cursor: not-allowed;
     }
-    .test-output-mini {
-      background: #000;
-      border: 1px solid #374151;
-      border-radius: 4px;
-      padding: 6px 8px;
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 11px;
-      color: #e5e7eb;
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      margin: 0 0 8px 0;
-    }
-    .test-output-mini.empty {
-      color: #6b7280;
-    }
-    .test-output-mini .output-stdout {
-      color: #ffffff;
-    }
-    .test-output-mini .output-stderr {
-      color: #ef4444;
-    }
-    .test-output-mini .output-result {
-      color: #10b981;
-      font-weight: 500;
-    }
   </style>
 </head>
 <body>
   <div class="coding-container">
     <div class="content-wrapper">
-      <div class="docstring-container" id="docstring-container"></div>
+      <div class="docstring-container" id="docstring-container">
+        <div class="docstring-content-wrapper" id="docstring-content-wrapper"></div>
+      </div>
+      <div class="docstring-resize-handle" id="docstring-resize-handle"></div>
       <div class="editor-wrapper">
       <div class="editor-container" id="editor-container"></div>
         <div class="resize-handle" id="resize-handle"></div>
@@ -1047,11 +1022,10 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           <div class="test-your-code-section" id="test-your-code-section">
             <div class="test-your-code-header">Custom Inputs</div>
             <div class="test-inputs-container" id="test-inputs-container"></div>
-            <div class="test-output-mini empty" id="test-output-mini">Output will appear here</div>
             <button class="test-run-button" id="test-run-button">Run</button>
           </div>
           <div class="test-cases-section" id="test-cases-section">
-            <div class="test-results-header" id="test-results-header">Test Case Logs</div>
+            <div class="test-results-header" id="test-results-header">Output</div>
             <div class="test-output-box empty" id="test-output-box"></div>
           </div>
         </div>
@@ -1073,38 +1047,48 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const docstringPy = ${JSON.stringify(docstringPy)};
       const docstringJs = ${JSON.stringify(docstringJs)};
       
-      // Track collapsed state
-      let isDocstringCollapsed = false;
+      // Track docstring height for resizing
+      let minDocstringHeight = 100; // Will be calculated based on one line
+      let maxDocstringHeight = 500; // Will be calculated based on full content
       
-      // Helper function to get chevron icon SVG
-      function getChevronIcon(isDown) {
-        if (!isDown) {
-          return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-        } else {
-          return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>';
-        }
-      }
-      
-      // Function to toggle docstring collapse
-      function toggleDocstringCollapse() {
+      // Function to calculate min and max heights for docstring
+      function calculateDocstringHeights() {
         const docstringContainer = document.getElementById('docstring-container');
-        const collapseButton = document.getElementById('docstring-collapse-button');
-        if (!docstringContainer || !collapseButton) return;
+        const contentWrapper = document.getElementById('docstring-content-wrapper');
+        if (!docstringContainer || !contentWrapper) return;
         
-        isDocstringCollapsed = !isDocstringCollapsed;
-        if (isDocstringCollapsed) {
-          docstringContainer.classList.add('collapsed');
-          collapseButton.innerHTML = getChevronIcon(false);
-        } else {
-          docstringContainer.classList.remove('collapsed');
-          collapseButton.innerHTML = getChevronIcon(true);
-        }
+        // Temporarily remove height constraint to measure natural height
+        const originalHeight = docstringContainer.style.height;
+        const originalOverflow = docstringContainer.style.overflow;
+        docstringContainer.style.height = 'auto';
+        docstringContainer.style.overflow = 'visible';
+        
+        // Measure full content height (max height) - this is the natural height needed
+        const fullHeight = docstringContainer.scrollHeight;
+        maxDocstringHeight = fullHeight;
+        
+        // Measure minimum height based on font size
+        // Get computed styles from content wrapper
+        const computedStyle = window.getComputedStyle(contentWrapper);
+        const fontSize = parseFloat(computedStyle.fontSize) || 13;
+        const paddingTop = parseFloat(computedStyle.paddingTop) || 12;
+        const paddingBottom = parseFloat(computedStyle.paddingBottom) || 12;
+        
+        // Minimum height = font size + padding (one line worth of space)
+        minDocstringHeight = Math.ceil(fontSize + paddingTop + paddingBottom);
+        minDocstringHeight = Math.max(minDocstringHeight, 30); // Ensure reasonable minimum
+        
+        // Restore original styles
+        docstringContainer.style.height = originalHeight;
+        docstringContainer.style.overflow = originalOverflow || 'hidden';
       }
       
       // Function to update docstring display based on current language
       function updateDocstring() {
         const docstringContainer = document.getElementById('docstring-container');
-        if (!docstringContainer) return;
+        const contentWrapper = document.getElementById('docstring-content-wrapper');
+        const resizeHandle = document.getElementById('docstring-resize-handle');
+        if (!docstringContainer || !contentWrapper) return;
         
         // Use JavaScript docstring when language is 'javascript', otherwise use Python docstring
         const docstring = currentLanguage === 'javascript' ? docstringJs : docstringPy;
@@ -1119,31 +1103,66 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             .replace(/\\n/g, '<br>');
           // Convert single backticks to code tags
           const withCode = escaped.replace(/\`([^\`\\n]+?)\`/g, '<code>$1</code>');
-          const buttonIcon = getChevronIcon(!isDocstringCollapsed);
-          docstringContainer.innerHTML = 
-            '<div class="docstring-header">Task</div>' +
-            '<div class="docstring-content"><span style="font-weight: 800;">Task:</span> ' + withCode + '</div>' +
-            '<button class="docstring-collapse-button" id="docstring-collapse-button">' + buttonIcon + '</button>';
-          if (isDocstringCollapsed) {
-            docstringContainer.classList.add('collapsed');
-          } else {
-            docstringContainer.classList.remove('collapsed');
+          contentWrapper.innerHTML = '<span style="font-weight: 800;">Task:</span> ' + withCode;
+          
+          docstringContainer.style.display = 'flex';
+          if (resizeHandle) {
+            resizeHandle.style.display = 'flex';
           }
           
-          // Attach click handler to the button
-          const collapseButton = document.getElementById('docstring-collapse-button');
-          if (collapseButton) {
-            collapseButton.addEventListener('click', toggleDocstringCollapse);
-          }
-          
-          docstringContainer.style.display = 'block';
+          // Calculate min and max heights after content is set
+          setTimeout(function() {
+            calculateDocstringHeights();
+            
+            // Use maximum height to show entire task description
+            let initialHeight = Math.max(minDocstringHeight, maxDocstringHeight);
+            docstringContainer.style.height = initialHeight + 'px';
+          }, 10);
         } else {
           docstringContainer.style.display = 'none';
+          if (resizeHandle) {
+            resizeHandle.style.display = 'none';
+          }
+        }
+      }
+      
+      // Initialize resize functionality
+      function initDocstringResize() {
+        const docstringContainer = document.getElementById('docstring-container');
+        const resizeHandle = document.getElementById('docstring-resize-handle');
+        if (!docstringContainer || !resizeHandle) return;
+        
+        let isResizing = false;
+        let startY = 0;
+        let startHeight = 0;
+        
+        resizeHandle.addEventListener('mousedown', function(e) {
+          isResizing = true;
+          startY = e.clientY;
+          startHeight = parseInt(window.getComputedStyle(docstringContainer).height, 10);
+          document.addEventListener('mousemove', handleResize);
+          document.addEventListener('mouseup', stopResize);
+          e.preventDefault();
+        });
+        
+        function handleResize(e) {
+          if (!isResizing) return;
+          const diff = e.clientY - startY;
+          const newHeight = Math.max(minDocstringHeight, Math.min(startHeight + diff, maxDocstringHeight));
+          docstringContainer.style.height = newHeight + 'px';
+        }
+        
+        function stopResize() {
+          isResizing = false;
+          document.removeEventListener('mousemove', handleResize);
+          document.removeEventListener('mouseup', stopResize);
         }
       }
       
       // Initialize docstring display
       updateDocstring();
+      // Initialize resize functionality after a delay to ensure DOM is ready and heights are calculated
+      setTimeout(initDocstringResize, 150);
       
       // Map of task_id to function parameters
       // Format: { task_id: [param1, param2, ...] }
@@ -1388,12 +1407,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             outputBox.classList.add('empty');
           }
           
-          // Clear custom inputs output when language changes
-          const customOutputBox = document.getElementById('test-output-mini');
-          if (customOutputBox) {
-            customOutputBox.innerHTML = '';
-            customOutputBox.classList.add('empty');
-          }
+          // Note: Custom input results are now in the unified output box
+          // They will be preserved when language changes, only test case results are cleared
           
           // Save current code
           if (editor) {
@@ -1573,15 +1588,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       // Function to run code with custom inputs
       async function runCodeWithInputs() {
         const runButton = document.getElementById('test-run-button');
-        const outputBox = document.getElementById('test-output-mini');
+        const outputBox = document.getElementById('test-output-box');
         
         if (!runButton || !outputBox) return;
         
         // Disable button and show loading
         runButton.disabled = true;
         runButton.textContent = 'Running...';
+        
+        // Clear and show loading
         outputBox.classList.remove('empty');
-        outputBox.innerHTML = '<span style="color: #9ca3af;">Running code...</span>';
+        outputBox.innerHTML = '<span style="color: #9ca3af;">Running code with custom inputs...</span>';
         
         try {
           const currentCode = currentLanguage === 'python' 
@@ -1648,21 +1665,21 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           outputBox.classList.remove('empty');
           
           if (data.stderr && data.stderr.trim()) {
-            const stderrSpan = document.createElement('div');
-            stderrSpan.className = 'output-stderr';
+            const stderrSpan = document.createElement('span');
+            stderrSpan.className = 'stderr';
             stderrSpan.textContent = data.stderr;
             outputBox.appendChild(stderrSpan);
           }
           
           if (data.stdout && data.stdout.trim()) {
-            const stdoutSpan = document.createElement('div');
-            stdoutSpan.className = 'output-stdout';
+            const stdoutSpan = document.createElement('span');
+            stdoutSpan.className = 'stdout';
             stdoutSpan.textContent = data.stdout;
             outputBox.appendChild(stdoutSpan);
           }
           
           if (!data.stdout && !data.stderr) {
-            const emptySpan = document.createElement('div');
+            const emptySpan = document.createElement('span');
             emptySpan.style.color = '#6b7280';
             emptySpan.textContent = 'No output';
             outputBox.appendChild(emptySpan);
@@ -1671,8 +1688,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         } catch (error) {
           outputBox.innerHTML = '';
           outputBox.classList.remove('empty');
-          const errorSpan = document.createElement('div');
-          errorSpan.className = 'output-stderr';
+          
+          const errorSpan = document.createElement('span');
+          errorSpan.className = 'stderr';
           errorSpan.textContent = 'Error: ' + (error.message || 'Failed to execute code');
           outputBox.appendChild(errorSpan);
         } finally {
@@ -1717,7 +1735,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             }
             // Otherwise, leave existing content untouched - don't clear test results on code changes
           } else {
-            // Clear previous content
+            // Clear everything and show only the most recent test results
             outputBox.innerHTML = '';
             outputBox.classList.remove('empty', 'has-error');
             
@@ -2153,51 +2171,162 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       outline: none;
       border-color: #3b82f6;
     }
-    /* Integer slider styling */
-    .slider-container {
+    /* Integer input styling */
+    .integer-input-container {
       margin-top: 12px;
-      padding: 12px 10px 10px;
-      border-radius: 8px;
-      border: 1px solid #374151;
-      background: rgba(15, 23, 42, 0.8);
     }
-    .experience-slider {
+    .integer-input {
       width: 100%;
+      padding: 12px 16px;
+      background: rgba(31, 41, 55, 0.5);
+      border: 1px solid #4b5563;
+      border-radius: 8px;
+      color: #e5e7eb;
+      font-size: 16px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+      box-sizing: border-box;
+    }
+    .integer-input:focus {
+      border-color: #3b82f6;
+      background: rgba(31, 41, 55, 0.8);
+    }
+    .integer-input::placeholder {
+      color: #6b7280;
+    }
+    /* Style the spinner buttons - bigger, darker background, white arrows */
+    .integer-input::-webkit-inner-spin-button {
+      opacity: 1;
       cursor: pointer;
+      height: 30px;
+      width: 30px;
+      background: #1f2937;
+      border-left: 1px solid #4b5563;
+      border-radius: 0 8px 8px 0;
+      margin-right: -1px;
+      margin-top: -1px;
+      margin-bottom: -1px;
     }
-    .experience-slider::-webkit-slider-thumb {
-      background: #3b82f6;
+    .integer-input::-webkit-inner-spin-button:hover {
+      background: #111827;
     }
-    .slider-ticks {
+    .integer-input::-webkit-inner-spin-button:active {
+      background: #030712;
+    }
+    .integer-input::-webkit-outer-spin-button {
+      opacity: 1;
+    }
+    /* Make sure input has enough padding for larger spinner */
+    .integer-input {
+      padding-right: 40px;
+    }
+    /* NASA TLI Scale styling */
+    .tli-scale-container {
+      margin-top: 24px;
+    }
+    .tli-scale-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      text-align: center;
+      margin-bottom: 0px;
+    }
+    .tli-scale-wrapper {
+      position: relative;
+      width: 100%;
+      padding: 20px 0 50px 0;
+    }
+    .tli-scale-lines-container {
+      position: relative;
+      width: 100%;
+      height: 60px;
+      margin: 12px 0;
+    }
+    .tli-scale-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background-color: #9ca3af;
+      z-index: 3;
+    }
+    .tli-scale-line-top {
+      top: 0;
+    }
+    .tli-scale-line-bottom {
+      top: 58px;
+    }
+    .tli-scale-ticks-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 60px;
       display: flex;
       justify-content: space-between;
-      margin-top: 8px;
-      gap: 4px;
+      align-items: flex-start;
+      pointer-events: none;
+      z-index: 4;
     }
-    .slider-tick {
+    .tli-scale-tick {
+      width: 2px;
+      background-color: #9ca3af;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .tli-scale-tick.full {
+      height: 60px;
+      align-self: flex-start;
+    }
+    .tli-scale-tick.half {
+      height: 30px;
+      align-self: flex-end;
+    }
+    .tli-scale-spaces-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 60px;
+      display: flex;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .tli-scale-space-wrapper {
       flex: 1;
-      font-size: 12px;
-      color: #9ca3af;
-      text-align: center;
+      position: relative;
+      height: 100%;
+      pointer-events: auto;
+    }
+    .tli-scale-space {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 60px;
       cursor: pointer;
-      padding: 2px 0;
-      border-radius: 999px;
-      transition: background 0.15s, color 0.15s;
-      user-select: none;
     }
-    .slider-tick-active {
-      background: rgba(59, 130, 246, 0.2);
-      color: #e5e7eb;
+    .tli-scale-space:hover {
+      background-color: rgba(59, 130, 246, 0.15);
+    }
+    .tli-scale-selection {
+      position: absolute;
+      inset: 0;
+      background-color: #2563eb;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .tli-scale-labels {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      margin-top: 20px;
+      font-size: 14px;
+      color: #fff;
+    }
+    .tli-scale-label {
       font-weight: 500;
-    }
-    .slider-current-value {
-      margin-top: 8px;
-      font-size: 13px;
-      color: #d1d5db;
-    }
-    .slider-current-label {
-      font-weight: 600;
-      color: #3b82f6;
     }
   </style>
 </head>
@@ -2211,10 +2340,116 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   </div>
   <script>
     (function() {
-      function renderChoices(choices, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, questionText) {
+      function renderChoices(choices, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText) {
         if (questionType === 'mcqa') {
           if (!choices || !Array.isArray(choices)) {
             return '';
+          }
+          
+          // Special handling for NASA TLI questions - render as horizontal scale
+          if (isNasaTli) {
+            const leftLabel = choices[0] || 'Very Low';
+            const rightLabel = choices[choices.length - 1] || 'Very High';
+            const numTicks = 20;
+            const numSpaces = 20; // 0-19
+            
+            // Map question ID to title
+            const tliTitles = {
+              'nasa_1': 'Mental Demand',
+              'nasa_2': 'Physical Demand',
+              'nasa_3': 'Temporal Demand',
+              'nasa_4': 'Performance',
+              'nasa_5': 'Effort',
+              'nasa_6': 'Frustration'
+            };
+            const title = tliTitles[questionId] || 'Mental Demand';
+            
+            // Parse initial answer - convert from 1-indexed (stored) to 0-indexed (for display)
+            let selectedIndex = null;
+            if (initialAnswer !== null && initialAnswer !== undefined) {
+              if (typeof initialAnswer === 'number') {
+                // Convert from 1-indexed (1-20) to 0-indexed (0-19)
+                if (initialAnswer >= 1 && initialAnswer <= 20) {
+                  selectedIndex = initialAnswer - 1;
+                }
+              } else if (typeof initialAnswer === 'object' && initialAnswer.index !== undefined) {
+                // Convert from 1-indexed to 0-indexed
+                if (initialAnswer.index >= 1 && initialAnswer.index <= 20) {
+                  selectedIndex = initialAnswer.index - 1;
+                }
+              } else if (typeof initialAnswer === 'string') {
+                // Try to match by choice text
+                const idx = choices.indexOf(initialAnswer);
+                if (idx !== -1) {
+                  selectedIndex = idx;
+                }
+              }
+            }
+            
+            // Ensure selectedIndex is in valid range (0-19)
+            if (selectedIndex !== null && (selectedIndex < 0 || selectedIndex >= numSpaces)) {
+              selectedIndex = null;
+            }
+            
+            const escapedTitle = title
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+            const escapedLeftLabel = leftLabel
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+            const escapedRightLabel = rightLabel
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+            
+            // Create 21 tick marks (0-20) creating 20 spaces (0-19) between them
+            // First and last ticks are full height, others alternate between full and half
+            let ticksHtml = '';
+            let spacesHtml = '';
+            
+            // Create 21 ticks evenly spaced with alternating heights
+            for (let i = 0; i <= numTicks; i++) {
+              // First tick (0) and last tick (20) are full height
+              // For others: even indices (2, 4, 6...) are full, odd indices (1, 3, 5...) are half
+              const isFull = (i === 0 || i === numTicks || i % 2 === 0);
+              const tickClass = isFull ? 'full' : 'half';
+              ticksHtml += '<div class="tli-scale-tick ' + tickClass + '" data-tick-index="' + i + '"></div>';
+            }
+            
+            // Create 20 spaces, each positioned between consecutive ticks
+            for (let i = 0; i < numSpaces; i++) {
+              const isSelected = selectedIndex === i;
+              const selectionHtml = isSelected ? '<div class="tli-scale-selection"></div>' : '';
+              spacesHtml += '<div class="tli-scale-space-wrapper">' +
+                '<div class="tli-scale-space" data-space-index="' + i + '">' +
+                  selectionHtml +
+                '</div>' +
+              '</div>';
+            }
+            
+            return '<div class="tli-scale-container">' +
+              (title ? '<div class="tli-scale-title">' + escapedTitle + '</div>' : '') +
+              '<div class="tli-scale-wrapper">' +
+                '<div class="tli-scale-lines-container">' +
+                  '<div class="tli-scale-line tli-scale-line-top"></div>' +
+                  '<div class="tli-scale-line tli-scale-line-bottom"></div>' +
+                  '<div class="tli-scale-ticks-container">' + ticksHtml + '</div>' +
+                  '<div class="tli-scale-spaces-container">' + spacesHtml + '</div>' +
+                '</div>' +
+                '<div class="tli-scale-labels">' +
+                  '<span class="tli-scale-label">' + escapedLeftLabel + '</span>' +
+                  '<span class="tli-scale-label">' + escapedRightLabel + '</span>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
           }
           
           const result = choices.map((choice, idx) => {
@@ -2222,7 +2457,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             // Use index for value to avoid backtick issues in HTML attributes
             const inputValue = idx.toString();
             // Check if initial answer matches the choice
-            const isChecked = (initialAnswer === choice) ? 'checked' : '';
+            // For experience and NASA TLI questions, don't set default checked state
+            const isChecked = (!isExperience && !isNasaTli && initialAnswer === choice) ? 'checked' : '';
             const otherValue = isOther ? initialOtherText : '';
             const choiceWithoutBackticks = choice.split(String.fromCharCode(96)).join('');
             const escapedChoiceText = choiceWithoutBackticks
@@ -2245,7 +2481,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             }
             
             const html = '<label class="choice-label ' + (isChecked ? 'selected' : '') + '">' +
-              '<input type="radio" name="question-' + questionId + '" value="' + inputValue + '" data-choice-text="' + escapedChoiceText + '" ' + isChecked + ' />' +
+              '<input type="radio" name="question-' + questionId + '" value="' + inputValue + '" data-choice-index="' + idx + '" data-choice-text="' + escapedChoiceText + '" ' + isChecked + ' />' +
               (isOther 
                 ? '<span>Other</span><input type="text" class="other-input" value="' + (otherValue.replace(/"/g, '&quot;')) + '" placeholder="Please specify..." />'
                 : '<span' + spanAttributes + '>' + spanContent + '</span>'
@@ -2280,33 +2516,46 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               ? baseAnswer.months
               : {};
 
-            (choices || []).forEach((choice) => {
-              if (!responses[choice]) {
-                responses[choice] = scale[0];
-              }
-              // Initialize months for each choice if not present
-              if (isMultiSelectWithTime && !monthsPerChoice[choice]) {
-                monthsPerChoice[choice] = '';
-              }
-            });
+            // For experience/NASA TLI questions, don't set default values
+            if (!isExperience && !isNasaTli) {
+              (choices || []).forEach((choice) => {
+                if (!responses[choice]) {
+                  responses[choice] = scale[0];
+                }
+                // Initialize months for each choice if not present
+                if (isMultiSelectWithTime && !monthsPerChoice[choice]) {
+                  monthsPerChoice[choice] = '';
+                }
+              });
 
-            const answerObj = {
-              scale: scale,
-              responses: responses,
-              other: otherTextValue,
-              ...(isMultiSelectWithTime ? { months: monthsPerChoice } : {}),
-            };
+              const answerObj = {
+                scale: scale,
+                responses: responses,
+                other: otherTextValue,
+                ...(isMultiSelectWithTime ? { months: monthsPerChoice } : {}),
+              };
 
-            // Send initial default (all "None") answer up to parent so navigation logic works
-            try {
-              window.parent.postMessage({
-                type: 'skillCheckAnswer',
-                questionId: questionId,
-                answer: answerObj,
-                questionType: questionType
-              }, '*');
-            } catch (e) {
-              // Best-effort only
+              // Send initial default (all "None") answer up to parent so navigation logic works
+              // Only for non-experience/non-NASA TLI questions
+              try {
+                window.parent.postMessage({
+                  type: 'skillCheckAnswer',
+                  questionId: questionId,
+                  answer: answerObj,
+                  questionType: questionType
+                }, '*');
+              } catch (e) {
+                // Best-effort only
+              }
+            } else {
+              // For experience/NASA TLI, initialize empty months per choice if needed
+              if (isMultiSelectWithTime) {
+                (choices || []).forEach((choice) => {
+                  if (!monthsPerChoice[choice]) {
+                    monthsPerChoice[choice] = '';
+                  }
+                });
+              }
             }
 
             // Matrix UI HTML
@@ -2327,7 +2576,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
             const rowsHtml = (choices || []).map((choice, rowIdx) => {
               const isOther = choice === 'Other';
-              const currentLevel = responses[choice] || scale[0];
+              // For experience/NASA TLI questions, don't default to scale[0], leave unselected
+              const currentLevel = responses[choice] || (isExperience || isNasaTli ? null : scale[0]);
               const escapedChoice = choice
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -2336,7 +2586,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                 .replace(/'/g, '&#39;');
 
               const cells = scale.map((level, levelIdx) => {
-                const checked = currentLevel === level ? 'checked' : '';
+                // For experience/NASA TLI questions, don't check any option by default
+                const checked = (currentLevel && currentLevel === level) ? 'checked' : '';
                 return (
                   '<td class="matrix-cell">' +
                   '<input type="radio" class="matrix-radio" data-matrix="1" ' +
@@ -2446,43 +2697,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           
           return checkboxesHtml;
         } else if (questionType === 'integer') {
-          if (!choices || !Array.isArray(choices) || choices.length === 0) {
-            return '';
+          // Simple integer input for years of experience
+          let initialValue = '';
+          if (typeof initialAnswer === 'string' || typeof initialAnswer === 'number') {
+            initialValue = String(initialAnswer);
           }
-
-          // Determine initial index from existing answer if possible
-          let initialIndex = 0;
-          if (typeof initialAnswer === 'string') {
-            const idx = choices.indexOf(initialAnswer);
-            if (idx >= 0) {
-              initialIndex = idx;
-            }
-          }
-
-          const tickLabels = choices.map((choice, idx) => {
-            const escaped = String(choice)
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#39;');
-            const activeClass = idx === initialIndex ? ' slider-tick-active' : '';
-            return '<span class="slider-tick' + activeClass + '" data-index="' + idx + '">' + escaped + '</span>';
-          }).join('');
-
-          const currentValueEscaped = String(choices[initialIndex])
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
 
           return '' +
-            '<div class="slider-container" data-slider-question="1">' +
-              '<input type="range" min="0" max="' + (choices.length - 1) + '" step="1" ' +
-                'value="' + initialIndex + '" class="experience-slider" />' +
-              '<div class="slider-ticks">' + tickLabels + '</div>' +
-              '<div class="slider-current-value">Selected: <span class="slider-current-label">' + currentValueEscaped + '</span></div>' +
+            '<div class="integer-input-container">' +
+              '<input type="number" class="integer-input" min="0" step="1" value="' + 
+                (initialValue.replace(/"/g, '&quot;')) + 
+                '" placeholder="Enter number of years" />' +
             '</div>';
         }
         return '';
@@ -2497,10 +2722,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const initialOtherText = ${JSON.stringify(initialOtherText)};
       const isFrontend = '${currentQuestion.type}' === 'frontend';
       const isExperience = '${currentQuestion.type}' === 'experience';
+      const isNasaTli = '${currentQuestion.type}' === 'nasa_tli';
       
       const container = document.getElementById('choices-container');
       if (container) {
-        const html = renderChoices(choicesArray, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, questionText);
+        const html = renderChoices(choicesArray, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText);
         container.innerHTML = html;
         
         container.querySelectorAll('.choice-markdown[data-choice-content]').forEach((span) => {
@@ -2512,6 +2738,51 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             span.textContent = decoded;
           }
         });
+      }
+      
+      // Setup TLI scale handlers
+      if (isNasaTli && questionType === 'mcqa') {
+        const scaleContainer = container.querySelector('.tli-scale-container');
+        if (scaleContainer) {
+          const spaces = scaleContainer.querySelectorAll('.tli-scale-space');
+          
+          function selectSpace(index) {
+            // Remove selection indicator from all spaces
+            spaces.forEach((space) => {
+              const existingSelection = space.querySelector('.tli-scale-selection');
+              if (existingSelection) {
+                existingSelection.remove();
+              }
+            });
+            
+            // Add selection indicator to the clicked space
+            // index is 0-indexed (0-19) for display
+            if (index >= 0 && index < 20) {
+              const selectedSpace = Array.from(spaces).find((space) => {
+                return parseInt(space.getAttribute('data-space-index'), 10) === index;
+              });
+              if (selectedSpace) {
+                const selectionDiv = document.createElement('div');
+                selectionDiv.className = 'tli-scale-selection';
+                selectedSpace.appendChild(selectionDiv);
+              }
+            }
+            
+            // Convert from 0-indexed (0-19) to 1-indexed (1-20) for storage
+            sendAnswer(index + 1);
+          }
+          
+          spaces.forEach((space) => {
+            space.addEventListener('click', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              const index = parseInt(this.getAttribute('data-space-index'), 10);
+              if (!isNaN(index) && index >= 0 && index < 20) {
+                selectSpace(index);
+              }
+            });
+          });
+        }
       }
       
       // Configure marked for proper rendering
@@ -2622,9 +2893,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           }
           if (this.checked) {
             updateSelectedClasses();
-            // Get the actual choice text from data-choice-text attribute
+            // Send answer with both index and text for proper mapping
+            const choiceIndex = this.getAttribute('data-choice-index');
             const choiceText = this.getAttribute('data-choice-text') || this.value;
-            sendAnswer(choiceText);
+            // Send as object with index for reliable mapping
+            sendAnswer({ index: choiceIndex !== null ? parseInt(choiceIndex, 10) : null, text: choiceText });
           }
         });
       });
@@ -2681,7 +2954,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             }
             if (!itemLabel) return;
             const checked = row.querySelector('input[type="radio"][data-matrix="1"]:checked');
-            let level = scaleFromDom[0] || '';
+            let level = null; // treat no selection as null
             if (checked) {
               const idxStr = checked.value || '0';
               const idx = parseInt(idxStr, 10);
@@ -2702,7 +2975,16 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             monthsInputs.forEach(input => {
               const choice = input.getAttribute('data-choice');
               if (choice) {
+                const response = responses[choice];
+                const noneValue = scaleFromDom[0] || 'None';
+                // Auto-populate months to "0" if "None" is selected
+                if (response === noneValue) {
+                  monthsPerChoice[choice] = '0';
+                  // Also update the input field visually
+                  input.value = '0';
+                } else {
                 monthsPerChoice[choice] = input.value || '';
+                }
               }
             });
           }
@@ -2724,6 +3006,38 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         matrixTable.querySelectorAll('input[type="radio"][data-matrix="1"]').forEach(radio => {
           radio.addEventListener('change', function() {
             updateSelectedClasses();
+            
+            // Auto-populate months to "0" when "None" is selected for multi_select_with_time
+            if (questionType === 'multi_select_with_time') {
+              const row = this.closest('.matrix-row');
+              if (row) {
+                const labelCell = row.querySelector('.matrix-label-cell');
+                if (labelCell) {
+                  const labelSpan = labelCell.querySelector('.matrix-row-label');
+                  if (labelSpan) {
+                    const choice = (labelSpan.textContent || '').trim();
+                    if (choice && choice !== 'Other') {
+                      const idxStr = this.value || '0';
+                      const idx = parseInt(idxStr, 10);
+                      const noneValue = scaleFromDom[0] || 'None';
+                      const monthsInput = row.querySelector('.matrix-months-input');
+                      if (monthsInput) {
+                        // If "None" is selected, auto-populate months to "0"
+                        if (idx === 0 || scaleFromDom[idx] === noneValue) {
+                          monthsInput.value = '0';
+                        } else {
+                          // If switching away from "None" and field is "0", clear it for user to enter actual value
+                          if (monthsInput.value === '0') {
+                            monthsInput.value = '';
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
             const answerObj = buildMatrixAnswerFromDom();
             sendAnswer(answerObj);
           });
@@ -2771,8 +3085,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           } else {
             if (radio) {
               radio.checked = true;
+              // Send answer with both index and text for proper mapping
+              const choiceIndex = radio.getAttribute('data-choice-index');
               const choiceText = radio.getAttribute('data-choice-text') || radio.value;
-              sendAnswer(choiceText);
+              // Send as object with index for reliable mapping
+              sendAnswer({ index: choiceIndex !== null ? parseInt(choiceIndex, 10) : null, text: choiceText });
             }
           }
         });
@@ -2797,58 +3114,49 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         });
       }
 
-      // Slider handlers for integer questions
-      (function setupSliderHandlers() {
-        const sliderContainer = document.querySelector('.slider-container[data-slider-question="1"]');
-        if (!sliderContainer) {
+      // Integer input handler for integer questions
+      (function setupIntegerInputHandler() {
+        const integerInput = document.querySelector('.integer-input');
+        if (!integerInput) {
           return;
         }
 
-        const slider = sliderContainer.querySelector('input.experience-slider');
-        const ticks = Array.from(sliderContainer.querySelectorAll('.slider-tick'));
-        const currentLabelEl = sliderContainer.querySelector('.slider-current-label');
-        const choices = choicesArray || [];
-
-        function setActiveTick(index) {
-          ticks.forEach((tick, idx) => {
-            if (idx === index) {
-              tick.classList.add('slider-tick-active');
-            } else {
-              tick.classList.remove('slider-tick-active');
-            }
-          });
-        }
-
-        function emitSliderAnswer(index) {
-          const choice = (index >= 0 && index < choices.length) ? choices[index] : null;
-          if (choice == null) return;
-          if (currentLabelEl) {
-            currentLabelEl.textContent = String(choice);
+        integerInput.addEventListener('input', function() {
+          const value = this.value.trim();
+          // Only send answer if it's a valid number
+          if (value !== '' && !isNaN(parseInt(value, 10))) {
+            sendAnswer(value);
+          } else if (value === '') {
+            // Send empty string to clear the answer
+            sendAnswer('');
           }
-          sendAnswer(choice);
-        }
+        });
 
-        if (slider) {
-          slider.addEventListener('input', function() {
-            const idx = parseInt(this.value || '0', 10);
-            if (isNaN(idx)) return;
-            setActiveTick(idx);
-            emitSliderAnswer(idx);
-          });
+        // Also handle on blur to ensure the value is sent
+        integerInput.addEventListener('blur', function() {
+          const value = this.value.trim();
+          if (value !== '' && !isNaN(parseInt(value, 10))) {
+            sendAnswer(value);
+          }
+        });
 
-          // Emit initial value so parent has an answer when user sees slider
-          const initialIdx = parseInt(slider.value || '0', 10) || 0;
-          setActiveTick(initialIdx);
-          emitSliderAnswer(initialIdx);
-        }
-
-        ticks.forEach((tick, idx) => {
-          tick.addEventListener('click', function() {
-            if (!slider) return;
-            slider.value = String(idx);
-            setActiveTick(idx);
-            emitSliderAnswer(idx);
-          });
+        // Prevent non-numeric input
+        integerInput.addEventListener('keydown', function(e) {
+          // Allow: backspace, delete, tab, escape, enter, decimal point, and numbers
+          if ([46, 8, 9, 27, 13, 110, 190].indexOf(e.keyCode) !== -1 ||
+            // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+            (e.keyCode === 65 && (e.ctrlKey || e.metaKey)) ||
+            (e.keyCode === 67 && (e.ctrlKey || e.metaKey)) ||
+            (e.keyCode === 86 && (e.ctrlKey || e.metaKey)) ||
+            (e.keyCode === 88 && (e.ctrlKey || e.metaKey)) ||
+            // Allow: home, end, left, right
+            (e.keyCode >= 35 && e.keyCode <= 39)) {
+            return;
+          }
+          // Ensure that it is a number and stop the keypress
+          if ((e.shiftKey || (e.keyCode < 48 || e.keyCode > 57)) && (e.keyCode < 96 || e.keyCode > 105)) {
+            e.preventDefault();
+          }
         });
       })();
       
@@ -2999,7 +3307,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <LoadingSpinner size="xl" color="blue" className="mx-auto mb-4" />
           <p className="text-gray-400">Loading questions...</p>
         </div>
       </div>
@@ -3148,17 +3456,20 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   </button>
                 </div>
               )}
-              <div className={`relative group transition-opacity duration-200 ${showReportButton ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                <button
-                  onClick={() => setShowReportModal(true)}
-                  className="w-8 h-8 rounded-full border border-transparent bg-transparent text-gray-400 hover:bg-gray-800 flex items-center justify-center transition-colors"
-                >
-                  <Flag size={16} />
-                </button>
-                <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                  Report / Give Up
+              {/* Only show report button for non-experience and non-NASA TLI questions */}
+              {currentQuestion.type !== 'experience' && currentQuestion.type !== 'nasa_tli' && (
+                <div className={`relative group transition-opacity duration-200 ${showReportButton ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="w-8 h-8 rounded-full border border-transparent bg-transparent text-gray-400 hover:bg-gray-800 flex items-center justify-center transition-colors"
+                  >
+                    <Flag size={16} />
+                  </button>
+                  <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                    Report / Give Up
+                  </div>
                 </div>
-              </div>
+              )}
               <span className={`px-3 py-1 text-xs rounded-full border ${badgeColor}`}>
                 {badgeText}
               </span>
@@ -3197,18 +3508,175 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               currentQuestion.type === 'coding' 
                  ? !(codingLanguage === 'python' ? currentAnswer?.pythonCode : currentAnswer?.jsCode) || testResults.allPassed !== true
                 : currentQuestion.question_type === 'multi_select'
-                  ? !currentAnswer || (Array.isArray(currentAnswer) && (currentAnswer.length === 0 || (currentAnswer.length === 1 && currentAnswer[0] === 'Other' && !otherText[currentQuestion.id])))
+                  ? (() => {
+                      // Get all available choices for this question
+                      const choices = Array.isArray(currentQuestion.choices) ? currentQuestion.choices : [];
+                      if (choices.length === 0) {
+                        // Fallback: if no choices array, allow proceeding (backward compatibility)
+                        return !currentAnswer || (Array.isArray(currentAnswer) && currentAnswer.length === 0);
+                      }
+                      
+                      if (!currentAnswer) {
+                        return true; // No answer
+                      }
+                      
+                      // Extract selected choices based on answer format
+                      let selectedChoices: string[] = [];
+                      
+                      // Handle matrix-style answers (object with responses property)
+                      if (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer) && currentAnswer.responses) {
+                        // For matrix-style, require ALL choices (except "Other") to have a response
+                        const responses = currentAnswer.responses || {};
+                        const requiredChoices = choices.filter(choice => choice !== 'Other');
+                        
+                        // Must have responses for all required choices
+                        if (requiredChoices.length === 0) {
+                          return false; // No required choices, allow proceeding
+                        }
+                        
+                        const allChoicesHaveResponse = requiredChoices.every(choice => {
+                          const val = responses[choice];
+                          return val !== undefined && val !== null && String(val).trim() !== '';
+                        });
+                        
+                        if (!allChoicesHaveResponse) {
+                          return true; // Not all required choices have a response
+                        }
+                        
+                        // If "Other" is in choices and has a non-"None" response, ensure otherText is filled
+                        const scale = Array.isArray(currentAnswer.scale) ? currentAnswer.scale : [];
+                        const noneValue = scale[0] || 'None';
+                        if (choices.includes('Other') && responses['Other'] && responses['Other'] !== noneValue && !currentAnswer.other?.trim() && !otherText[currentQuestion.id]?.trim()) {
+                          return true; // "Other" has a non-"None" response but no text provided
+                        }
+                        
+                        return false; // All validations passed for matrix-style
+                      }
+                      
+                      // Handle object format with 'selected' property (checkbox-style with "Other" field)
+                      if (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer) && currentAnswer.selected) {
+                        selectedChoices = Array.isArray(currentAnswer.selected) ? currentAnswer.selected : [];
+                      }
+                      // Handle array format (checkbox-style without "Other" field)
+                      else if (Array.isArray(currentAnswer)) {
+                        selectedChoices = currentAnswer;
+                      } else {
+                        return true; // Invalid format
+                      }
+                      
+                      // For checkbox-style multi_select, require ALL choices (except "Other") to be selected
+                      const requiredChoices = choices.filter(choice => choice !== 'Other');
+                      
+                      // Must have selections for all required choices
+                      if (requiredChoices.length === 0) {
+                        // No required choices (only "Other" exists), allow proceeding
+                        return false;
+                      }
+                      
+                      // Must have at least as many selections as required choices (excluding "Other")
+                      const selectedRequiredChoices = selectedChoices.filter(choice => choice !== 'Other');
+                      if (selectedRequiredChoices.length < requiredChoices.length) {
+                        return true; // Not all required choices are selected
+                      }
+                      
+                      // Verify that every required choice is in the selected list
+                      const allChoicesSelected = requiredChoices.every(choice => selectedChoices.includes(choice));
+                      
+                      if (!allChoicesSelected) {
+                        return true; // Not all required choices selected
+                      }
+                      
+                      // If "Other" is selected, ensure otherText is filled
+                      if (selectedChoices.includes('Other')) {
+                        const otherValue = (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer) && currentAnswer.other) 
+                          ? currentAnswer.other 
+                          : otherText[currentQuestion.id];
+                        if (!otherValue?.trim()) {
+                          return true; // "Other" selected but no text provided
+                        }
+                      }
+                      
+                      return false; // All validations passed
+                    })()
                   : currentQuestion.question_type === 'multi_select_with_time'
-                    ? !currentAnswer || 
-                      (Array.isArray(currentAnswer) && (currentAnswer.length === 0 || (currentAnswer.length === 1 && currentAnswer[0] === 'Other' && !otherText[currentQuestion.id]))) ||
-                      (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer) && (
-                        // For matrix-style answers (with responses), check if any response is set and months are provided
-                        (currentAnswer.responses && Object.keys(currentAnswer.responses).length > 0 
                           ? (() => {
+                        if (!currentAnswer) {
+                          return true; // No answer
+                        }
+                        
+                        // Get all available choices for this question
+                        const choices = Array.isArray(currentQuestion.choices) ? currentQuestion.choices : [];
+                        
+                        // Handle array format (checkbox-style)
+                        if (Array.isArray(currentAnswer)) {
+                          if (choices.length === 0) {
+                            // Fallback: if no choices array, use old logic
+                            return currentAnswer.length === 0 || (currentAnswer.length === 1 && currentAnswer[0] === 'Other' && !otherText[currentQuestion.id]);
+                          }
+                          
+                          // Require ALL choices (except "Other") to be selected
+                          const requiredChoices = choices.filter(choice => choice !== 'Other');
+                          
+                          if (requiredChoices.length === 0) {
+                            // No required choices (only "Other" exists), allow proceeding
+                            return false;
+                          }
+                          
+                          // Must have at least as many selections as required choices (excluding "Other")
+                          const selectedRequiredChoices = currentAnswer.filter((choice: string) => choice !== 'Other');
+                          if (selectedRequiredChoices.length < requiredChoices.length) {
+                            return true; // Not all required choices are selected
+                          }
+                          
+                          // Verify that every required choice is in the selected list
+                          const allChoicesSelected = requiredChoices.every(choice => currentAnswer.includes(choice));
+                          if (!allChoicesSelected) {
+                            return true; // Not all required choices selected
+                          }
+                          
+                          // If "Other" is selected, ensure otherText is filled
+                          if (currentAnswer.includes('Other') && !otherText[currentQuestion.id]?.trim()) {
+                            return true; // "Other" selected but no text provided
+                          }
+                          
+                          return false; // All validations passed for array format
+                        }
+                        
+                        // Handle object format (matrix-style or checkbox-style with selected property)
+                        if (typeof currentAnswer === 'object' && !Array.isArray(currentAnswer)) {
+                          // For matrix-style answers (with responses), require ALL choices (except "Other") to have a response
+                          if (currentAnswer.responses && Object.keys(currentAnswer.responses).length > 0) {
+                            // First, check that ALL required choices have a response
+                            const responses = currentAnswer.responses || {};
+                            const requiredChoices = choices.filter(choice => choice !== 'Other');
+                            
+                            // Must have responses for all required choices
+                            if (requiredChoices.length === 0) {
+                              // No required choices, but still need to check months validation below
+                            } else {
+                              const allChoicesHaveResponse = requiredChoices.every(choice => {
+                                const val = responses[choice];
+                                return val !== undefined && val !== null && String(val).trim() !== '';
+                              });
+                              
+                              if (!allChoicesHaveResponse) {
+                                return true; // Not all required choices have a response
+                              }
+                            }
+                            
                               // Check if any tool has a non-"None" response but missing months
                               const scale = Array.isArray(currentAnswer.scale) ? currentAnswer.scale : [];
                               const noneValue = scale[0] || 'None';
-                              for (const [choice, response] of Object.entries(currentAnswer.responses)) {
+                            
+                            // If "Other" is in choices and has a non-"None" response, ensure otherText is filled
+                            if (choices.length > 0 && choices.includes('Other') && responses['Other'] && responses['Other'] !== noneValue && !currentAnswer.other?.trim() && !otherText[currentQuestion.id]?.trim()) {
+                              return true; // "Other" has a non-"None" response but no text provided
+                            }
+                            for (const [choice, response] of Object.entries(responses)) {
+                              // Skip "Other" - it doesn't need months validation
+                              if (choice === 'Other') {
+                                continue;
+                              }
                                 if (response !== noneValue) {
                                   // This tool has a frequency selected, check if months is provided
                                   if (!currentAnswer.months || typeof currentAnswer.months !== 'object') {
@@ -3220,21 +3688,90 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                                   }
                                 }
                               }
-                              return false; // All tools with selected frequencies have valid months
-                            })()
-                          // For checkbox-style answers (with selected)
-                          : (!currentAnswer.selected || 
-                             currentAnswer.selected.length === 0 || 
+                            return false; // All choices have responses and all tools with selected frequencies have valid months
+                          }
+                          
+                          // For checkbox-style answers (with selected property)
+                          if (currentAnswer.selected) {
+                            if (choices.length === 0) {
+                              // Fallback: if no choices array, use old logic
+                              const nonOtherSelections = currentAnswer.selected.filter((choice: string) => choice !== 'Other');
+                              return currentAnswer.selected.length === 0 || 
                              (currentAnswer.selected.length === 1 && currentAnswer.selected[0] === 'Other' && !otherText[currentQuestion.id]) ||
+                                     (nonOtherSelections.length > 0 && (
                              !currentAnswer.months || 
                              (typeof currentAnswer.months === 'object' 
-                               ? Object.values(currentAnswer.months).some((m: any) => {
+                                         ? Object.entries(currentAnswer.months).some(([choice, m]: [string, any]) => {
+                                             // Skip "Other" from months validation
+                                             if (choice === 'Other') return false;
                                    const monthsStr = String(m || '');
                                    return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 1;
                                  })
-                               : isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1))
-                        )
-                      ))
+                                         : isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1)
+                                     ));
+                            }
+                            
+                            // Require ALL choices (except "Other") to be selected
+                            const requiredChoices = choices.filter(choice => choice !== 'Other');
+                            
+                            if (requiredChoices.length === 0) {
+                              // No required choices (only "Other" exists), but still need to check months
+                            } else {
+                              // Must have at least as many selections as required choices (excluding "Other")
+                              const selectedRequiredChoices = (currentAnswer.selected || []).filter((choice: string) => choice !== 'Other');
+                              if (selectedRequiredChoices.length < requiredChoices.length) {
+                                return true; // Not all required choices are selected
+                              }
+                              
+                              // Verify that every required choice is in the selected list
+                              const allChoicesSelected = requiredChoices.every(choice => (currentAnswer.selected || []).includes(choice));
+                              if (!allChoicesSelected) {
+                                return true; // Not all required choices selected
+                              }
+                            }
+                            
+                            // If "Other" is selected, ensure otherText is filled
+                            if (currentAnswer.selected.includes('Other') && !otherText[currentQuestion.id]?.trim()) {
+                              return true; // "Other" selected but no text provided
+                            }
+                            
+                            // Check months validation
+                            if (!currentAnswer.months) {
+                              return true; // Missing months
+                            }
+                            
+                            if (typeof currentAnswer.months === 'object') {
+                              // Check if all selected choices (except "Other") have valid months
+                              const hasInvalidMonths = currentAnswer.selected.some((choice: string) => {
+                                // Skip "Other" - it doesn't need months validation
+                                if (choice === 'Other') {
+                                  return false;
+                                }
+                                const monthsStr = String(currentAnswer.months[choice] || '');
+                                return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 1;
+                              });
+                              if (hasInvalidMonths) {
+                                return true; // Some selected choices have invalid months
+                              }
+                            } else {
+                              // Single months value - only validate if "Other" is not the only selection
+                              const nonOtherSelections = currentAnswer.selected.filter((choice: string) => choice !== 'Other');
+                              if (nonOtherSelections.length > 0) {
+                                // Only validate months if there are non-"Other" selections
+                                if (isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1) {
+                                  return true; // Invalid months value
+                                }
+                              }
+                            }
+                            
+                            return false; // All validations passed
+                          }
+                        }
+                        
+                        return true; // Unknown format
+                      })()
+                  : currentQuestion.question_type === 'integer'
+                    ? !currentAnswer || currentAnswer === '' || isNaN(parseInt(String(currentAnswer), 10))
                   : !currentAnswer
             }
             className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

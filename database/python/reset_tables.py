@@ -30,13 +30,16 @@ def reset_database():
         sqlalchemy_models.Base.metadata.drop_all(bind=config.engine)
         logger.info("✅ All tables dropped successfully!")
         
-        logger.info("Creating fresh database tables...")
+        logger.info("Creating fresh database tables from SQLAlchemy models...")
+        # Create all tables from the current model definitions
         sqlalchemy_models.Base.metadata.create_all(bind=config.engine)
         logger.info("✅ All tables created successfully!")
         
         return True
     except Exception as e:
         logger.error(f"❌ Error resetting database: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
