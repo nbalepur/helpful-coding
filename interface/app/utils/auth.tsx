@@ -10,6 +10,7 @@ import {
   generateUuidV4
 } from '../utils/cookies';
 import { ENV } from '../config/env';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface User {
   id: string;
@@ -208,7 +209,7 @@ export function withAuth<T extends object>(WrappedComponent: React.ComponentType
       return (
         <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <LoadingSpinner size="xl" color="white" className="mx-auto mb-4" />
             <p className="text-gray-400">Loading...</p>
           </div>
         </div>

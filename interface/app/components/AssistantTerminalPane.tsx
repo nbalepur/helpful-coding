@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Check, Loader2, Send as SendIcon, Hand, PanelBottom, PanelRight } from 'lucide-react';
+import { Bot, Check, Send as SendIcon, Hand, PanelBottom, PanelRight } from 'lucide-react';
+import LoadingSpinner from './LoadingSpinner';
 import { useAnimatedText } from '../hooks/useAnimatedText';
 
 export type AssistantType = 'user' | 'assistant' | 'tool' | 'suggestions' | 'system';
@@ -123,8 +124,9 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       // Position tooltip to the left of the element, vertically centered, with extra offset
       setTooltip({ text, x: rect.left - 12, y: rect.top + rect.height / 2, placement });
     } else {
-      // Position tooltip 32px above the element, centered horizontally
-      setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 32, placement });
+      // Position tooltip at the top of the element, centered horizontally
+      // The transform will handle moving it above with proper spacing
+      setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top, placement });
     }
   }, []);
 
@@ -414,7 +416,9 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       )}
       {/* Header row with title and placement toggle button */}
       <div className="flex items-center justify-between px-2 py-1 flex-shrink-0 bg-black border-b border-white/20">
-        <span className="text-xs text-gray-400 font-medium">AI Assistant</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium">AI Assistant</span>
+        </div>
         {assistantPlacement && onAssistantPlacementChange && (
           <button
             onClick={() => onAssistantPlacementChange(assistantPlacement === 'bottom' ? 'side' : 'bottom')}
@@ -490,7 +494,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                   {isDone ? (
                     <Check size={14} className="text-emerald-400" />
                   ) : (
-                    <Loader2 size={14} className="text-blue-400 animate-spin" />
+                    <LoadingSpinner size="sm" color="blue" />
                   )}
                   <span className="font-medium text-gray-100"><AnimatedTerminalText text={item.text} messageId={item.id} onAnimationComplete={handleAnimationComplete} /></span>
                   {isDone && (additions !== 0 || deletions !== 0) && (

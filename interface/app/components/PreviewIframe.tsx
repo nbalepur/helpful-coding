@@ -447,6 +447,7 @@ ${scriptSafeJs}
       className={`preview-iframe ${className}`}
       style={{
         width: '100%',
+        minWidth: '300px',
         minHeight: '100%',
         border: 'none',
         background: 'white',

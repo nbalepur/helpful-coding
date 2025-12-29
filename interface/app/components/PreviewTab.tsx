@@ -319,7 +319,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
           >
             <RefreshCw size={16} className="text-gray-300" />
           </button>
-          <div className="absolute left-1/2 top-full mt-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+          <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Refresh (⌘+S)
           </div>
         </div>
@@ -353,8 +353,8 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
             </svg>
           </button>
           {/* Tooltip */}
-          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-            Pop out preview
+          <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+            Pop Out Preview
           </div>
         </div>
 
@@ -369,7 +369,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
             <Bug size={16} className="text-white" />
           </button>
           {/* Tooltip */}
-          <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+          <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
             Toggle Console
           </div>
         </div>
@@ -382,10 +382,10 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
           {/* Left Side - Preview */}
           <div 
             className="flex flex-col overflow-hidden"
-            style={{ width: `${isDebugOpen ? splitterPosition : 100}%` }}
+            style={{ width: `${isDebugOpen ? splitterPosition : 100}%`, minWidth: '300px' }}
           >
             {htmlContent || cssContent || jsContent ? (
-              <div className="h-full w-full overflow-hidden">
+              <div className="h-full w-full overflow-hidden" style={{ minWidth: '300px' }}>
                 <PreviewIframe
                   ref={previewRef}
                   htmlContent={htmlContent}
@@ -398,7 +398,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                 />
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="flex items-center justify-center h-full text-gray-400" style={{ minWidth: '300px' }}>
                 <div className="text-center">
                   <h3 className="text-lg font-semibold mb-2">No Preview Available</h3>
                 </div>
@@ -445,10 +445,10 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
           {/* Top - Preview */}
           <div 
             className="flex flex-col overflow-hidden"
-            style={{ height: `${isDebugOpen ? `calc(100% - ${consoleHeight}px)` : '100%'}` }}
+            style={{ height: `${isDebugOpen ? `calc(100% - ${consoleHeight}px)` : '100%'}`, minWidth: '300px' }}
           >
             {htmlContent || cssContent || jsContent ? (
-              <div className="h-full w-full overflow-hidden">
+              <div className="h-full w-full overflow-hidden" style={{ minWidth: '300px' }}>
                 <PreviewIframe
                   ref={previewRef}
                   htmlContent={htmlContent}
@@ -461,7 +461,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
                 />
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="flex items-center justify-center h-full text-gray-400" style={{ minWidth: '300px' }}>
                 <div className="text-center">
                   <h3 className="text-lg font-semibold mb-2">No Preview Available</h3>
                 </div>

@@ -67,7 +67,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
             <div className={`peer h-5 w-5 relative transition-transform cursor-help ${!disableHover ? 'hover:scale-110' : ''}`}>
               <Circle className="h-5 w-5 text-yellow-500" strokeWidth={1.5} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                <div className="h-2 w-2 bg-yellow-500 rounded-full"></div>
               </div>
             </div>
             <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
@@ -119,6 +119,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
     <div className="space-y-2 w-full min-w-0">
       {tasks.map((task) => {
         const isExpanded = hasStartedTask ? true : expandedTask === task.id;
+        const isPlayground = task.id === 'playground';
         
         return (
           <div key={task.id} className={`bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-700/50 transition-all duration-300 w-full min-w-0 ${!disableHover ? 'hover:border-gray-600/50' : ''}`}>
@@ -138,7 +139,7 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
                 {/* Task Name */}
                 <div className="flex-1 min-w-0 overflow-hidden rounded">
                   <h3 className={`text-base font-medium text-white truncate ${hasStartedTask ? '' : 'transition-colors duration-300'} ${!disableHover ? 'group-hover:text-blue-400' : ''}`}>
-                    {task.name}
+                    {(task as any).title || task.name}
                   </h3>
                 </div>
 
@@ -166,7 +167,15 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
                       className={`px-2.5 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md transition-all duration-300 flex items-center space-x-1.5 ${!disableHover ? 'hover:bg-blue-700 hover:scale-105' : ''}`}
                     >
                       <Play className="h-3.5 w-3.5" />
-                      <span>Get Started</span>
+                      <span>
+                        {isPlayground
+                          ? 'Open Tutorial'
+                          : task.status === 'completed' 
+                          ? 'Edit Submission' 
+                          : task.status === 'in-progress' 
+                          ? 'Continue Vibing' 
+                          : 'Get Started'}
+                      </span>
                     </button>
                   </div>
                 )}
@@ -212,6 +221,9 @@ const MinimalTaskList: React.FC<MinimalTaskListProps> = ({
                   {/* Task Instructions (HTML-aware, compact) */}
                   <TaskInstructionNew
                     taskDescription={task.description}
+                    taskName={(task as any).title || task.name}
+                    taskLabel={(task as any).label}
+                    example={(task as any).example}
                     showHeader={false}
                     compact={true}
                   />

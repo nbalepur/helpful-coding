@@ -53,6 +53,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/browse', request.url))
   }
   
+  // If authenticated and on root path, redirect to browse
+  if (isAuthenticated && pathname === '/') {
+    return NextResponse.redirect(new URL('/browse', request.url))
+  }
+  
   return NextResponse.next()
 }
 

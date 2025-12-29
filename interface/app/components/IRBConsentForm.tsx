@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { irbConsentContent } from '../data/irbContent';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download, Loader2 } from 'lucide-react';
+import { Download } from 'lucide-react';
+import LoadingSpinner from './LoadingSpinner';
 
 interface IRBConsentFormProps {
   onAgree: () => void;
@@ -163,7 +164,7 @@ export default function IRBConsentForm({ onAgree, onCancel }: IRBConsentFormProp
             title="Download as PDF"
           >
             {isDownloading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <LoadingSpinner size="sm" color="blue" />
             ) : (
               <Download className="w-4 h-4" />
             )}

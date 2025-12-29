@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface ReportSubmissionModalProps {
   show: boolean;
@@ -12,6 +12,15 @@ export default function ReportSubmissionModal({ show, onClose, onSubmit, isSubmi
   const [selectedReportType, setSelectedReportType] = useState<string>("");
   const [rationale, setRationale] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+
+  // Clear fields when modal opens
+  useEffect(() => {
+    if (show) {
+      setSelectedReportType("");
+      setRationale("");
+      setError(null);
+    }
+  }, [show]);
 
   if (!show) {
     return null;

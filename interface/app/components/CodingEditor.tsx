@@ -10,6 +10,8 @@ import { ENV } from '../config/env';
 import html2canvas from 'html2canvas';
 import { buildFullHTMLDocument } from '../utils/htmlBuilder';
 import { useSnackbar } from './SnackbarProvider';
+import LoadingSpinner from './LoadingSpinner';
+import Link from 'next/link';
 
 const flattenFileTree = (nodes: any[] = []): any[] => {
   const result: any[] = [];
@@ -215,6 +217,8 @@ interface CodingEditorProps {
   projectId?: number | null;
   userId?: number | null;
   taskName?: string | null;
+  // Sidebar state for modal positioning
+  sidebarOpen?: boolean;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -278,6 +282,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   projectId,
   userId,
   taskName,
+  sidebarOpen = false,
 }: CodingEditorProps) => {
   const { showSnackbar } = useSnackbar();
   const [output, setOutput] = useState(
@@ -1227,6 +1232,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         telemetry,
         setTelemetry,
         actualEditorRef,
+        userId,
       );
     }
 
@@ -1627,7 +1633,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     if (confettiLib) {
       const duration = 3 * 1000; // 3 seconds instead of 15
       const animationEnd = Date.now() + duration;
-      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 99999 };
 
       const randomInRange = (min: number, max: number) => {
         return Math.random() * (max - min) + min;
@@ -1848,7 +1854,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               const answer = comprehensionAnswers[q.id] || '';
               // For multi_select questions, convert to binary array [1, 0, 1, 0]
               if (q.question_type === 'multi_select' && q.choices) {
-                const selectedChoices = answer ? answer.split(',').map(c => c.trim()).filter(Boolean) : [];
+                // Use ||| as delimiter to match what we use for storage
+                const delimiter = '|||';
+                const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
                 const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
                 return [q.question_name || q.id, binaryArray];
               }
@@ -1883,7 +1891,16 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       // Reset comprehension answers
       setComprehensionAnswers({});
       // Show success snackbar
-      showSnackbar("Nice work! Hit \"View Submissions\" to rate other projects");
+      showSnackbar(
+        <>
+          Nice work! Navigate back to the{' '}
+          <Link href="/browse" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+            Browse page
+          </Link>{' '}
+          to work on other projects
+        </>,
+        12000 // 12 seconds
+      );
     } catch (error) {
       console.error('Project submission failed:', error);
       setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again');
@@ -2066,7 +2083,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           style={{
             position: 'fixed',
             top: 0,
-            left: 0,
+            left: sidebarOpen ? '256px' : '48px',
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(15, 23, 42, 0.76)',
@@ -2083,7 +2100,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               backgroundColor: '#11131a',
               borderRadius: '14px',
               padding: '1% 2% 1% 2%',
-              width: 'calc(100vw - 64px)',
+              width: `calc(100vw - ${sidebarOpen ? '320px' : '112px'})`,
               height: 'calc(100vh - 64px)',
               boxShadow: '0 30px 60px rgba(0, 0, 0, 0.7)',
               border: '1px solid rgba(148, 163, 184, 0.18)',
@@ -2109,7 +2126,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   paddingLeft: showComprehensionCheck ? '10px' : '0px',
                 }}
               >
-                {showComprehensionCheck ? 'Comprehension Check' : 'Submit Project'}
+                {showComprehensionCheck ? 'Project-Specific Questions' : 'Submit Project'}
               </h2>
               <button
                 type="button"
@@ -2177,12 +2194,12 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     setProjectTitle(nextTitle);
                     if (projectTitleError) {
                       const trimmed = nextTitle.trim();
-                      if (trimmed && trimmed.length <= PROJECT_TITLE_LIMIT) {
+                      if (trimmed && trimmed.length <=   PROJECT_TITLE_LIMIT) {
                         setProjectTitleError(null);
                       }
                     }
                   }}
-                  placeholder="Give your project a name"
+                  placeholder="Give your project a name that users will see"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -2295,7 +2312,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         aria-label="Loading snapshot"
                         className="flex flex-col items-center justify-center space-y-3"
                       >
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
+                        <LoadingSpinner size="xl" color="blue" />
                       </div>
                     ) : previewScreenshot ? (
                       <img
@@ -2432,7 +2449,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     if (isSubmittingProject) {
                       return;
                     }
-                    e.currentTarget.style.backgroundColor = '#6b7280';
+                    e.currentTarget.style.backgroundColor = '#374151';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#4b5563';
@@ -2445,7 +2462,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   disabled={isSubmitDisabled}
                   style={{
                     padding: '6px 16px',
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: '#2563eb',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -2459,10 +2476,10 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     if (isSubmitDisabled) {
                       return;
                     }
-                    e.currentTarget.style.backgroundColor = '#2563eb';
+                    e.currentTarget.style.backgroundColor = '#1d4ed8';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#3b82f6';
+                    e.currentTarget.style.backgroundColor = '#2563eb';
                   }}
                 >
                   Continue
@@ -2488,7 +2505,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 
                 {isLoadingComprehensionQuestions && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mb-4"></div>
+                    <LoadingSpinner size="lg" color="blue" className="mb-4" />
                     <p style={{ color: '#9ca3af', fontSize: '14px' }}>Generating questions...</p>
                   </div>
                 )}
@@ -2542,9 +2559,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         >
                           {q.choices.map((choice, choiceIndex) => {
                             const isSelected = currentAnswer === choice;
+                            const inputId = `comp-${q.id}-${choiceIndex}`;
                             return (
                               <label
                                 key={choiceIndex}
+                                htmlFor={inputId}
                                 style={{
                                   display: 'flex',
                                   alignItems: 'center',
@@ -2572,6 +2591,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                 }}
                               >
                                 <input
+                                  id={inputId}
                                   type="radio"
                                   name={`comp-${q.id}`}
                                   value={choice}
@@ -2595,7 +2615,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                   style={{ 
                                     color: isSelected ? '#e5e7eb' : '#d1d5db', 
                                     fontSize: '14px',
-                                    fontWeight: isSelected ? 500 : 'normal'
+                                    fontWeight: isSelected ? 500 : 'normal',
+                                    pointerEvents: 'none'
                                   }}
                                   dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
                                 />
@@ -2606,12 +2627,16 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       ) : q.question_type === 'multi_select' && q.choices && q.choices.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {q.choices.map((choice, choiceIndex) => {
-                            const selectedAnswers = currentAnswer.split(',').filter(Boolean);
+                            // Use ||| as delimiter to avoid conflicts with commas in choice text
+                            const delimiter = '|||';
+                            const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
                             const isChecked = selectedAnswers.includes(choice);
+                            const checkboxId = `comp-${q.id}-${choiceIndex}`;
                             
                             return (
                               <label
                                 key={choiceIndex}
+                                htmlFor={checkboxId}
                                 style={{
                                   display: 'flex',
                                   alignItems: 'center',
@@ -2633,11 +2658,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                 }}
                               >
                                 <input
+                                  id={checkboxId}
                                   type="checkbox"
                                   value={choice}
                                   checked={isChecked}
                                   onChange={(e) => {
-                                    const selectedAnswers = currentAnswer.split(',').filter(Boolean);
+                                    // Use ||| as delimiter to avoid conflicts with commas in choice text
+                                    const delimiter = '|||';
+                                    const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
                                     let newAnswers: string[];
                                     
                                     if (e.target.checked) {
@@ -2646,9 +2674,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                       newAnswers = selectedAnswers.filter(a => a !== choice);
                                     }
                                     
+                                    const newAnswerString = newAnswers.join(delimiter);
+                                    
                                     setComprehensionAnswers(prev => ({
                                       ...prev,
-                                      [q.id]: newAnswers.join(',')
+                                      [q.id]: newAnswerString
                                     }));
                                     if (submissionError) {
                                       setSubmissionError(null);
@@ -2661,7 +2691,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                 />
                                 <span 
                                 className="markdown-content" 
-                                style={{ color: '#e5e7eb', fontSize: '14px' }}
+                                style={{ 
+                                  color: '#e5e7eb', 
+                                  fontSize: '14px',
+                                  pointerEvents: 'none'
+                                }}
                                 dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
                               />
                               </label>

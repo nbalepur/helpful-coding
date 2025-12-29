@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../utils/auth";
 import { ENV } from "../config/env";
+import LoadingSpinner from "./LoadingSpinner";
 
 type SubmissionRatingSummary = {
   average: number | null;
@@ -128,7 +129,7 @@ const UserSubmissions = () => {
   if (isLoading) {
     return (
       <div className="text-center text-gray-400 p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4"></div>
+        <LoadingSpinner size="lg" color="blue" className="mx-auto mb-4" />
         <p>Loading your submissions...</p>
       </div>
     );

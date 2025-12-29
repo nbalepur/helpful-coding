@@ -206,6 +206,25 @@ html, body {
   animation: rowFadeIn 0.35s ease-out both;
 }
 
+/* Animated jam-like dots moving across screen */
+@keyframes moveAcrossRight {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(100vw + 40px));
+  }
+}
+
+@keyframes moveAcrossLeft {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(-100vw - 40px));
+  }
+}
+
 /* Ensure consistent card height/width and layout in all rows */
 .task-card {
   box-sizing: border-box;

@@ -73,13 +73,15 @@ class CodePreferenceResponse(CodePreference):
 class ProjectBase(BaseModel):
     """Base model for Project with common fields"""
     name: str = Field(..., min_length=1, max_length=200, description="Project name")
+    title: Optional[str] = Field(None, max_length=255, description="Project title")
+    label: Optional[str] = Field(None, max_length=255, description="Project label (e.g., 'open-ended', 'replication')")
     description: Optional[str] = Field(None, max_length=1000, description="Project description")
     frontend_starter_file: Optional[str] = Field(None, description="Frontend starter file content")
     html_starter_file: Optional[str] = Field(None, description="HTML starter file content")
     css_starter_file: Optional[str] = Field(None, description="CSS starter file content")
     files: Optional[List[Dict[str, Any]]] = Field(
         None,
-        description="Raw file descriptors loaded from dummy_tasks.json",
+        description="Raw file descriptors loaded from tasks.json",
     )
     code_start_date: Optional[date] = Field(
         None, description="Date when the coding phase opens (Anywhere on Earth)"
@@ -100,6 +102,8 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(BaseModel):
     """Model for updating project information"""
     name: Optional[str] = Field(None, min_length=1, max_length=200)
+    title: Optional[str] = Field(None, max_length=255)
+    label: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
     frontend_starter_file: Optional[str] = None
     html_starter_file: Optional[str] = None

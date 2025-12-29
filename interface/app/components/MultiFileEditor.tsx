@@ -156,6 +156,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   const [isAIVisible, setIsAIVisible] = useState(false);
   // Use a ref to track the last task index to detect task changes (not just remounts)
   const lastTaskIndexRef = useRef<number | null>(null);
+  const lastInitialFilesRef = useRef<any[] | null>(null);
   const [files, setFiles] = useState<FileNode[]>(initialFiles && initialFiles.length > 0 ? initialFiles : []);
   const [activeFileId, setActiveFileId] = useState<string>('');
   const [openTabs, setOpenTabs] = useState<Array<{ id: string; fileId: string; name: string }>>([]);
@@ -369,30 +370,36 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   const diffEditorsRef = useRef<Record<string, any>>({});
 
   // Update files when initialFiles change (async loading)
-  // Only reset if this is a new task (taskIndex changed), not just a remount
+  // Process files when initialFiles changes (new task loaded) or taskIndex changes
   useEffect(() => {
+    // Check if initialFiles actually changed (by reference or content)
+    const initialFilesChanged = lastInitialFilesRef.current !== initialFiles && 
+      (lastInitialFilesRef.current?.length !== initialFiles?.length || 
+       JSON.stringify(lastInitialFilesRef.current) !== JSON.stringify(initialFiles));
+    const taskChanged = taskIndex !== lastTaskIndexRef.current;
+    
     if (initialFiles && initialFiles.length > 0) {
-      // Check if task has changed by comparing taskIndex
-      const taskChanged = taskIndex !== lastTaskIndexRef.current;
-      if (taskChanged) {
-        // Task changed - reset to initial files
+      // Process files if initialFiles changed OR taskIndex changed
+      if (initialFilesChanged || taskChanged) {
+        // Task/files changed - reset to initial files
         setFiles(initialFiles);
         lastTaskIndexRef.current = taskIndex;
+        lastInitialFilesRef.current = initialFiles;
 
-      // Open all files by default
-      const flattenFiles = (nodes: any[]): any[] => {
-        const out: any[] = [];
-        const stack = [...nodes];
-        while (stack.length) {
-          const node = stack.shift();
-          if (!node) continue;
-          if (node.type === 'file') out.push(node);
-          if (node.children && Array.isArray(node.children)) {
-            stack.unshift(...node.children);
+        // Open all files by default
+        const flattenFiles = (nodes: any[]): any[] => {
+          const out: any[] = [];
+          const stack = [...nodes];
+          while (stack.length) {
+            const node = stack.shift();
+            if (!node) continue;
+            if (node.type === 'file') out.push(node);
+            if (node.children && Array.isArray(node.children)) {
+              stack.unshift(...node.children);
+            }
           }
-        }
-        return out;
-      };
+          return out;
+        };
 
         const flattenedFiles = flattenFiles(initialFiles).filter((f: any) => f.type === 'file');
         const tabs = flattenedFiles.map((f: any) => ({ id: `tab_${f.id}`, fileId: f.id, name: f.name }));
@@ -408,7 +415,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
           setActiveTab('');
         }
       }
-      // If task hasn't changed, don't reset - preserve user's edits
+      // If files haven't changed, don't reset - preserve user's edits
     } else {
       // No files provided; reset state
       setFiles([]);
@@ -416,6 +423,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       setActiveFileId('');
       setActiveTab('');
       lastTaskIndexRef.current = null;
+      lastInitialFilesRef.current = null;
     }
   }, [initialFiles, taskIndex]);
 
@@ -1523,7 +1531,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
             })}
           </div>
           {openTabs.length === 0 && (
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="absolute inset-0 flex items-center justify-center text-gray-500">
               <div className="text-center">
                 <p className="text-lg mb-2">No files open</p>
               </div>
