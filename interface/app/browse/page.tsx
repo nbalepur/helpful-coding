@@ -48,6 +48,7 @@ import UserSubmissions from "../components/UserSubmissions";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 import { useSnackbar } from "../components/SnackbarProvider";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
 
@@ -3536,7 +3537,11 @@ function HomeInner() {
 
 export default function Home() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <LoadingSpinner size="xl" color="white" />
+      </div>
+    }>
       <HomeInner />
     </Suspense>
   );

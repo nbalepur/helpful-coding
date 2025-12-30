@@ -4,6 +4,7 @@ import './globals.css'
 import { AuthProvider } from './utils/auth'
 import { SnackbarProvider } from './components/SnackbarProvider'
 import UserStudyPopupProvider from './components/UserStudyPopupProvider'
+import { Suspense } from 'react'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -22,9 +23,11 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <SnackbarProvider>
-            <UserStudyPopupProvider>
-            {children}
-            </UserStudyPopupProvider>
+            <Suspense fallback={null}>
+              <UserStudyPopupProvider>
+                {children}
+              </UserStudyPopupProvider>
+            </Suspense>
           </SnackbarProvider>
         </AuthProvider>
       </body>
