@@ -138,7 +138,7 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
                     <div className="relative flex items-center">
                       <FlaskConical className="peer h-3.5 w-3.5 text-green-400 transition-colors cursor-help hover:text-green-300" strokeWidth={2} />
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none shadow-lg" style={{ zIndex: 1000 }}>
-                        Practice Task
+                        Tutorial Task
                       </div>
                     </div>
                   ) : label && (

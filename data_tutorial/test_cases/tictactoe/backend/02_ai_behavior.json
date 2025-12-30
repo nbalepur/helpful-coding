@@ -1,0 +1,102 @@
+[
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Takes Only Open Spot",
+    "description": "Verify AI takes the only available spot",
+    "public": true,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "O", "X"], ["X", "O", "O"], ["O", "X", ""]]
+    },
+    "expected": [["X", "O", "X"], ["X", "O", "O"], ["O", "X", "O"]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Takes Winning Move - Row",
+    "description": "Verify AI completes winning row when possible",
+    "public": true,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["O", "O", ""], ["X", "", ""], ["X", "", ""]]
+    },
+    "expected": [["O", "O", "O"], ["X", "", ""], ["X", "", ""]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Takes Winning Move - Column",
+    "description": "Verify AI completes winning column when possible",
+    "public": false,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "O", ""], ["X", "O", ""], ["", "", ""]]
+    },
+    "expected": [["X", "O", ""], ["X", "O", ""], ["", "O", ""]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Takes Winning Move - Diagonal",
+    "description": "Verify AI completes winning diagonal when possible",
+    "public": false,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["O", "X", ""], ["", "O", "X"], ["", "", ""]]
+    },
+    "expected": [["O", "X", ""], ["", "O", "X"], ["", "", "O"]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Blocks Player Row Win",
+    "description": "Verify AI blocks player from winning with row",
+    "public": true,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "X", ""], ["", "O", ""], ["", "", ""]]
+    },
+    "expected": [["X", "X", "O"], ["", "O", ""], ["", "", ""]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Blocks Player Column Win",
+    "description": "Verify AI blocks player from winning with column",
+    "public": false,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "O", ""], ["X", "", ""], ["", "", ""]]
+    },
+    "expected": [["X", "O", ""], ["X", "", ""], ["O", "", ""]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Blocks Player Diagonal Win",
+    "description": "Verify AI blocks player from winning with diagonal",
+    "public": false,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "O", ""], ["", "X", ""], ["", "", ""]]
+    },
+    "expected": [["X", "O", ""], ["", "X", ""], ["", "", "O"]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Prioritizes Winning Over Blocking",
+    "description": "Verify AI takes winning move even when player threatens",
+    "public": true,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["O", "O", ""], ["X", "", ""], ["X", "X", ""]]
+    },
+    "expected": [["O", "O", "O"], ["X", "", ""], ["X", "X", ""]]
+  },
+  {
+    "title": "AI Behavior (/ai_move)",
+    "name": "AI Handles Full Board",
+    "description": "Verify AI doesn't crash on full board",
+    "public": false,
+    "endpoint": "/ai_move",
+    "input": {
+      "board": [["X", "O", "X"], ["X", "O", "O"], ["O", "X", "X"]]
+    },
+    "expected": [["X", "O", "X"], ["X", "O", "O"], ["O", "X", "X"]]
+  }
+]
+

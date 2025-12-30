@@ -51,7 +51,7 @@ export default function Sidebar({
 
   const navigationItems = [
     { id: 'tasks', icon: Grid3X3, label: 'All Tasks' },
-    { id: 'playground', icon: FlaskConical, label: 'Playground (Tutorial)' },
+    { id: 'playground', icon: FlaskConical, label: 'Playground', tooltip: 'Playground (Tutorial)' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
     { id: 'about', icon: Info, label: 'Instructions' },
@@ -175,7 +175,7 @@ export default function Sidebar({
                   const route = routeMap[item.id] || '/browse';
                   
                   return (
-                    <Tooltip key={item.id} text={item.label}>
+                    <Tooltip key={item.id} text={(item as any).tooltip || item.label}>
                       <a
                         href={route}
                         onClick={(e) => {

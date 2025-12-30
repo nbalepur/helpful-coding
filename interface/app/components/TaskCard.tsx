@@ -140,7 +140,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
               <div className="relative">
                 <FlaskConical className={`peer h-5 w-5 text-green-500 transition-colors cursor-help ${!disableHover ? 'hover:text-green-400' : ''}`} />
                 <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300 ${!disableHover ? 'peer-hover:opacity-100' : ''}`}>
-                  {task.status === 'completed' ? 'Completed' : 'Practice Task'}
+                  {task.status === 'completed' ? 'Completed' : 'Tutorial Task'}
                 </div>
               </div>
             ) : (
