@@ -234,7 +234,7 @@ const IFRAME_TEMPLATE = `<!DOCTYPE html>
     }
     .card-header {
       padding: 10px 12px 8px 16px;
-      border-bottom: 2px solid rgba(255, 255, 255, 0.75);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.75);
       display: grid;
       grid-template-columns: 2fr 1fr;
       align-items: flex-start;
@@ -267,7 +267,7 @@ const IFRAME_TEMPLATE = `<!DOCTYPE html>
       position: relative;
       width: 100%;
       aspect-ratio: 16 / 9;
-      background: #111827;
+      background: #ffffff;
     }
     .card-figure img {
       position: absolute;
@@ -356,7 +356,7 @@ const IFRAME_TEMPLATE = `<!DOCTYPE html>
       justify-content: space-between;
       align-items: center;
       background: rgba(15, 23, 42, 0.75);
-      border-top: 2px solid rgba(255, 255, 255, 0.75);
+      border-top: 1px solid rgba(255, 255, 255, 0.75);
       height: 44px;
       flex-shrink: 0;
     }
@@ -2419,7 +2419,7 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                 onChange={() => handleFilterToggle("unseen")}
                 className="mr-2 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-300">Not rated</span>
+              <span className="text-sm text-gray-300">Not Rated</span>
             </label>
                     <label className="flex items-center px-4 py-2 hover:bg-gray-700 cursor-pointer">
                       <input

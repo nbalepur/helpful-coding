@@ -47,8 +47,24 @@ import AboutPage from "../pages/AboutPage";
 import UserSubmissions from "../components/UserSubmissions";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
+import { useSnackbar } from "../components/SnackbarProvider";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
+
+// Pre-computed SHA-256 hash of "penguin" (hex)
+const PASSWORD_HASH = '0a4346f806b28b3ce94905c3ac56fcd5ee2337d8613161696aba52eb0c3551cc';
+
+/**
+ * Hash a string using SHA-256
+ */
+async function hashString(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
 
 function HomeInner() {
   const router = useRouter();
@@ -79,9 +95,12 @@ function HomeInner() {
     'replication': true
   });
   // Skill check mode derived from UserStudyPopup state
-  const { popupState, isCalculating } = useUserStudyPopup();
+  const { popupState, isCalculating, recalculateState } = useUserStudyPopup();
   const [preTestCompleted, setPreTestCompleted] = useState<boolean | null>(null);
   const [postTestCompleted, setPostTestCompleted] = useState<boolean | null>(null);
+  
+  // Check for secret password bypass
+  const hasSecretPassword = searchParams?.get('password') === 'penguin';
   
   // Generate background circle data once on mount - prevents re-triggering on state changes
   const backgroundStars = useMemo(() => {
@@ -177,6 +196,15 @@ function HomeInner() {
 
     checkCompletionStatuses();
   }, [popupState, numericUserId, isCalculating]);
+
+  // Clear snackbars when leaving the Browse page
+  const { clearAllSnackbars } = useSnackbar();
+  useEffect(() => {
+    // Cleanup function to clear snackbars when component unmounts (navigating away)
+    return () => {
+      clearAllSnackbars();
+    };
+  }, [clearAllSnackbars]);
 
   // Only determine skill check mode once calculation is complete to avoid flickering
   const skillCheckMode: 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test' = 
@@ -450,6 +478,7 @@ function HomeInner() {
   const isViewSubmissionsUnlocked = useMemo(() => {
     // Disable submissions viewing in playground mode
     if (isPlaygroundMode) return false;
+    
     if (!currentTaskMeta?.votingStartDate) return false;
     const start = new Date(currentTaskMeta.votingStartDate);
     if (Number.isNaN(start.getTime())) return false;
@@ -767,6 +796,26 @@ function HomeInner() {
     };
   }, [loadTasks]);
 
+  // Cleanup function to clear assistant messages, follow-up ideas, diff editor, and related state
+  const cleanupTaskState = useCallback(() => {
+    // Clear diff editor state first (editedModifiedContent and diff editor refs)
+    // This should be done before clearing pendingAgentChanges to ensure proper cleanup
+    try {
+      actualEditorRef.current?.clearDiffEditor?.();
+    } catch (error) {
+      // Silently fail if editor ref is not available
+      console.debug('Failed to clear diff editor:', error);
+    }
+    // Clear assistant messages and follow-up ideas
+    setAssistantMessages([]);
+    latestSuggestionsRef.current = [];
+    // Clear pending agent changes (this will also trigger cleanup in MultiFileEditor)
+    setPendingAgentChanges(null);
+    setAwaitingResponse(false);
+    setAwaitingManualSuggestions(false);
+    setAssistantInputValue("");
+  }, []);
+
   // Refresh tasks when returning to tasks view (when showCodingTerminal becomes false)
   // This ensures task statuses are up-to-date from the database
   useEffect(() => {
@@ -780,6 +829,13 @@ function HomeInner() {
       return () => clearTimeout(timeoutId);
     }
   }, [showCodingTerminal, numericUserId, loadTasks]);
+
+  // Cleanup assistant messages and follow-up ideas when navigating back to task selection
+  useEffect(() => {
+    if (!showCodingTerminal) {
+      cleanupTaskState();
+    }
+  }, [showCodingTerminal, cleanupTaskState]);
 
   // Ignore live content changes for preview; only refresh on save
   const handleFileContentChange = useCallback(() => {
@@ -1140,12 +1196,6 @@ function HomeInner() {
 
   // Handler for AI Assistant submit
   const handleAssistantSubmit = async (message: string) => {
-    // Skip in playground mode - no database saving or logging
-    if (isPlaygroundMode || selectedTask === 'playground') {
-      console.log('[playground] AI assistant disabled - no database operations');
-      return;
-    }
-    
     const trimmedMessage = message.trim();
     if (!trimmedMessage) {
       return;
@@ -1167,6 +1217,8 @@ function HomeInner() {
     
     appendMessage({ type: 'user', message: trimmedMessage });
     setAwaitingResponse(true);
+    // Clear input field immediately after submission (input stays disabled via awaitingResponse)
+    setAssistantInputValue('');
 
     // Get current files from editor
     const files = { html: '', css: '', js: '' };
@@ -1688,8 +1740,9 @@ function HomeInner() {
     );
     
     // If all required tasks are completed, show all tasks (including playground)
+    // But ensure playground only appears once at the beginning
     if (allRequiredTasksCompleted) {
-      return tasks;
+      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
     }
     
     // Otherwise, only show the required tasks + playground
@@ -1713,8 +1766,28 @@ function HomeInner() {
       return task;
     });
     
-    // First filter by required status
-    let tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground);
+    // First filter by required status (skip if secret password is present)
+    let tasksAfterRequiredFilter: any[];
+    if (hasSecretPassword) {
+      // When password is present, show all tasks but:
+      // 1. Deduplicate by ID to avoid duplicate playground/tutorial tasks
+      // 2. Filter out any tutorial tasks from API (we already have playground)
+      const seenIds = new Set<string>();
+      tasksAfterRequiredFilter = tasksWithUpdatedPlayground.filter((task: any) => {
+        // Skip if duplicate ID
+        if (seenIds.has(task.id)) {
+          return false;
+        }
+        // Skip tutorial tasks from API (we already have playground)
+        if (task.id !== 'playground' && (task.category === 'tutorial' || task.tags?.includes('tutorial'))) {
+          return false;
+        }
+        seenIds.add(task.id);
+        return true;
+      });
+    } else {
+      tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground);
+    }
     
     // Then filter by status
     // Always include playground task regardless of status filters
@@ -1747,7 +1820,7 @@ function HomeInner() {
       );
       setFilteredTasks(filtered);
     }
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, showCodingTerminal, pathname]);
+  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, showCodingTerminal, pathname, hasSecretPassword]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -2076,6 +2149,9 @@ function HomeInner() {
     const abortController = new AbortController();
     taskAbortControllerRef.current = abortController;
     
+    // Clear previous task state before starting new task
+    cleanupTaskState();
+    
     // Calculate width immediately to prevent glitch before showing coding terminal
     const container = containerRef.current;
     if (container) {
@@ -2162,7 +2238,7 @@ function HomeInner() {
             codeStartDate: fetchedCodeStartDate ?? null,
           }
     );
-    latestSuggestionsRef.current = [];
+    // Clear suggestions when starting a new task (already done in cleanupTaskState above)
     // Don't load test cases for playground mode
     if (task && !isPlaygroundMode && taskId !== 'playground') {
       loadTestCases(task, abortController.signal);
@@ -2215,7 +2291,7 @@ function HomeInner() {
         setSelectedTask(null);
         setTaskId("");
         setCurrentTaskMeta(null);
-        latestSuggestionsRef.current = [];
+        cleanupTaskState();
         setActiveTab('tasks');
       }
     };
@@ -2289,7 +2365,7 @@ function HomeInner() {
       setSelectedTask(null);
       setTaskId("");
       setCurrentTaskMeta(null);
-      latestSuggestionsRef.current = [];
+      cleanupTaskState();
       try {
         // Only redirect to /browse if we're not already on a valid route
         if (!validRoutes.includes(currentPath)) {
@@ -2322,7 +2398,7 @@ function HomeInner() {
               setSelectedTask(null);
               setTaskId("");
               setCurrentTaskMeta(null);
-              latestSuggestionsRef.current = [];
+              cleanupTaskState();
             }
           } else {
             // No task param, ensure we're in list view
@@ -2331,7 +2407,7 @@ function HomeInner() {
             setSelectedTask(null);
             setTaskId("");
             setCurrentTaskMeta(null);
-            latestSuggestionsRef.current = [];
+            cleanupTaskState();
           }
         }
       } catch (e) {
@@ -2403,7 +2479,7 @@ function HomeInner() {
       setSelectedTask(null);
       setTaskId("");
       setCurrentTaskMeta(null);
-      latestSuggestionsRef.current = [];
+      cleanupTaskState();
       setIsTransitioning(false);
     });
     try {
@@ -3273,6 +3349,7 @@ function HomeInner() {
                       userId={numericUserId}
                       taskName={currentTaskMeta?.name ?? null}
                       sidebarOpen={sidebarOpen}
+                      onProjectSubmitted={recalculateState}
                       // Pane visibility
                       showCodeEditor={showCodeEditor}
                       showTerminal={false}

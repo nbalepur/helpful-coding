@@ -6,6 +6,7 @@ import Snackbar, { SnackbarMessage } from "./Snackbar";
 
 interface SnackbarContextType {
   showSnackbar: (message: string | ReactNode, duration?: number) => void;
+  clearAllSnackbars: () => void;
 }
 
 const SnackbarContext = createContext<SnackbarContextType | undefined>(undefined);
@@ -44,8 +45,12 @@ export const SnackbarProvider = ({ children }: SnackbarProviderProps) => {
     setSnackbars((prev) => prev.filter((snackbar) => snackbar.id !== id));
   }, []);
 
+  const clearAllSnackbars = useCallback(() => {
+    setSnackbars([]);
+  }, []);
+
   return (
-    <SnackbarContext.Provider value={{ showSnackbar }}>
+    <SnackbarContext.Provider value={{ showSnackbar, clearAllSnackbars }}>
       {children}
       {isMounted &&
         typeof window !== "undefined" &&

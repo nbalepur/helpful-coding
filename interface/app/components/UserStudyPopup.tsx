@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext, useMemo, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -29,6 +29,8 @@ export function useUserStudyPopup() {
   return context;
 }
 
+const VIDEO_THRESHOLD_SECONDS = 30;
+
 function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
@@ -36,12 +38,11 @@ function UserStudyPopupInner() {
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
-  const [hasStartedVideo, setHasStartedVideo] = useState(false);
+  const [hasWatchedEnough, setHasWatchedEnough] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const videoStartedRef = useRef(false);
-  const tutorialVideoRef = useRef<HTMLVideoElement | null>(null);
-  const userRequestedPlayRef = useRef(false);
+  const youtubePlayerRef = useRef<any>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load markdown content for tutorial
   useEffect(() => {
@@ -49,17 +50,11 @@ function UserStudyPopupInner() {
       setIsLoading(true);
       fetch('/instruction_assets/user_study_instructions.md')
         .then((response) => {
-          if (!response.ok) {
-            throw new Error('Failed to load instructions');
-          }
+          if (!response.ok) throw new Error('Failed to load instructions');
           return response.text();
         })
         .then((text) => {
           setMarkdownContent(text);
-          setIsLoading(false);
-        })
-        .catch((err) => {
-          console.error('Error loading instructions:', err);
           setIsLoading(false);
         });
     }
@@ -69,39 +64,322 @@ function UserStudyPopupInner() {
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
-    // Once scrolled to bottom, keep it enabled (don't set back to false)
     if (isAtBottom && !hasScrolledToBottom) {
       setHasScrolledToBottom(true);
     }
   };
 
-  // Handle video play for tutorial
-  const handleVideoPlay = () => {
-    if (!videoStartedRef.current) {
-      videoStartedRef.current = true;
-      setHasStartedVideo(true);
-    }
-  };
+  // Poll YouTube player for current time
+  const startProgressPolling = useCallback(() => {
+    if (progressIntervalRef.current) return;
+    
+    progressIntervalRef.current = setInterval(() => {
+      const player = youtubePlayerRef.current;
+      if (!player) return;
+      
+      const time = player.getCurrentTime();
+      if (typeof time === 'number' && !isNaN(time)) {
+        const seconds = Math.floor(time);
+        if (seconds >= VIDEO_THRESHOLD_SECONDS) {
+          setHasWatchedEnough(true);
+        }
+      }
+    }, 500);
+  }, []);
 
-  // Try to kick off playback on user gesture; keep "Got It" gated on actual playing event
-  const ensureVideoPlays = () => {
-    const videoEl = tutorialVideoRef.current;
-    if (!videoEl) return;
-
-    // Remember that the user attempted to play so we can retry once data is ready
-    userRequestedPlayRef.current = true;
-    // Some browsers need muted flag for inline start even after user gesture
-    if (videoEl.muted === undefined) {
-      // no-op: just defensive
+  const stopProgressPolling = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
     }
-    const playPromise = videoEl.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch(() => {});
-    }
-  };
+  }, []);
 
-  // Check if tutorial modal can be closed
-  const canCloseTutorial = hasScrolledToBottom || hasStartedVideo;
+  // Initialize YouTube player
+  const initYoutubePlayer = useCallback((iframe: HTMLIFrameElement) => {
+    if (youtubePlayerRef.current) return;
+    if (!(window as any).YT?.Player) return;
+
+    youtubePlayerRef.current = new (window as any).YT.Player(iframe, {
+      events: {
+        onStateChange: (event: any) => {
+          // 1 = playing, 0 = ended, 2 = paused
+          if (event.data === 1) {
+            startProgressPolling();
+          } else if (event.data === 0 || event.data === 2) {
+            stopProgressPolling();
+          }
+        }
+      }
+    });
+  }, [startProgressPolling, stopProgressPolling]);
+
+  // Load YouTube API when tutorial opens
+  useEffect(() => {
+    if (popupState !== 'tutorial') return;
+
+    const loadYouTubeAPI = () => {
+      if ((window as any).YT?.Player) return;
+      
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(script);
+      }
+    };
+
+    loadYouTubeAPI();
+
+    return () => {
+      stopProgressPolling();
+      if (youtubePlayerRef.current) {
+        youtubePlayerRef.current.destroy?.();
+        youtubePlayerRef.current = null;
+      }
+    };
+  }, [popupState]);
+
+  // Check if tutorial modal can be closed - video must pass threshold or user scrolled to bottom
+  const canCloseTutorial = hasScrolledToBottom || hasWatchedEnough;
+
+  // Memoize Markdown components to prevent iframe recreation on re-render
+  // Must be before any conditional returns to follow Rules of Hooks
+  const markdownComponents = useMemo(() => ({
+    h1: ({ children }: any) => (
+      <h1
+        style={{
+          fontSize: '24px',
+          fontWeight: 'bold',
+          color: '#ffffff',
+          marginBottom: '16px',
+          marginTop: 0,
+        }}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ children }: any) => (
+      <h2
+        style={{
+          fontSize: '20px',
+          fontWeight: 'semibold',
+          color: '#60a5fa',
+          marginBottom: '12px',
+          marginTop: '24px',
+        }}
+      >
+        {children}
+      </h2>
+    ),
+    h3: ({ children }: any) => (
+      <h3
+        style={{
+          fontSize: '18px',
+          fontWeight: 'semibold',
+          color: '#93c5fd',
+          marginBottom: '8px',
+          marginTop: '16px',
+        }}
+      >
+        {children}
+      </h3>
+    ),
+    h4: ({ children }: any) => (
+      <h4
+        style={{
+          fontSize: '17px',
+          fontWeight: 'bold',
+          color: '#ffffff',
+          marginBottom: '8px',
+          marginTop: '16px',
+        }}
+      >
+        {children}
+      </h4>
+    ),
+    p: ({ children }: any) => (
+      <p
+        style={{
+          marginBottom: '12px',
+          color: '#e5e7eb',
+        }}
+      >
+        {children}
+      </p>
+    ),
+    ul: ({ children }: any) => (
+      <ul
+        style={{
+          listStyleType: 'disc',
+          paddingLeft: '20px',
+          marginBottom: '16px',
+        }}
+      >
+        {children}
+      </ul>
+    ),
+    ol: ({ children }: any) => (
+      <ol
+        style={{
+          listStyleType: 'decimal',
+          paddingLeft: '20px',
+          marginBottom: '16px',
+        }}
+      >
+        {children}
+      </ol>
+    ),
+    li: ({ children }: any) => (
+      <li
+        style={{
+          marginBottom: '4px',
+          color: '#e5e7eb',
+        }}
+      >
+        {children}
+      </li>
+    ),
+    strong: ({ children }: any) => (
+      <strong
+        style={{
+          fontWeight: 'bold',
+          color: '#ffffff',
+        }}
+      >
+        {children}
+      </strong>
+    ),
+    a: ({ href, children }: any) => (
+      <span
+        style={{
+          color: '#9ca3af',
+          textDecoration: 'none',
+          cursor: 'default',
+        }}
+      >
+        {children}
+      </span>
+    ),
+    img: ({ src, alt }: any) => {
+      // Check if the source is a video file or instructions.mp4 (which we'll replace with YouTube)
+      const isVideo = src?.match(/\.(mp4|webm|ogg|avi|mov)(\?.*)?$/i);
+      const isInstructionsVideo = src?.includes('instructions.mp4');
+      
+      // Resolve relative paths to absolute paths
+      // Markdown references like videos/xxx.mp4 should resolve to /videos/xxx.mp4
+      let resolvedSrc = src || '';
+      if (resolvedSrc && !resolvedSrc.startsWith('/') && !resolvedSrc.startsWith('http') && !resolvedSrc.startsWith('data:')) {
+        resolvedSrc = '/' + resolvedSrc;
+      }
+
+      // Replace instructions.mp4 with YouTube iframe
+      if (isInstructionsVideo) {
+        const youtubeVideoId = '_EjgKIJ5xBo';
+        const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?enablejsapi=1&origin=${window.location.origin}&modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1`;
+        
+        return (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              width: '100%',
+              margin: '16px 0',
+            }}
+          >
+            <iframe
+              ref={(el) => {
+                if (el && !youtubePlayerRef.current) {
+                  // Wait for YT API, then init
+                  const tryInit = () => {
+                    if ((window as any).YT?.Player) {
+                      initYoutubePlayer(el);
+                    } else {
+                      setTimeout(tryInit, 100);
+                    }
+                  };
+                  tryInit();
+                }
+              }}
+              src={youtubeEmbedUrl}
+              style={{
+                width: '90%',
+                maxWidth: '900px',
+                aspectRatio: '16 / 9',
+                maxHeight: '600px',
+                height: 'auto',
+                border: '1px solid #4b5563',
+                display: 'block',
+                margin: '0 auto',
+              }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        );
+      }
+
+      if (isVideo) {
+        return (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              width: '100%',
+              margin: '16px 0',
+            }}
+          >
+            <video
+              src={resolvedSrc}
+              controls
+              playsInline
+              onTimeUpdate={(e) => {
+                const seconds = Math.floor(e.currentTarget.currentTime);
+                if (seconds >= VIDEO_THRESHOLD_SECONDS) {
+                  setHasWatchedEnough(true);
+                }
+              }}
+              style={{
+                width: '90%',
+                maxWidth: '900px',
+                aspectRatio: '16 / 9',
+                maxHeight: '600px',
+                height: 'auto',
+                border: '1px solid #4b5563',
+                backgroundColor: '#000',
+                objectFit: 'contain',
+                display: 'block',
+                margin: '0 auto',
+              }}
+            />
+          </div>
+        );
+      }
+
+      return (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            width: '100%',
+            margin: '16px 0',
+          }}
+        >
+          <img
+            src={resolvedSrc}
+            alt={alt}
+            style={{
+              maxWidth: '90%',
+              maxHeight: '600px',
+              height: 'auto',
+              width: 'auto',
+              border: '1px solid #4b5563',
+              display: 'block',
+              margin: '0 auto',
+            }}
+          />
+        </div>
+      );
+    },
+  }), [initYoutubePlayer]);
 
   // Helper function to set tutorial cookie
   const setTutorialCookie = (state: TutorialCookieState) => {
@@ -406,228 +684,7 @@ function UserStudyPopupInner() {
               >
                 <Markdown
                   rehypePlugins={[rehypeRaw]}
-                  components={{
-                    h1: ({ children }) => (
-                      <h1
-                        style={{
-                          fontSize: '24px',
-                          fontWeight: 'bold',
-                          color: '#ffffff',
-                          marginBottom: '16px',
-                          marginTop: 0,
-                        }}
-                      >
-                        {children}
-                      </h1>
-                    ),
-                    h2: ({ children }) => (
-                      <h2
-                        style={{
-                          fontSize: '20px',
-                          fontWeight: 'semibold',
-                          color: '#60a5fa',
-                          marginBottom: '12px',
-                          marginTop: '24px',
-                        }}
-                      >
-                        {children}
-                      </h2>
-                    ),
-                    h3: ({ children }) => (
-                      <h3
-                        style={{
-                          fontSize: '18px',
-                          fontWeight: 'semibold',
-                          color: '#93c5fd',
-                          marginBottom: '8px',
-                          marginTop: '16px',
-                        }}
-                      >
-                        {children}
-                      </h3>
-                    ),
-                    h4: ({ children }) => (
-                      <h4
-                        style={{
-                          fontSize: '17px',
-                          fontWeight: 'bold',
-                          color: '#ffffff',
-                          marginBottom: '8px',
-                          marginTop: '16px',
-                        }}
-                      >
-                        {children}
-                      </h4>
-                    ),
-                    p: ({ children }) => (
-                      <p
-                        style={{
-                          marginBottom: '12px',
-                          color: '#e5e7eb',
-                        }}
-                      >
-                        {children}
-                      </p>
-                    ),
-                    ul: ({ children }) => (
-                      <ul
-                        style={{
-                          listStyleType: 'disc',
-                          paddingLeft: '20px',
-                          marginBottom: '16px',
-                        }}
-                      >
-                        {children}
-                      </ul>
-                    ),
-                    ol: ({ children }) => (
-                      <ol
-                        style={{
-                          listStyleType: 'decimal',
-                          paddingLeft: '20px',
-                          marginBottom: '16px',
-                        }}
-                      >
-                        {children}
-                      </ol>
-                    ),
-                    li: ({ children }) => (
-                      <li
-                        style={{
-                          marginBottom: '4px',
-                          color: '#e5e7eb',
-                        }}
-                      >
-                        {children}
-                      </li>
-                    ),
-                    strong: ({ children }) => (
-                      <strong
-                        style={{
-                          fontWeight: 'bold',
-                          color: '#ffffff',
-                        }}
-                      >
-                        {children}
-                      </strong>
-                    ),
-                    a: ({ href, children }) => (
-                      <span
-                        style={{
-                          color: '#9ca3af',
-                          textDecoration: 'none',
-                          cursor: 'default',
-                        }}
-                      >
-                        {children}
-                      </span>
-                    ),
-                    img: ({ src, alt }) => {
-                      // Check if the source is a video file
-                      const isVideo = src?.match(/\.(mp4|webm|ogg|avi|mov)(\?.*)?$/i);
-                      
-                      // Resolve relative paths to absolute paths
-                      // Markdown references like videos/xxx.mp4 should resolve to /videos/xxx.mp4
-                      let resolvedSrc = src || '';
-                      if (resolvedSrc && !resolvedSrc.startsWith('/') && !resolvedSrc.startsWith('http') && !resolvedSrc.startsWith('data:')) {
-                        resolvedSrc = '/' + resolvedSrc;
-                      }
-
-                      if (isVideo) {
-                        return (
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'center',
-                              width: '100%',
-                              margin: '16px 0',
-                            }}
-                          >
-                            <video
-                              ref={(el) => {
-                                tutorialVideoRef.current = el;
-                              }}
-                              src={resolvedSrc}
-                              controls
-                              playsInline
-                            preload="auto"
-                            onClick={() => {
-                              ensureVideoPlays();
-                            }}
-                            onPlaying={(e) => {
-                              // Use onPlaying which fires when playback actually starts
-                              // This is more reliable than onPlay
-                              handleVideoPlay();
-                            }}
-                            onPlay={(e) => {
-                              userRequestedPlayRef.current = true;
-                              ensureVideoPlays();
-                            }}
-                            onPause={(e) => {
-                              // no-op
-                            }}
-                            onLoadedData={(e) => {
-                              if (userRequestedPlayRef.current) {
-                                ensureVideoPlays();
-                              }
-                            }}
-                            onCanPlay={(e) => {
-                              if (userRequestedPlayRef.current) {
-                                ensureVideoPlays();
-                              }
-                            }}
-                              onTimeUpdate={(e) => {
-                                const videoEl = e.currentTarget as HTMLVideoElement;
-                                if (!videoStartedRef.current && videoEl.currentTime > 0) {
-                                  handleVideoPlay();
-                                }
-                              }}
-                              style={{
-                                width: '90%',
-                                maxWidth: '900px',
-                                aspectRatio: '16 / 9',
-                                maxHeight: '600px',
-                                height: 'auto',
-                                border: '1px solid #4b5563',
-                                backgroundColor: '#000',
-                                objectFit: 'contain',
-                                cursor: 'pointer',
-                                display: 'block',
-                                margin: '0 auto',
-                              }}
-                            >
-                              Your browser does not support the video tag.
-                            </video>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'center',
-                            width: '100%',
-                            margin: '16px 0',
-                          }}
-                        >
-                          <img
-                            src={resolvedSrc}
-                            alt={alt}
-                            style={{
-                              maxWidth: '90%',
-                              maxHeight: '600px',
-                              height: 'auto',
-                              width: 'auto',
-                              border: '1px solid #4b5563',
-                              display: 'block',
-                              margin: '0 auto',
-                            }}
-                          />
-                        </div>
-                      );
-                    },
-                  }}
+                  components={markdownComponents}
                 >
                   {markdownContent}
                 </Markdown>
@@ -648,7 +705,6 @@ function UserStudyPopupInner() {
             <button
               type="button"
               onClick={async () => {
-                // Only set cookie to "seen" and log when "Got It" button is explicitly pressed
                 const currentState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
                 if (currentState !== 'dismissed') {
                   setTutorialCookie('seen');

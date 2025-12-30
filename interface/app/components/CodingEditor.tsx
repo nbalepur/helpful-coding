@@ -1,10 +1,11 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import MonacoEditor from '@monaco-editor/react';
 import MultiFileEditor from './MultiFileEditor';
 import { MessageData } from './Message';
 import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_logic';
-import { BsExclamationTriangle } from 'react-icons/bs';
+import { BsExclamationTriangle, BsInfoCircle } from 'react-icons/bs';
 import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
 import html2canvas from 'html2canvas';
@@ -219,6 +220,8 @@ interface CodingEditorProps {
   taskName?: string | null;
   // Sidebar state for modal positioning
   sidebarOpen?: boolean;
+  // Callback when project is successfully submitted
+  onProjectSubmitted?: () => void | Promise<void>;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -283,6 +286,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   userId,
   taskName,
   sidebarOpen = false,
+  onProjectSubmitted,
 }: CodingEditorProps) => {
   const { showSnackbar } = useSnackbar();
   const [output, setOutput] = useState(
@@ -440,6 +444,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   }>>([]);
   const [isLoadingComprehensionQuestions, setIsLoadingComprehensionQuestions] = useState(false);
   const [comprehensionQuestionsError, setComprehensionQuestionsError] = useState<string | null>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const [tooltipText, setTooltipText] = useState("");
+  const [tooltipLeft, setTooltipLeft] = useState(0);
+  const [tooltipTop, setTooltipTop] = useState(0);
+  const [tooltipPlaceAbove, setTooltipPlaceAbove] = useState(true);
   
   const trimmedProjectTitleLength = projectTitle.trim().length;
   const trimmedProjectDescriptionLength = projectDescription.trim().length;
@@ -457,6 +466,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const isProjectDescriptionAtCap = trimmedProjectDescriptionLength >= PROJECT_DESCRIPTION_LIMIT;
   const previewBoxContainerRef = useRef<HTMLDivElement>(null);
   const [previewBoxSize, setPreviewBoxSize] = useState<{ width: number; height: number }>({ width: 480, height: 270 });
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [assistantMessages, setAssistantMessages] = useState([
     { type: 'assistant', message: 'Analyzing your latest edits…' },
     { type: 'user', message: 'Please run all tests.' },
@@ -1468,14 +1478,56 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         throw new Error('Unable to capture preview body');
       }
 
-      const canvas = await html2canvas(iframeDoc.body, {
+      // Ensure the iframe document has proper viewport settings to prevent squishing
+      if (!iframeDoc.querySelector('meta[name="viewport"]')) {
+        const viewport = iframeDoc.createElement('meta');
+        viewport.name = 'viewport';
+        viewport.content = 'width=1280, initial-scale=1.0';
+        iframeDoc.head.appendChild(viewport);
+      }
+
+      // Ensure html and body are properly sized to match iframe dimensions
+      // This prevents content from being squished or stretched
+      iframeDoc.documentElement.style.width = '1280px';
+      iframeDoc.documentElement.style.height = '720px';
+      iframeDoc.documentElement.style.margin = '0';
+      iframeDoc.documentElement.style.padding = '0';
+      iframeDoc.documentElement.style.overflow = 'hidden';
+      
+      iframeDoc.body.style.width = '1280px';
+      iframeDoc.body.style.height = '720px';
+      iframeDoc.body.style.margin = '0';
+      iframeDoc.body.style.padding = '0';
+      iframeDoc.body.style.boxSizing = 'border-box';
+      iframeDoc.body.style.overflow = 'hidden';
+
+      // Inject CSS to prevent buttons and other elements from being squished
+      // This ensures elements maintain their natural aspect ratios
+      const antiSquishStyle = iframeDoc.createElement('style');
+      antiSquishStyle.textContent = `
+        button, input[type="button"], input[type="submit"], .btn {
+          box-sizing: border-box !important;
+          min-width: fit-content !important;
+          white-space: nowrap !important;
+        }
+        * {
+          box-sizing: border-box;
+        }
+      `;
+      iframeDoc.head.appendChild(antiSquishStyle);
+
+      // Wait a bit more for layout to settle after style changes
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capture the documentElement instead of body for more accurate rendering
+      // This ensures we capture the full viewport at the correct size
+      const canvas = await html2canvas(iframeDoc.documentElement, {
         allowTaint: true,
         useCORS: true,
         backgroundColor: '#ffffff',
         scale: Math.max(1.5, window.devicePixelRatio || 1),
         logging: false,
-        width: 1280,
-        height: 720
+        // Don't specify width/height - let it capture naturally at the set dimensions
       });
 
       return canvas.toDataURL('image/png', 0.92);
@@ -1623,6 +1675,43 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       observer.disconnect();
     };
   }, [showSubmitModal, showComprehensionCheck]);
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setScreenshotError('Please upload an image file.');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      setScreenshotError('Image size must be less than 5MB.');
+      return;
+    }
+
+    // Read file as data URL
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result;
+      if (typeof result === 'string') {
+        setPreviewScreenshot(result);
+        setScreenshotError(null);
+      }
+    };
+    reader.onerror = () => {
+      setScreenshotError('Failed to read image file.');
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleProjectSubmit = () => {
     setShowSubmitModal(false);
@@ -1890,6 +1979,16 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       setExistingSubmission(null);
       // Reset comprehension answers
       setComprehensionAnswers({});
+      
+      // Call onProjectSubmitted callback if provided (e.g., to recalculate UserStudyPopup state)
+      if (onProjectSubmitted) {
+        try {
+          await onProjectSubmitted();
+        } catch (error) {
+          console.error('Error in onProjectSubmitted callback:', error);
+        }
+      }
+      
       // Show success snackbar
       showSnackbar(
         <>
@@ -2199,7 +2298,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       }
                     }
                   }}
-                  placeholder="Give your project a name that users will see"
+                  placeholder="Give a name for users to associate with your project"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -2249,7 +2348,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       }
                     }
                   }}
-                  placeholder="Summarize what the user can expect when they open your project"
+                  placeholder="Summarize what a user can expect when they open your project, including key mechanics, features, and rules"
                   rows={2}
                   style={{
                     width: '100%',
@@ -2278,9 +2377,48 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   minHeight: 0
                 }}
               >
-                <span style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '14px', textAlign: 'center', display: 'block', paddingBottom: 0 }}>
-                  Preview
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', paddingBottom: 0 }}>
+                  <span style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '14px' }}>
+                    Preview
+                  </span>
+                  <div
+                    style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <BsInfoCircle
+                      style={{
+                        color: '#9ca3af',
+                        fontSize: '14px',
+                        cursor: 'help'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#60a5fa';
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const vw = window.innerWidth || document.documentElement.clientWidth;
+                        const vh = window.innerHeight || document.documentElement.clientHeight;
+                        const margin = 8;
+                        let left = rect.left + rect.width / 2;
+                        left = Math.min(Math.max(left, margin), vw - margin);
+                        const spaceAbove = rect.top;
+                        const spaceBelow = vh - rect.bottom;
+                        const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
+                        const top = placeAbove ? rect.top : rect.bottom;
+                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. You can use any image as long as it is appropriate and relevant to your project.");
+                        setTooltipLeft(left);
+                        setTooltipTop(top);
+                        setTooltipPlaceAbove(placeAbove);
+                        setTooltipVisible(true);
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = '#9ca3af';
+                        setTooltipVisible(false);
+                      }}
+                    />
+                  </div>
+                </div>
                 <div
                   ref={previewBoxContainerRef}
                   style={{
@@ -2298,39 +2436,197 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       maxHeight: '100%',
                       aspectRatio: '16 / 9',
                       border: '1px solid rgba(148, 163, 184, 0.22)',
-                      borderRadius: '12px',
-                      backgroundColor: '#0b0c11',
+                      borderRadius: '0',
+                      backgroundColor: '#ffffff',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      overflow: 'hidden'
+                      overflow: 'hidden',
+                      position: 'relative'
                     }}
                   >
                     {isScreenshotLoading ? (
-                      <div
-                        role="status"
-                        aria-label="Loading snapshot"
-                        className="flex flex-col items-center justify-center space-y-3"
-                      >
-                        <LoadingSpinner size="xl" color="blue" />
-                      </div>
+                      <>
+                        <div
+                          role="status"
+                          aria-label="Loading snapshot"
+                          className="flex flex-col items-center justify-center space-y-3"
+                        >
+                          <LoadingSpinner size="xl" color="blue" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '8px',
+                            backgroundColor: 'rgba(31, 41, 55, 0.9)',
+                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            borderRadius: '6px',
+                            color: '#9ca3af',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
+                            zIndex: 10,
+                            width: '32px',
+                            height: '32px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#2563eb';
+                            e.currentTarget.style.borderColor = '#2563eb';
+                            e.currentTarget.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
+                            e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+                            e.currentTarget.style.color = '#9ca3af';
+                          }}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                        </button>
+                      </>
                     ) : previewScreenshot ? (
-                      <img
-                        src={previewScreenshot}
-                        alt="Submission preview"
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'contain',
-                          borderRadius: '6px',
-                          border: '1px solid rgba(148, 163, 184, 0.18)'
-                        }}
-                      />
+                      <>
+                        <img
+                          src={previewScreenshot}
+                          alt="Submission preview"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            borderRadius: '0',
+                            border: '1px solid rgba(148, 163, 184, 0.18)'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '8px',
+                            backgroundColor: 'rgba(31, 41, 55, 0.9)',
+                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            borderRadius: '6px',
+                            color: '#9ca3af',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
+                            zIndex: 10,
+                            width: '32px',
+                            height: '32px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#2563eb';
+                            e.currentTarget.style.borderColor = '#2563eb';
+                            e.currentTarget.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
+                            e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+                            e.currentTarget.style.color = '#9ca3af';
+                          }}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                        </button>
+                      </>
                     ) : (
-                      <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '13px', padding: '12px' }}>
-                        Preview not available yet. It will appear here as soon as it is ready.
-                      </div>
+                      <>
+                        <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '13px', padding: '12px' }}>
+                          Preview not available yet. It will appear here as soon as it is ready.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '8px',
+                            backgroundColor: 'rgba(31, 41, 55, 0.9)',
+                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            borderRadius: '6px',
+                            color: '#9ca3af',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
+                            zIndex: 10,
+                            width: '32px',
+                            height: '32px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#2563eb';
+                            e.currentTarget.style.borderColor = '#2563eb';
+                            e.currentTarget.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
+                            e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+                            e.currentTarget.style.color = '#9ca3af';
+                          }}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                        </button>
+                      </>
                     )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      style={{ display: 'none' }}
+                    />
                   </div>
                 </div>
                 {screenshotError && (
@@ -2500,7 +2796,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 }}
               >
                 <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
-                  Please answer the following questions about your project before you submit!
+                  Please answer the following questions about your project before you submit! If questions do not generate after 30 seconds, please refresh the page and try again.
                 </p>
                 
                 {isLoadingComprehensionQuestions && (
@@ -2870,6 +3166,32 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         </div>
       )}
 
+      {tooltipVisible && typeof document !== 'undefined' && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            left: tooltipLeft,
+            top: tooltipTop,
+            transform: tooltipPlaceAbove ? 'translate(-50%, -100%) translateY(-8px)' : 'translate(-50%, 8px)',
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            fontSize: '12px',
+            padding: '4px 8px',
+            borderRadius: '6px',
+            border: '1px solid #d1d5db',
+            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
+            zIndex: 100000,
+            whiteSpace: 'normal',
+            pointerEvents: 'none',
+            maxWidth: '400px',
+            textAlign: 'left'
+          }}
+        >
+          {tooltipText}
+        </div>,
+        document.body
+      )}
 
     </div>
   );

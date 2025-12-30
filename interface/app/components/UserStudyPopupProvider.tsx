@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useState, useEffect, useCallback } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import UserStudyPopup, { PopupState, UserStudyPopupContext } from "./UserStudyPopup";
 import { getCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
@@ -9,6 +9,21 @@ import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
+
+// Pre-computed SHA-256 hash of "penguin" (hex)
+const PASSWORD_HASH = '0a4346f806b28b3ce94905c3ac56fcd5ee2337d8613161696aba52eb0c3551cc';
+
+/**
+ * Hash a string using SHA-256
+ */
+async function hashString(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
 
 interface UserStudyPopupProviderProps {
   children: ReactNode;
@@ -28,11 +43,33 @@ interface UserStudyPopupProviderProps {
  */
 export default function UserStudyPopupProvider({ children }: UserStudyPopupProviderProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, isLoading: isAuthLoading } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   
+  // Check for secret password bypass using hash comparison
+  const [hasSecretPassword, setHasSecretPassword] = useState(false);
+  
+  useEffect(() => {
+    const checkPassword = async () => {
+      const password = searchParams?.get('password');
+      if (password) {
+        const passwordHash = await hashString(password);
+        setHasSecretPassword(passwordHash === PASSWORD_HASH);
+      } else {
+        setHasSecretPassword(false);
+      }
+    };
+    checkPassword();
+  }, [searchParams]);
+  
   // Calculate the appropriate popup state based on user progress
   const calculatePopupState = useCallback(async (): Promise<PopupState> => {
+    // If secret password is present, bypass all popup logic
+    if (hasSecretPassword) {
+      return 'none';
+    }
+    
     // Collect debug information
     const debugInfo: any = {
       userId: numericUserId,
@@ -159,7 +196,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // On error, default to none to avoid blocking the user
       return 'none';
     }
-  }, [numericUserId]);
+  }, [numericUserId, hasSecretPassword]);
   
   // Manage the popup state
   const [popupState, setPopupState] = useState<PopupState>('none');
@@ -182,7 +219,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     updateState();
   }, [calculatePopupState, isAuthLoading]);
   
-  // Recalculate on pathname change (navigation) - but wait for auth to load
+  // Recalculate on pathname or searchParams change (navigation) - but wait for auth to load
   useEffect(() => {
     if (isAuthLoading || isCalculating) {
       return;
@@ -190,7 +227,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     calculatePopupState().then(newState => {
       setPopupState(newState);
     });
-  }, [pathname, calculatePopupState, isCalculating, isAuthLoading]);
+  }, [pathname, searchParams, calculatePopupState, isCalculating, isAuthLoading]);
   
   // Expose a function to trigger recalculation (for when user completes skill check or submits project)
   const recalculateState = useCallback(async () => {
