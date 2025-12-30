@@ -18,6 +18,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 RESET=false
 AUTO_YES=false
+TUTORIAL=false
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -29,9 +30,13 @@ while [[ "$#" -gt 0 ]]; do
       AUTO_YES=true
       shift
       ;;
+    --tutorial)
+      TUTORIAL=true
+      shift
+      ;;
     *)
       echo -e "${YELLOW}Unknown argument:${NC} $1"
-      echo -e "${BLUE}Usage:${NC} $0 [--reset] [-y|--yes]"
+      echo -e "${BLUE}Usage:${NC} $0 [--reset] [-y|--yes] [--tutorial]"
       exit 1
       ;;
   esac
@@ -197,10 +202,17 @@ fi
 # Load dummy tasks
 echo -e "${YELLOW}📄 Loading dummy tasks into database...${NC}"
 cd "$SCRIPT_DIR/../python"
+
+# Determine data directory based on --tutorial flag
+DATA_DIR="data"
+if [ "$TUTORIAL" = true ]; then
+  DATA_DIR="data_tutorial"
+fi
+
 if command -v conda &> /dev/null; then
-  conda run -n helpful-coding python load_dummy_tasks.py
+  conda run -n helpful-coding python load_dummy_tasks.py --data-dir "$DATA_DIR"
 else
-  python3 load_dummy_tasks.py
+  python3 load_dummy_tasks.py --data-dir "$DATA_DIR"
 fi
 
 if [ $? -eq 0 ]; then
@@ -214,10 +226,18 @@ fi
 if [ -f "$SCRIPT_DIR/../python/load_jsonl_data.py" ]; then
   echo -e "${YELLOW}📄 Loading JSONL data files into database...${NC}"
   cd "$SCRIPT_DIR/../python"
+  
+  # Determine data directory based on --tutorial flag
+  DATA_DIR="data"
+  if [ "$TUTORIAL" = true ]; then
+    DATA_DIR="data_tutorial"
+    echo -e "${BLUE}📚 Using tutorial data from ${DATA_DIR}${NC}"
+  fi
+  
   if command -v conda &> /dev/null; then
-    conda run -n helpful-coding python load_jsonl_data.py
+    conda run -n helpful-coding python load_jsonl_data.py --data-dir "$DATA_DIR"
   else
-    python3 load_jsonl_data.py
+    python3 load_jsonl_data.py --data-dir "$DATA_DIR"
   fi
 
   if [ $? -eq 0 ]; then

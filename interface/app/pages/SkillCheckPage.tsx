@@ -111,9 +111,9 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
             Thanks for completing the skill check! {skillCheckMode === 'pre-test' && (
               <>Head over to the{" "}
               <Link href="/" className="text-blue-400 hover:text-blue-300 underline font-semibold">
-                tasks page
+                browse page
               </Link>{" "}
-              to start vibe coding 😈</>
+              to start building websites in VibeJam 🚀</>
             )}
             {skillCheckMode === 'post-test' && (
               <>You have completed the research study. If you had fun building websites in VibeJam and want to do more, you can head over to the{" "}

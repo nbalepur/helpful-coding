@@ -252,10 +252,21 @@ def load_nasa_tli_data(db, data_path: Path) -> tuple[int, int]:
 
 def main() -> int:
     """Main function to load all JSONL files"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Load JSONL data files into database")
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default="data",
+        help="Directory containing JSONL data files (default: 'data')"
+    )
+    args = parser.parse_args()
+    
     # Ensure tables exist
     create_tables()
 
-    data_dir = REPO_ROOT / "data"
+    data_dir = REPO_ROOT / args.data_dir
     code_path = data_dir / "code_data.jsonl"
     experience_path = data_dir / "experience_data.jsonl"
     mcqa_path = data_dir / "mcqa_data.jsonl"

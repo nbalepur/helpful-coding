@@ -1,0 +1,1489 @@
+{
+  "tasks": [
+    {
+      "name": "ai_opponent",
+      "title": "AI Opponent",
+      "description": "<p>Create any game where the player competes against an AI opponent rather than another human. The AI should make decisions based on the current game state so it feels like an intentional opponent, even if its strategy is lightweight.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.chess.com/play/computer\">Chess vs Computer</a>\n<a href=\"https://cardgames.io/checkers/\">Checkers vs Computer</a>\n<a href=\"https://playtictactoe.org/\">Tic Tac Toe vs Computer</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "asteroids",
+      "title": "Asteroids",
+      "description": "<p>a 2D space shooter where the player must avoid floating asteroids. The player rotates a ship, thrusts to gain momentum, and fires bullets while asteroids drift through space and wrap around the screen edges.</p><p>Shooting an asteroid breaks it into smaller asteroids until the smallest size is destroyed, so the screen gets more chaotic before it gets safer. The player avoids collisions while clearing waves that get faster or denser, and the run tracks score and lives so it feels like a classic arcade loop.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://games.aarp.org/games/atari-asteroids\">Asteroids</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "battleship",
+      "title": "Battleship",
+      "description": "<p>a game where ships are placed on a hidden grid and the player fires shots by selecting coordinates. Each shot should reveal hit or miss and remain marked so the player can track previous guesses.</p><p>The game should either be two-player or one-player against an AI opponent. Track ship health so a ship is “sunk” when all its cells are hit, and end the game when all ships are sunk. The UI should show shot history clearly and communicate hit/miss/sunk feedback instantly after each move.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.battleshiponline.org/\">Battleship</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "blackjack",
+      "title": "Blackjack",
+      "description": "<p>a card game where the player competes against a dealer to reach a score of 21. Cards are dealt from a shuffled deck, and each hand’s value is the sum of card ranks with Aces counting as 1 or 11, depending on what helps the hand most.</p><p>The player chooses to Hit (take another card) or Stand (end their turn), trying to get closer to 21 without going over. After the player stands, the dealer reveals their hidden card and draws until reaching at least 17, then totals are compared to decide win/lose/push.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://games.washingtonpost.com/games/blackjack\">Blackjack</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "breakout",
+      "title": "Breakout",
+      "description": "<p>a paddle-and-ball arcade game where the player attempts to break all bricks on the screen. The player controls a paddle along the bottom of the screen and keeps the ball from falling off the bottom edge while aiming bounces toward bricks near the top.</p><p>The ball reflects off the walls and the paddle, and each time it hits a brick the brick disappears. The goal is to clear all bricks (or as many as possible) before losing all lives, with score increasing as bricks are destroyed.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.lofiandgames.com/breakout\">Breakout</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "bullet_hell_survival",
+      "title": "Bullet Hell Survival",
+      "description": "<p>Create a top-down survival game where enemies spawn continuously and must be defeated or avoided by the player. The player’s role is movement and positioning while attacks fire automatically on a cooldown.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://poncle.itch.io/vampire-survivors\">Vampire Survivors</a>\n<a href=\"https://armorgames.com/play/13324/boss-slayer\">Boss Slayer</a>\n<a href=\"https://armorgames.com/towertide-game/19559?tag-referral=bullet-hell\">Tower Tide</a>\n",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "checkers",
+      "title": "Checkers",
+      "description": "<p>the classic board game on an 8×8 board where players move pieces diagonally and take turns to capture opponent pieces. A normal piece moves forward one square into an empty space, and captures by jumping over an adjacent opponent piece into the empty square beyond it.</p><p>The game should be two-player or one-player against an AI opponent. Require captures when available, remove captured pieces immediately, and promote a piece to a king when it reaches the far row so it can move backward too. The game ends when a player has no legal moves, and the UI should highlight legal moves and clearly show whose turn it is.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://cardgames.io/checkers/\">Checkers</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "chess",
+      "title": "Chess",
+      "description": "<p>a classic 8×8 strategy board game where players alternate turns moving pieces with distinct movement rules (pawns, knights, bishops, rooks, queen, and king), aiming to trap the enemy king. Moves can capture opponent pieces, changing the position and available tactics each turn.</p><p>The key rule is check and checkmate: the game ends when the king is attacked and has no legal escape. A web version should make turns readable, show legal moves clearly, and indicate check/checkmate/stalemate states in a way that’s easy to understand while playing.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://cardgames.io/chess/\">Chess</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "connect_four",
+      "title": "Connect Four",
+      "description": "<p>a vertical grid game where players drop discs into columns to connect four discs in a row. On a turn, the player selects a column and the disc falls to the lowest empty slot as if pulled by gravity.</p><p>The game should be two-player or one-player against an AI opponent. The first player to connect four of their discs in a single line—horizontal, vertical, or diagonal—wins the round. If the grid fills without a four-in-a-row, it’s a draw, and the UI should make turn order and win states very obvious.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://papergames.io/en/connect4\">Connect Four</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "cookie_clicker",
+      "title": "Cookie Clicker",
+      "description": "<p>Create an incremental clicker game where clicking produces currency and that currency buys generators that automatically produce more currency over time. The experience is about watching numbers grow and making upgrades that accelerate growth.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://orteil.dashnet.org/cookieclicker/\">Cookie Clicker</a>\n<a href=\"https://www.decisionproblem.com/paperclips/index2.html\">Universal Paperclips</a>\n<a href=\"https://funflower.itch.io/nimbus\">Nimbus</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "crossword",
+      "title": "Crossword Puzzle",
+      "description": "<p>a word puzzle on a grid of intersecting across and down answers. The player fills letters into blank cells so that each entry matches its clue, and intersecting words constrain each other.</p><p>Typical play involves selecting a clue, typing letters into the active entry, and navigating with arrow keys or clicks between cells and words. A web version can automatically create a puzzle, highlight the active word in the grid, and allow the user to check whether their board is correct/incorrect.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.boatloadpuzzles.com/playcrossword\">Crosswords</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "deck_builder_combat",
+      "title": "Deck Builder",
+      "description": "<p>Create a turn-based card combat game where the player draws a hand of cards each turn and plays cards to attack, block, heal, or apply effects. The goal of the player is to defeat another player who is drawing cards from the same hand</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://tcgmasters.net/\">Pokemon Trading Card Game</a>\n<a href=\"https://teamwood.itch.io/super-auto-pets\">Super Auto Pets</a>\n<a href=\"https://armorgames.com/play/2738/mytheria\">Mytheria</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "doodle_jump",
+      "title": "Doodle Jump",
+      "description": "<p>a vertical endless platformer where the character automatically jumps on platforms and tries to climb as high as possible without falling. The player only controls horizontal movement to land on platforms and keep climbing while the camera follows upward.</p><p>Platforms are generated procedurally above the player and recycled below, so the level can continue indefinitely. The run ends when the character falls below the bottom of the screen, and score is typically the highest height reached, encouraging repeated attempts to beat a best run.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://doodlejumponline.github.io/\">Doodle Jump</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "endless_arcade",
+      "title": "Endless",
+      "description": "<p>Design a game that can run indefinitely, where the goal is always to beat a previous best score. The player should never truly “finish” the game; instead the challenge continuously ramps.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://flappybird.io/\">Flappy Bird</a>\n<a href=\"https://doodlejumponline.github.io/\">Doodle Jump</a>\n<a href=\"https://nbalepur.github.io/ai2-trex-runner/\">Chrome Dinosaur Game</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "fighting_game",
+      "title": "Fighting Game",
+      "description": "<p>Create any game where the player needs to fight against another opponent. Each player has a health bar, and the game ends when one of the players runs out of health. The player with the most health wins the game.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.crazygames.com/game/street-fighter-2\">Street Fighter</a>\n<a href=\"https://pvpoke.com/battle/\">Pokemon</a>\n<a href=\"https://www.crazygames.com/game/mortal-kombat-karnage\">Mortal Kombat</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "frogger",
+      "title": "Frogger",
+      "description": "<p>a lane-crossing action game where the player moves a character one step per key press across roads and rivers to reach safety at the top of the screen.</p><p>Cars move in lanes and collisions cost a life, while river sections require the player to ride moving platforms like logs or turtles to avoid falling into water. A round usually includes a timer and multiple successful crossings, with later rounds increasing speed and traffic density.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.gwsmedia.com/games/froghopper/\">Frogger</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "gravity_shift",
+      "title": "Gravity Change",
+      "description": "<p>Create a game where gravity direction can change, either by player control or by moving between areas with different gravity.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://flori9.itch.io/circloo\">circloO</a>\n<a href=\"https://rob1221.itch.io/gravity-arrows\">Gravity Arrows</a>\n<a href=\"https://prox276.itch.io/the-right-turn\">The Right Turn</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "hangman",
+      "title": "Hangman",
+      "description": "<p>a word guessing game where the player tries to uncover a secret word by guessing letters. Correct guesses fill in the blanks wherever the letter appears in the word.</p><p>Incorrect guesses consume a limited number of attempts and advance a simple visual mistake counter until the player either completes the word or runs out of tries. The UI should show used letters and provide a quick restart so it feels snappy to replay.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.coolmathgames.com/0-hangman\">Hangman</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "interactive_story",
+      "title": "Interactive Story",
+      "description": "<p>Create a branching narrative where the user reads scenes and makes choices that influence what happens next.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://aidungeon.com/\">Online Dungeons and Dragons</a>\n<a href=\"https://bitlifefree.io/\">BitLife</a>\n<a href=\"https://www.visitoregon.com/the-oregon-trail-game-online/\">Oregon Trail</a>\n",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "jam_theme",
+      "title": "Jam-themed Game",
+      "description": "<p>In the spirit of VibeJam, create a game where <strong>jam</strong> is central to the theme or mechanics, whether that’s fruit jam, music jam, or game jam.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://stonet2000.github.io/Cut-Bread/\">Cut Bread</a>\n<a href=\"https://www.crazygames.com/game/parking-jam-dqq\">Parking Jam</a>\n<a href=\"https://rhythm-plus.com/menu/\">Rhythm+</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "mancala",
+      "title": "Mancala",
+      "description": "<p>a board game with pits and a store for each player. On your turn, you pick a pit on your side and distribute its stones one-by-one into subsequent pits around the board.</p><p>Depending on where the last stone lands, you may get an extra turn or capture stones, and the game ends when one side’s pits are empty. Remaining stones are collected and the higher store total wins, so the strategy is about planning where your final stone lands and how you starve your opponent of moves.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.crazygames.com/game/mancala-classic\">Mancala</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "match_three",
+      "title": "Match-3 Puzzle",
+      "description": "<p>a puzzle game on a grid of colored tiles, where the player swaps adjacent tiles to create lines of three or more matching tiles (e.g. Candy Crush). If a swap creates a line of three or more matching tiles, those tiles clear and new tiles fall in from above.</p><p>Allow chain reactions when new falls create additional matches, and track score based on cleared tiles and combos. The UI should animate swaps and clears clearly, and prevent swaps that don’t result in a match.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://games.aarp.org/games/sweet-shuffle\">Sweet Shuffle</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "maze",
+      "title": "Maze Game",
+      "description": "<p>Create a maze navigation game where the player must reach an exit through tricky mazes. The goal is typically to find the way out.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://cariboutests.com/games/mazes.php\">Standard Maze Game</a>\n<a href=\"https://www.mathsisfun.com/games/tilt-maze.html\">Tilt Maze</a>\n<a href=\"https://freepacman.org/\">Pac-Man</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "memory",
+      "title": "Memory",
+      "description": "<p>Create a game where remembering past information is a core mechanic of the game.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.memozor.com/simon-games/simon-gam\">Simon</a>\n<a href=\"https://memorymatching.com/\">Matching</a>\n<a href=\"https://humanbenchmark.com/tests/verbal-memory\">Verbal Memory Test</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "memory_match",
+      "title": "Memory Matching",
+      "description": "<p>a concentration game where players flip cards to try and find matching pairs. The player flips two cards per turn, trying to find matching pairs by remembering previously seen card faces.</p><p>If the two revealed cards match they stay face-up, and if they don’t match they flip back after a short delay, giving the player a moment to memorize them. The game ends when all pairs are found, and you can show moves or time as the “score” to encourage replay. The game should be two-player or one-player against an AI opponent.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.helpfulgames.com/subjects/brain-training/memory.html\">Memory</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "minesweeper",
+      "title": "Minesweeper",
+      "description": "<p>a logic puzzle where a player must click on a grid of hidden tiles, avoiding those containing mines. Clicking a tile reveals either a mine (which ends the game) or a number showing how many adjacent tiles contain mines.</p><p>The player uses the numbers to deduce where mines are and flags suspected mines, trying to reveal all non-mine tiles to win. Revealing a zero expands into a region of safe tiles, which makes deduction and exploration feel satisfying.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://minesweeperonline.com/\">Minesweeper</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "pacman",
+      "title": "Pac-Man",
+      "description": "<p>a top-down 2D maze chase game where the player collects pellets and avoids enemies. The player navigates corridors collecting pellets while avoiding enemies that move through the maze.</p><p>Enemies follow simple behavior patterns like chasing the player, enemies to corners, or making randomized decisions at intersections. Power pellets temporarily make enemies vulnerable so the player can eat them for bonus points before they respawn, and the level ends when all pellets are cleared or the player loses all lives.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://pacman.live/play.html\">Pac-Man</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "password_game",
+      "title": "Password Game",
+      "description": "<p>a puzzle where the player must type a password that satisfies a growing list of rules. Rules are revealed progressively, and the password must satisfy all rules simultaneously as they stack up.</p><p>The fun comes from adjusting the password as new constraints appear, while the UI shows a live pass/fail indicator for every rule and explains what is missing. Players “win” when all rules are satisfied at once, making it feel like a logic juggling act.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://neal.fun/password-game/\">Password Game</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "pinball",
+      "title": "Pinball",
+      "description": "<p>a retro arcade game where a ball moves under gravity and bounces off walls and bumpers, awarding points when it hits targets. The player controls two flippers near the bottom to keep the ball in play.</p><p>Increase score through bumper hits and target combinations, and end the run when the ball falls out of bounds, with multiple balls/lives per game. The UI should show score and remaining balls clearly, and the physics should feel responsive and consistent.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.247pinball.com/\">Pinball</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "platformer",
+      "title": "Platformer",
+      "description": "<p>Create a platformer game, where the player must run, jump, or user other movement across platforms to reach a goal.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://supermario-game.com/\">Super Mario Bros</a>\n<a href=\"https://www.retrogames.cz/play_001-NES.php\">Donkey Kong</a>\n<a href=\"https://www.miniplay.com/game/sonic-the-hedgehog-pocket-platformer\">Sonic the Hedgehog</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "pong",
+      "title": "Pong",
+      "description": "<p>a two-paddle ball game where the ball bounces between paddles and the top/bottom walls. A player scores when the ball passes the opponent’s paddle.</p><p>The paddles move up and down, and after each point the ball resets and serves again, continuing until a target score is reached. The appeal is simple but satisfying physics and a clear scoreboard that makes the duel feel competitive. The second player can either be another human or an AI.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.ponggame.org/\">Pong</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "puzzle",
+      "title": "Puzzle Game",
+      "description": "<p>Create a game where users must solve puzzles in order to beat the game or levels in the game.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.jigsawexplorer.com/online-jigsaw-puzzle-player.html\">Jigsaw Puzzles</a>\n<a href=\"https://www.crazygames.com/game/link\">Link</a>\n<a href=\"https://www.nytimes.com/games/connections\">NYT Connections</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "reaction",
+      "title": "Reaction Test",
+      "description": "<p>Create a game that relies on users having good \"reaction time\": how well they can respond to new inputs on the screen</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://humanbenchmark.com/tests/reactiontime\">Reaction Time Test</a>\n<a href=\"https://play.tetris.com/\">Tetris</a>\n<a href=\"https://geometrydash-lite.io/\">Geometry Dash</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "rps",
+      "title": "Rock-Paper-Scissors",
+      "description": "<p>a classic game where players choose Rock, Paper, or Scissors, then reveal simultaneously and apply the standard rules (Rock beats Scissors, Scissors beats Paper, Paper beats Rock) to decide the winner. The game can be played either against an AI or as local two-player on the same device.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.rpsgame.org/\">Rock Paper Scissors</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "scale",
+      "title": "Growing or Shrinking",
+      "description": "<p>Create a game where a core mechanic involves the main character growing or shrinking in size</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://agargame.io/\">Agar IO</a>\n<a href=\"https://holeio.com/\">Hole IO</a>\n<a href=\"https://playsnake.org/\">Snake</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "simon",
+      "title": "Simon",
+      "description": "<p>a memory game where the game shows a sequence of highlighted buttons (colors/shapes) and the player must repeat the sequence in the same order.</p><p>Each successful round adds one more step, making the sequence longer and harder to remember. A purely visual version still works well by using strong highlights and timing, and the player’s score is typically the longest sequence completed before making a mistake.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.memozor.com/simon-games/simon-game\">Simon</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "slots",
+      "title": "Slot Machine",
+      "description": "<p>a visual luck game where the player spends coins to spin multiple reels that stop on random symbols. After each spin, evaluate paylines and award payouts based on matching symbol combinations.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.freeslots.com/\">Slots</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "snake",
+      "title": "Snake",
+      "description": "<p>a grid-based arcade game where a snake aims to become as big as possible by eating food. The snake moves continuously in the current direction and the player steers it with arrow keys or WASD. Each tick advances the snake by one cell, so the path you choose matters.</p><p>Food appears on empty cells, and eating it grows the snake and increases score, making movement progressively harder. The game ends when the snake hits the wall or itself, and a good version makes restarting fast and keeps a best score to encourage “one more try.”</p>",
+      "label": "replication",
+      "example": "<a href=\"https://playsnake.org/\">Snake</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "space",
+      "title": "Space",
+      "description": "<p>Build any game set in outer space.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://games.aarp.org/games/atari-asteroids\">Asteroids</a>\n<a href=\"https://elgoog.im/space-invaders/\">Space Invaders</a>\n<a href=\"https://amongus-online.net/game/amongus\">Among Us</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "space_invaders",
+      "title": "Space Invaders",
+      "description": "<p>a fixed-screen shooter where the player controls a ship at the bottom moving left/right and firing upward at rows of marching aliens.</p><p>Aliens sweep side-to-side, reversing direction at edges and stepping downward over time, while occasionally firing back. The player wins a wave by eliminating all aliens and loses if hit too many times or if the aliens reach the bottom, and successive waves should feel faster and more intense.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://elgoog.im/space-invaders/\">Space Invaders</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "sudoku",
+      "title": "Sudoku",
+      "description": "<p>a classic puzzle game with a 9×9 grid where the player fills empty cells with digits 1–9 so that every row, every column, and each 3×3 subgrid contains all digits exactly once. Start from a valid puzzle with some cells pre-filled and locked so they cannot be edited.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://sudoku.com/\">Sudoku</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "swap",
+      "title": "Swapped Rules",
+      "description": "<p>Create a game where a core rule or interaction is swapped, reverse or unexpected from the typical.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.chess.com/variants/atomic\">Atomic Chess</a>\n<a href=\"https://www.foddy.net/Athletics.html\">QWOP</a>\n<a href=\"https://www.crazygames.com/game/the-impossible-quiz\">The Impossible Quiz</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "tabletop",
+      "title": "Tabletop Game",
+      "description": "<p>Create a web version of an existing board or card game that can be played as a single player, against an AI, or with another player</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.google.com/logos/fnbx/solitaire/standalone.html\">Solitaire</a>\n<a href=\"https://playscrabble.com/\">Scrabble</a>\n<a href=\"https://games.aarp.org/games/texas-holdem-poker-sit-and-go\">Poker</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "tetris",
+      "title": "Tetris",
+      "description": "<p>a falling-block puzzle game where tetromino pieces descend from the top of a vertical board and the player moves and rotates them to fit together.</p><p>Completing a full horizontal line clears it and drops everything above, rewarding points and opening space, and the game speeds up over time to increase pressure. The run ends when the stack reaches the top and new pieces can’t spawn, making it a battle for efficiency and calm decision-making.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://play.tetris.com/\">Tetris</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "tic_tac_toe",
+      "title": "Tic-Tac-Toe",
+      "description": "<p>a 3×3 grid game where players take turns placing X and O by clicking an empty cell, aiming to make three in a row. Once placed, the symbol stays, so each move changes the remaining possibilities.</p><p>The round ends when someone makes three in a row (row/column/diagonal) or the grid fills with no winner. A good version shows whose turn it is, highlights the winning line, and makes restarting instant so players can run it back.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://playtictactoe.org/\">Tic Tac Toe</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "time_loop",
+      "title": "Time Loop",
+      "description": "<p>Create a game where a core mechanic involves the player repeating the same sequence of events over and over.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://armorgames.com/play/4309/this-is-the-only-level\">This is the Only Level</a>\n<a href=\"https://www.newgrounds.com/portal/view/612985\">Give Up</a>\n<a href=\"https://www.coolmathgames.com/0-learn-to-fly\">Learn to Fly</a>\n",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "time_pressure",
+      "title": "Speed",
+      "description": "<p>Create a game where the core difficulty relies on the time taken to beat the game.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://play.tetris.com\">Tetris</a>\n<a href=\"https://papaspizzeria.io/\">Papa's Pizzeria</a>\n<a href=\"https://play.typeracer.com/\">Typeracer</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "tower_defense",
+      "title": "Tower Defense",
+      "description": "<p>Create a tower defense game where enemies follow a path and the player places towers to stop them before they reach the base.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://www.crazygames.com/game/bloons-tower-defense\">Bloons Tower Defense</a>\n<a href=\"https://www.miniplay.com/game/plants-vs-zombies\">Plants vs Zombies</a>\n<a href=\"https://armorgames.com/play/347/storm-the-house\">Storm the House</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "two_zero_four_eight",
+      "title": 2048,
+      "description": "<p>a sliding tile puzzle on a 4×4 grid where the player swipes or presses arrow keys to slide all tiles in one direction, aiming to merge tiles into larger numbers. Tiles compress toward the edge until blocked by another tile or the border.</p><p>When two equal-number tiles collide during a move, they merge into a single tile with double the value, and then a new tile (2 or 4) appears in an empty cell. The puzzle ends when no moves remain, and the score grows based on merges as the player aims for bigger and bigger numbers.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://play2048.co/\">2048</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "typing_test",
+      "title": "Typing Speed",
+      "description": "<p>a typing game where the user types a given text passage and the app measures typing speed in real time. As the user types, keystrokes are tracked to calculate words per minute (WPM) and accuracy, and incorrect characters are visually highlighted so mistakes are immediately clear.</p><p>When the test ends, display a results screen showing statistics for the users to improve on, such as WPM, accuracy percentage, total characters typed, and error count.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://humanbenchmark.com/tests/typing\">Typing Test</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "underwater",
+      "title": "Water Game",
+      "description": "<p>Create a game either set under or near water or with a core mechanic related to water</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://kids.nationalgeographic.com/games/puzzles/article/maze-oceans\">Ocean Maze</a>\n<a href=\"https://www.miniplay.com/game/where-s-my-water\">Where's My Water</a>\n<a href=\"https://www.coolmathgames.com/0-tiny-fishing\">Tiny Fishing</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "virtual_pet",
+      "title": "Virtual Pet",
+      "description": "<p>Create a virtual pet game where the player takes care of a pet that lives in a small UI panel and has needs like Hunger, Happiness, and Energy that decay over time. The player cares for the pet by choosing actions that raise these meters.</p><p>Feeding, playing, cleaning, and sleeping change the pet’s state, and ignoring needs makes the pet look sad or sick and can lead to a game-over.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://autosam.github.io/Tamaweb/\">Tamaweb</a>\n<a href=\"https://freebie.games/games/tamagotchi/play/\">Tamagotchi</a>\n<a href=\"https://natnatart.itch.io/plantgotchi\">Plantgotchi</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "whack_a_mole",
+      "title": "Whack-a-Mole",
+      "description": "<p>a reaction game where targets pop up in random holes for a short time and the player scores by clicking/tapping them before they disappear.</p><p>Make the game run on a timer, increase difficulty by speeding up spawns, and track score and accuracy. The UI should give immediate feedback for hits and misses and make restarting instant for quick replays.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://plays.org/whack-a-mole/\">Whack-a-Mole</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "wordle",
+      "title": "Wordle",
+      "description": "<p>a word guessing game where the player has a limited number of attempts to guess a hidden word. Each attempt is typed into a row and submitted as a full guess.</p><p>After submission, each letter tile is colored to show whether the letter is correct and in the correct position, correct but in a different position, or not in the word at all. The player uses that feedback to narrow the answer until they guess correctly or run out of attempts, and the UI should make the feedback easy to read at a glance.</p>",
+      "label": "replication",
+      "example": "<a href=\"https://www.nytimes.com/games/wordle/index.html\">Wordle</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "zen_garden",
+      "title": "Zen Garden",
+      "description": "<p>Create a relaxing game where players casually place objects and watch a peaceful scene grow over time, with no goals, pressure, or winning.</p>",
+      "label": "open-ended",
+      "example": "<a href=\"https://playplayfun.com/cats-and-soup-game-cute-cat-game/play/\">Cats and Soup</a>\n<a href=\"https://alfredncy.itch.io/serenitrove\">Serenitrove</a>\n<a href=\"https://cookiecrayon.itch.io/snug\">Snug</a>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2026-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    }
+  ]
+}

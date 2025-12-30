@@ -31,7 +31,7 @@ export function useUserStudyPopup() {
 function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
-  const { popupState, setPopupState } = useUserStudyPopup();
+  const { popupState, setPopupState, recalculateState } = useUserStudyPopup();
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
@@ -102,6 +102,52 @@ function UserStudyPopupInner() {
     }
   }, [popupState, canCloseTutorial]);
 
+  // Disable all keyboard inputs when modal is open
+  useEffect(() => {
+    // Check if modal should be shown (inline logic from shouldShowPopup)
+    let shouldShow = false;
+    if (popupState !== 'none') {
+      if (popupState === 'tutorial') {
+        const tutorialState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
+        if (tutorialState !== 'dismissed') {
+          shouldShow = true;
+        }
+      } else if (popupState === 'pre-test' || popupState === 'post-test') {
+        if (pathname !== '/skill-check' && pathname !== '/landing') {
+          shouldShow = true;
+        }
+      }
+    }
+    
+    if (!shouldShow) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Allow keyboard events within the modal itself (e.g., video controls, scrolling, buttons)
+      const target = event.target as HTMLElement;
+      const isWithinModal = target.closest('[data-modal-content]');
+      
+      // Prevent all keyboard events that are outside the modal
+      if (!isWithinModal) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
+    };
+
+    // Use capture phase to catch events early, before other handlers
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyDown, true);
+    window.addEventListener('keypress', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyDown, true);
+      window.removeEventListener('keypress', handleKeyDown, true);
+    };
+  }, [popupState, pathname]);
+
   // Handle navigation to skill-check
   const handleNavigateToSkillCheck = () => {
     router.push('/skill-check');
@@ -130,7 +176,7 @@ function UserStudyPopupInner() {
     return null;
   }
 
-  const handleClose = () => {
+  const handleClose = async () => {
     // Only allow closing if it's tutorial and conditions are met, or if explicitly allowed
     if (popupState === 'tutorial' && !canCloseTutorial) {
       return;
@@ -143,6 +189,10 @@ function UserStudyPopupInner() {
       }
     }
     setPopupState('none');
+    // Recalculate popup state to check if we need to show another popup (e.g., pre-test)
+    if (popupState === 'tutorial' && recalculateState) {
+      await recalculateState();
+    }
   };
 
 
@@ -171,6 +221,7 @@ function UserStudyPopupInner() {
         }}
       >
         <div
+          data-modal-content
           style={{
             backgroundColor: '#1f2937',
             borderRadius: '12px',
@@ -229,21 +280,21 @@ function UserStudyPopupInner() {
             <button
               onClick={handleNavigateToSkillCheck}
               style={{
-                backgroundColor: '#3b82f6',
-                color: 'white',
                 padding: '12px 24px',
-                borderRadius: '8px',
+                backgroundColor: '#2563eb',
+                color: 'white',
                 border: 'none',
+                borderRadius: '6px',
                 fontSize: '16px',
                 fontWeight: 500,
                 cursor: 'pointer',
                 transition: 'background-color 0.2s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#2563eb';
+                e.currentTarget.style.backgroundColor = '#1d4ed8';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#3b82f6';
+                e.currentTarget.style.backgroundColor = '#2563eb';
               }}
             >
               Take me there!
@@ -277,6 +328,7 @@ function UserStudyPopupInner() {
         }}
       >
         <div
+          data-modal-content
           style={{
             backgroundColor: '#1f2937',
             borderRadius: '12px',
@@ -559,25 +611,25 @@ function UserStudyPopupInner() {
               onClick={handleClose}
               disabled={!canCloseTutorial}
               style={{
-                backgroundColor: '#3b82f6',
-                color: 'white',
                 padding: '10px 24px',
-                borderRadius: '8px',
+                backgroundColor: '#2563eb',
+                color: 'white',
                 border: 'none',
+                borderRadius: '6px',
                 fontSize: '14px',
                 fontWeight: 500,
                 cursor: canCloseTutorial ? 'pointer' : 'not-allowed',
-                transition: 'background-color 0.2s ease',
-                opacity: canCloseTutorial ? 1 : 0.5,
+                opacity: canCloseTutorial ? 1 : 0.6,
+                transition: 'background-color 0.2s ease, opacity 0.2s ease',
               }}
               onMouseEnter={(e) => {
                 if (canCloseTutorial) {
-                  e.currentTarget.style.backgroundColor = '#2563eb';
+                  e.currentTarget.style.backgroundColor = '#1d4ed8';
                 }
               }}
               onMouseLeave={(e) => {
                 if (canCloseTutorial) {
-                  e.currentTarget.style.backgroundColor = '#3b82f6';
+                  e.currentTarget.style.backgroundColor = '#2563eb';
                 }
               }}
             >

@@ -64,10 +64,21 @@ def parse_date_field(task: Dict[str, Any], field_name: str) -> Optional[date]:
 
 
 def main() -> int:
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Load tasks from tasks.json into database")
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default="data",
+        help="Directory containing tasks.json file (default: 'data')"
+    )
+    args = parser.parse_args()
+    
     # Ensure tables exist
     create_tables()
 
-    data_path = REPO_ROOT / "data" / "tasks.json"
+    data_path = REPO_ROOT / args.data_dir / "tasks.json"
     if not data_path.exists():
         print(f"❌ Not found: {data_path}")
         return 1

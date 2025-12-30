@@ -307,7 +307,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
             </div>
             <div className="relative bg-gray-700 overflow-hidden">
               <video 
-                className="w-full aspect-video object-cover"
+                className="w-full h-auto"
                 controls
                 preload="metadata"
                 muted
