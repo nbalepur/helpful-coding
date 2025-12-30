@@ -850,17 +850,13 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
     """
     Get an existing skill check assignment for a user or create a new one.
     """
-    print(f"🔍 Checking for existing assignment for user_id={user_id}")
     assignment = (
         db.query(SkillCheckAssignment)
         .filter(SkillCheckAssignment.user_id == user_id)
         .first()
     )
     if assignment:
-        print(f"✅ Found existing assignment: id={assignment.id}")
         return assignment
-    
-    print(f"🆕 Creating new assignment for user_id={user_id}")
 
     # Select questions with variant assignment strategy
     # UX questions: same base tags, different variants (_1 vs _2) for pre and post
@@ -921,7 +917,6 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
-    print(f"✅ Successfully created assignment: id={assignment.id}, user_id={assignment.user_id}")
     return assignment
 
 
@@ -1106,7 +1101,6 @@ async def get_skill_check_questions(
     - 3 coding questions from code_data where type == 'normal'
     - 3 coding questions from code_data where type == 'debug'
     """
-    print(f"\n📋 QUESTIONS ENDPOINT CALLED: mode={mode}, user_id={user_id}")
     try:
         if mode not in ["pre-test", "post-test"]:
             return JSONResponse(
@@ -1120,11 +1114,7 @@ async def get_skill_check_questions(
         # For logged-in users, use (or create) a persistent skill check assignment
         assignment: Optional[SkillCheckAssignment] = None
         if user_id is not None:
-            print(f"🔧 Creating/getting assignment for user_id={user_id}")
             assignment = _get_or_create_skill_check_assignment(db, user_id)
-            print(f"✅ Assignment created/found: user_id={assignment.user_id}, id={assignment.id}")
-        else:
-            print(f"⚠️  No user_id provided, skipping assignment creation")
 
         questions = []
         
@@ -1343,11 +1333,6 @@ async def get_skill_check_questions(
                     "docstring_js": q.docstring_js or "",
                     "code_type": code_type,
                 })
-        
-        # Debug: Print question IDs being returned
-        question_ids_returned = [q.get("id", "NO_ID") for q in questions]
-        print(f"📋 QUESTIONS ENDPOINT: Returning {len(questions)} questions")
-        print(f"   Question IDs: {question_ids_returned[:10]}..." if len(question_ids_returned) > 10 else f"   Question IDs: {question_ids_returned}")
         
         return {
             "questions": questions,
@@ -2053,7 +2038,6 @@ async def get_skill_check_completion_status(
         "total_answered": int
     }
     """
-    print(f"\n🔍 COMPLETION-STATUS CALLED: user_id={user_id}, phase={phase}")
     try:
         if phase not in ["pre-test", "post-test"]:
             return JSONResponse(
@@ -2305,15 +2289,6 @@ async def get_skill_check_completion_status(
         answered_mcqa_ids = {resp.question_id for resp in mcqa_responses}
         answered_code_ids = {resp.question_id for resp in code_responses}
         
-        # Debug logging
-        print(f"🔍 COMPLETION-STATUS DEBUG:")
-        print(f"   Expected MCQA IDs ({len(expected_mcqa_question_ids)}): {sorted(expected_mcqa_question_ids)}")
-        print(f"   Answered MCQA IDs ({len(answered_mcqa_ids)}): {sorted(answered_mcqa_ids)}")
-        print(f"   Expected Code IDs ({len(expected_code_question_ids)}): {sorted(expected_code_question_ids)}")
-        print(f"   Answered Code IDs ({len(answered_code_ids)}): {sorted(answered_code_ids)}")
-        print(f"   MCQA responses count: {len(mcqa_responses)}")
-        print(f"   Code responses count: {len(code_responses)}")
-        
         # Check if all expected questions are answered
         all_mcqa_answered = expected_mcqa_question_ids.issubset(answered_mcqa_ids)
         all_code_answered = expected_code_question_ids.issubset(answered_code_ids)
@@ -2327,15 +2302,6 @@ async def get_skill_check_completion_status(
         # Find missing questions for debugging
         missing_mcqa = expected_mcqa_question_ids - answered_mcqa_ids
         missing_code = expected_code_question_ids - answered_code_ids
-        
-        print(f"   📊 SUMMARY:")
-        print(f"      Total Expected: {total_expected} (MCQA: {total_expected_mcqa}, Code: {total_expected_code})")
-        print(f"      Total Answered: {total_answered} (MCQA: {len(answered_mcqa_ids)}, Code: {len(answered_code_ids)})")
-        print(f"      has_responses: {has_responses}, completed: {completed}")
-        if missing_mcqa:
-            print(f"      ⚠️  Missing MCQA questions ({len(missing_mcqa)}): {sorted(missing_mcqa)}")
-        if missing_code:
-            print(f"      ⚠️  Missing Code questions ({len(missing_code)}): {sorted(missing_code)}")
         
         # Build ordered list using the same helper function as get_skill_check_questions
         # Then find first unanswered question in that list
@@ -2354,13 +2320,6 @@ async def get_skill_check_completion_status(
             else:
                 # All questions answered (shouldn't happen if completed is False, but handle it)
                 current_question_index = len(ordered_question_ids)
-            
-            # Debug: Log the ordered list and current index
-            print(f"   📍 ORDERED LIST DEBUG:")
-            print(f"      Total questions in ordered list: {len(ordered_question_ids)}")
-            print(f"      First unanswered index: {current_question_index}")
-            print(f"      First unanswered question ID: {ordered_question_ids[current_question_index] if current_question_index < len(ordered_question_ids) else 'N/A'}")
-            print(f"      Ordered question IDs: {ordered_question_ids[:20]}..." if len(ordered_question_ids) > 20 else f"      Ordered question IDs: {ordered_question_ids}")
         
         return {
             "completed": completed,
