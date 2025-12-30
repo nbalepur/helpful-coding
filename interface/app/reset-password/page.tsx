@@ -259,7 +259,11 @@ function ResetPasswordPageInner() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <LoadingSpinner size="xl" color="white" />
+      </div>
+    }>
       <ResetPasswordPageInner />
     </Suspense>
   );
