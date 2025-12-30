@@ -1,6 +1,6 @@
 Thank you for participating in VibeJam! Before getting started, please either watch the video below (recommended) or read through all of the instructions. You can return to [this page](/about) at any time.
 
-![Video Instructions](videos/tic_tac_toe.mp4)
+![Video Instructions](instruction_assets/instructions.mp4)
 
 <br />
 
@@ -115,7 +115,7 @@ After submitting your project, you can keep working on it, but **any resubmissio
 
 #### Voting on Projects
 
-After the voting period opens, you can hit the "View Submissions" button on any project to view all other user submissions:
+After many users make submissions, we will open up voting on others's submissions. When voting begins and if you are later selected to be a judge, you can hit the "View Submissions" button on any project to view all other user submissions:
 
 ![Project Questions](instruction_assets/view_submissions.png)
 

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import { getCookie, setCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
 
@@ -38,6 +39,9 @@ function UserStudyPopupInner() {
   const [hasStartedVideo, setHasStartedVideo] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const videoStartedRef = useRef(false);
+  const tutorialVideoRef = useRef<HTMLVideoElement | null>(null);
+  const userRequestedPlayRef = useRef(false);
 
   // Load markdown content for tutorial
   useEffect(() => {
@@ -51,9 +55,7 @@ function UserStudyPopupInner() {
           return response.text();
         })
         .then((text) => {
-          // Preprocess markdown: convert <br /> tags to newlines
-          const processedText = text.replace(/<br\s*\/?>/gi, '\n\n');
-          setMarkdownContent(processedText);
+          setMarkdownContent(text);
           setIsLoading(false);
         })
         .catch((err) => {
@@ -75,7 +77,27 @@ function UserStudyPopupInner() {
 
   // Handle video play for tutorial
   const handleVideoPlay = () => {
-    setHasStartedVideo(true);
+    if (!videoStartedRef.current) {
+      videoStartedRef.current = true;
+      setHasStartedVideo(true);
+    }
+  };
+
+  // Try to kick off playback on user gesture; keep "Got It" gated on actual playing event
+  const ensureVideoPlays = () => {
+    const videoEl = tutorialVideoRef.current;
+    if (!videoEl) return;
+
+    // Remember that the user attempted to play so we can retry once data is ready
+    userRequestedPlayRef.current = true;
+    // Some browsers need muted flag for inline start even after user gesture
+    if (videoEl.muted === undefined) {
+      // no-op: just defensive
+    }
+    const playPromise = videoEl.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
   };
 
   // Check if tutorial modal can be closed
@@ -91,16 +113,6 @@ function UserStudyPopupInner() {
       sameSite: 'lax'
     });
   };
-
-  // Mark tutorial as seen when user scrolls to bottom or starts video
-  useEffect(() => {
-    if (popupState === 'tutorial' && canCloseTutorial) {
-      const currentState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
-      if (currentState !== 'dismissed') {
-        setTutorialCookie('seen');
-      }
-    }
-  }, [popupState, canCloseTutorial]);
 
   // Disable all keyboard inputs when modal is open
   useEffect(() => {
@@ -180,13 +192,6 @@ function UserStudyPopupInner() {
     // Only allow closing if it's tutorial and conditions are met, or if explicitly allowed
     if (popupState === 'tutorial' && !canCloseTutorial) {
       return;
-    }
-    // Mark tutorial as seen when user closes it (unless already dismissed)
-    if (popupState === 'tutorial') {
-      const currentState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
-      if (currentState !== 'dismissed') {
-        setTutorialCookie('seen');
-      }
     }
     setPopupState('none');
     // Recalculate popup state to check if we need to show another popup (e.g., pre-test)
@@ -362,31 +367,6 @@ function UserStudyPopupInner() {
             >
               Instructions
             </h2>
-            {canCloseTutorial && (
-              <button
-                type="button"
-                onClick={handleClose}
-                aria-label="Close instructions modal"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#9ca3af',
-                  fontSize: '18px',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                  lineHeight: 1,
-                  transition: 'color 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#9ca3af';
-                }}
-              >
-                ✕
-              </button>
-            )}
           </div>
 
           {/* Scrollable Content */}
@@ -425,6 +405,7 @@ function UserStudyPopupInner() {
                 }}
               >
                 <Markdown
+                  rehypePlugins={[rehypeRaw]}
                   components={{
                     h1: ({ children }) => (
                       <h1
@@ -464,6 +445,19 @@ function UserStudyPopupInner() {
                       >
                         {children}
                       </h3>
+                    ),
+                    h4: ({ children }) => (
+                      <h4
+                        style={{
+                          fontSize: '17px',
+                          fontWeight: 'bold',
+                          color: '#ffffff',
+                          marginBottom: '8px',
+                          marginTop: '16px',
+                        }}
+                      >
+                        {children}
+                      </h4>
                     ),
                     p: ({ children }) => (
                       <p
@@ -545,19 +539,61 @@ function UserStudyPopupInner() {
                             style={{
                               display: 'flex',
                               justifyContent: 'center',
+                              width: '100%',
                               margin: '16px 0',
                             }}
                           >
                             <video
+                              ref={(el) => {
+                                tutorialVideoRef.current = el;
+                              }}
                               src={resolvedSrc}
                               controls
-                              onPlay={handleVideoPlay}
+                              playsInline
+                            preload="auto"
+                            onClick={() => {
+                              ensureVideoPlays();
+                            }}
+                            onPlaying={(e) => {
+                              // Use onPlaying which fires when playback actually starts
+                              // This is more reliable than onPlay
+                              handleVideoPlay();
+                            }}
+                            onPlay={(e) => {
+                              userRequestedPlayRef.current = true;
+                              ensureVideoPlays();
+                            }}
+                            onPause={(e) => {
+                              // no-op
+                            }}
+                            onLoadedData={(e) => {
+                              if (userRequestedPlayRef.current) {
+                                ensureVideoPlays();
+                              }
+                            }}
+                            onCanPlay={(e) => {
+                              if (userRequestedPlayRef.current) {
+                                ensureVideoPlays();
+                              }
+                            }}
+                              onTimeUpdate={(e) => {
+                                const videoEl = e.currentTarget as HTMLVideoElement;
+                                if (!videoStartedRef.current && videoEl.currentTime > 0) {
+                                  handleVideoPlay();
+                                }
+                              }}
                               style={{
-                                maxWidth: '90%',
+                                width: '90%',
+                                maxWidth: '900px',
+                                aspectRatio: '16 / 9',
                                 maxHeight: '600px',
                                 height: 'auto',
-                                width: 'auto',
                                 border: '1px solid #4b5563',
+                                backgroundColor: '#000',
+                                objectFit: 'contain',
+                                cursor: 'pointer',
+                                display: 'block',
+                                margin: '0 auto',
                               }}
                             >
                               Your browser does not support the video tag.
@@ -571,6 +607,7 @@ function UserStudyPopupInner() {
                           style={{
                             display: 'flex',
                             justifyContent: 'center',
+                            width: '100%',
                             margin: '16px 0',
                           }}
                         >
@@ -583,6 +620,8 @@ function UserStudyPopupInner() {
                               height: 'auto',
                               width: 'auto',
                               border: '1px solid #4b5563',
+                              display: 'block',
+                              margin: '0 auto',
                             }}
                           />
                         </div>
@@ -608,7 +647,14 @@ function UserStudyPopupInner() {
           >
             <button
               type="button"
-              onClick={handleClose}
+              onClick={async () => {
+                // Only set cookie to "seen" and log when "Got It" button is explicitly pressed
+                const currentState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
+                if (currentState !== 'dismissed') {
+                  setTutorialCookie('seen');
+                }
+                await handleClose();
+              }}
               disabled={!canCloseTutorial}
               style={{
                 padding: '10px 24px',

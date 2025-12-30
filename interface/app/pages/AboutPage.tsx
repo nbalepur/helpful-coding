@@ -259,7 +259,7 @@ export default function AboutPage() {
                     
                     if (isVideo) {
                       return (
-                        <div className="flex justify-center my-4">
+                        <div className="flex justify-center my-4 w-full">
                           {/* Container with fixed dimensions to prevent layout shift */}
                           <div 
                             className="relative"
@@ -281,7 +281,9 @@ export default function AboutPage() {
                               className="absolute top-0 left-0 w-full h-full object-contain"
                               style={{ 
                                 width: '100%',
-                                height: '100%'
+                                height: '100%',
+                                display: 'block',
+                                margin: '0 auto'
                               }}
                             >
                               Your browser does not support the video tag.
@@ -292,12 +294,12 @@ export default function AboutPage() {
                     }
                     
                     return (
-                      <div className="flex justify-center my-4">
+                      <div className="flex justify-center my-4 w-full">
                         <img 
                           src={src} 
                           alt={alt} 
                           className="border border-gray-400"
-                          style={{ maxWidth: '90%', maxHeight: '600px', height: 'auto', width: 'auto' }}
+                          style={{ maxWidth: '90%', maxHeight: '600px', height: 'auto', width: 'auto', display: 'block', margin: '0 auto' }}
                         />
                       </div>
                     );

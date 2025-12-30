@@ -667,7 +667,6 @@ def _generate_summary_and_suggestions(api_key: str, user_query: str, changed_fil
                     out += f"<{fname}>```{k}\n{d[k]}\n</{fname}>\n```\n"
             return out.strip()
 
-
         prompt = """
 You are an expert at summarizing actions that an AI assistant took after being prompted by a user and providing useful suggestions for the user to improve their code.
 
@@ -699,17 +698,11 @@ Using this information your job is to generate:
 
 <idea instructions>
 - Generate 3 ideas with their corresponding probabilities, sampled from the full distribution.
-- At least one of the ideas should be sampled from the long tail of ideas, not the most common ones.
 - Each idea should contribute toward improving at least one of the following: 1) task fulfillment - how well the interface adheres to the task requirements; 2) style - quality of the visual design: layout, colors, typography, and polish; 3) enjoyment - how engaging and satisfying it feels to interact with the UI; or 4) creativity - original touches or mechanics that make the UI stand out.
 - Only generate ideas that are feasible to implement with HTML, CSS, and JavaScript. Do not suggest anything that requires custom assets, external libraries, or complex modalities (e.g. audio, video, etc.). Anything visual that you could implement with HTML, CSS, and JavaScript are fine. Do not suggest anything that would require a backend or persistent state tracking, like a persistent high score (per-session high score is fine) or a log-in page. If the user refreshes the website they are building, it should be fine if everything is reset.
 - The ideas should be framed as follow-up actions that you could take, i.e. commands starting with a verb.
-- Look at the past conversation history and generate new ideas that you have not proposed in the past.
-- Be concise. Each idea should be no more than ten words.
+- Be concise. Each idea should be no more than 15 words.
 </idea instructions>
-
-<idea bank>
-{idea_str}
-</idea bank>
 
 <format instructions>
 Generate your output as a json with two keys: 1) "summary" with a string value of the summary; 2) "ideas" with a list of strings value of the ideas; and 3) "probabilities" with a list of floats value of the probabilities of each idea based on your full distribution.
@@ -721,6 +714,60 @@ Generate your output as a json with two keys: 1) "summary" with a string value o
 Do not generate anything else
 </format instructions>
 """
+
+#         prompt = """
+# You are an expert at summarizing actions that an AI assistant took after being prompted by a user and providing useful suggestions for the user to improve their code.
+
+# This is what the user asked the assistant to do:
+# <query>
+# {user_query}
+# </query>
+
+# These are the final versions of files after edits (only changed files included):
+# <final_files>
+# {final_files_blob}
+# </final_files>
+
+# These are the changes that the assistant made to the code (with optional SEARCH/REPLACE edit blocks when available):
+# <changes>
+# {edits_blob}
+# </changes>
+
+# Using this information your job is to generate:
+# 1. A summary of the changes that the assistant made to the code.
+# 2. A list of ideas for the user to improve their code.
+
+# <summary instructions>
+# - The summary should be written in first person as if you were the one who made edits to the code. Use "I" as appropriate.
+# - You must discuss which files were edited and the specific changes to each file.
+# - Be subtle in how the changes address the user's request; do not quote the user's request.
+# - Be concise. The summary should be a maximum of two sentences.
+# </summary instructions>
+
+# <idea instructions>
+# - Generate 3 ideas with their corresponding probabilities, sampled from the full distribution.
+# - At least one of the ideas should be sampled from the long tail of ideas, not the most common ones.
+# - Each idea should contribute toward improving at least one of the following: 1) task fulfillment - how well the interface adheres to the task requirements; 2) style - quality of the visual design: layout, colors, typography, and polish; 3) enjoyment - how engaging and satisfying it feels to interact with the UI; or 4) creativity - original touches or mechanics that make the UI stand out.
+# - Only generate ideas that are feasible to implement with HTML, CSS, and JavaScript. Do not suggest anything that requires custom assets, external libraries, or complex modalities (e.g. audio, video, etc.). Anything visual that you could implement with HTML, CSS, and JavaScript are fine. Do not suggest anything that would require a backend or persistent state tracking, like a persistent high score (per-session high score is fine) or a log-in page. If the user refreshes the website they are building, it should be fine if everything is reset.
+# - The ideas should be framed as follow-up actions that you could take, i.e. commands starting with a verb.
+# - Look at the past conversation history and generate new ideas that you have not proposed in the past.
+# - Be concise. Each idea should be no more than ten words.
+# </idea instructions>
+
+# <idea bank>
+# {idea_str}
+# </idea bank>
+
+# <format instructions>
+# Generate your output as a json with two keys: 1) "summary" with a string value of the summary; 2) "ideas" with a list of strings value of the ideas; and 3) "probabilities" with a list of floats value of the probabilities of each idea based on your full distribution.
+# {{
+#     "summary": "insert summary",
+#     "ideas": ["insert idea 1", "insert idea 2", "insert idea 3"],
+#     "probabilities": [float probability 1, float probability 2, float probability 3],
+# }}
+# Do not generate anything else
+# </format instructions>
+# """
 
         idea_seed_bank = [
             "Hold-to-charge actions",
@@ -921,7 +968,8 @@ Do not generate anything else
             model=SUMMARY_MODEL,
             input=[
                 {"role": "system", "content": "Summarize changes and propose follow-up ideas as JSON."},
-                {"role": "user", "content": prompt.format(user_query=user_query, idea_str=idea_str, final_files_blob=parse_code(final_lang_map), edits_blob=parse_code(edits_map))},
+                #{"role": "user", "content": prompt.format(user_query=user_query, idea_str=idea_str, final_files_blob=parse_code(final_lang_map), edits_blob=parse_code(edits_map))},
+                {"role": "user", "content": prompt.format(user_query=user_query, final_files_blob=parse_code(final_lang_map), edits_blob=parse_code(edits_map))},
             ],
             temperature=1.0,
             text_format=SummaryResponse,
