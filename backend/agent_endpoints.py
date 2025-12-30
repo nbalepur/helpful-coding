@@ -701,7 +701,7 @@ Using this information your job is to generate:
 - Each idea should contribute toward improving at least one of the following: 1) task fulfillment - how well the interface adheres to the task requirements; 2) style - quality of the visual design: layout, colors, typography, and polish; 3) enjoyment - how engaging and satisfying it feels to interact with the UI; or 4) creativity - original touches or mechanics that make the UI stand out.
 - Only generate ideas that are feasible to implement with HTML, CSS, and JavaScript. Do not suggest anything that requires custom assets, external libraries, or complex modalities (e.g. audio, video, etc.). Anything visual that you could implement with HTML, CSS, and JavaScript are fine. Do not suggest anything that would require a backend or persistent state tracking, like a persistent high score (per-session high score is fine) or a log-in page. If the user refreshes the website they are building, it should be fine if everything is reset.
 - The ideas should be framed as follow-up actions that you could take, i.e. commands starting with a verb.
-- Be concise. Each idea should be no more than 15 words.
+- Be concise. Each idea should be no more than 10 words.
 </idea instructions>
 
 <format instructions>

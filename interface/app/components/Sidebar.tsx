@@ -16,7 +16,8 @@ import {
   Coffee,
   Smile,
   User,
-  FlaskConical
+  FlaskConical,
+  MessageSquare
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
 
@@ -55,9 +56,8 @@ export default function Sidebar({
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
     { id: 'about', icon: Info, label: 'Instructions' },
+    { id: 'feedback', icon: MessageSquare, label: 'Feedback', isExternal: true, externalUrl: 'https://forms.gle/9zr5VcfzcPC4Mp5x8' },
   ] as const;
-
-  // Feedback removed; About moved into navigation
 
   // const themeOptions = [
   //   { id: 'native', icon: Monitor, label: 'Native' },
@@ -172,13 +172,21 @@ export default function Sidebar({
                     'skill-check': '/skill-check',
                     'about': '/about',
                   };
-                  const route = routeMap[item.id] || '/browse';
+                  const isExternal = (item as any).isExternal;
+                  const externalUrl = (item as any).externalUrl;
+                  const route = isExternal ? externalUrl : (routeMap[item.id] || '/browse');
                   
                   return (
                     <Tooltip key={item.id} text={(item as any).tooltip || item.label}>
                       <a
                         href={route}
+                        target={isExternal ? '_blank' : undefined}
+                        rel={isExternal ? 'noopener noreferrer' : undefined}
                         onClick={(e) => {
+                          // For external links, always open in new tab
+                          if (isExternal) {
+                            return;
+                          }
                           // Allow default behavior for command/ctrl clicks (open in new tab)
                           if (e.metaKey || e.ctrlKey) {
                             return;

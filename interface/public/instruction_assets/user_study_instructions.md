@@ -1,4 +1,4 @@
-Thank you for participating in VibeJam! Before getting started, please either watch the video below (recommended) or read through all of the instructions. You can return to [this page](/about) at any time.
+Thank you for participating in VibeJam! Before you can get started, you must either watch the video below (recommended) or read through all of the instructions. You can return to [this page](/about) at any time.
 
 ![Video Instructions](instruction_assets/instructions.mp4)
 

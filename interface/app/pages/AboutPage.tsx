@@ -254,8 +254,45 @@ export default function AboutPage() {
                     return <div {...props}>{children}</div>;
                   },
                   img: ({ src, alt }) => {
-                    // Check if the source is a video file
+                    // Check if the source is a video file or instructions.mp4 (which we'll replace with YouTube)
                     const isVideo = src?.match(/\.(mp4|webm|ogg|avi|mov)(\?.*)?$/i);
+                    const isInstructionsVideo = src?.includes('instructions.mp4');
+                    
+                    // Replace instructions.mp4 with YouTube iframe
+                    if (isInstructionsVideo) {
+                      const youtubeVideoId = '_EjgKIJ5xBo';
+                      const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1&enablejsapi=0`;
+                      
+                      return (
+                        <div className="flex justify-center my-4 w-full">
+                          <div 
+                            className="relative"
+                            style={{ 
+                              width: '90%',
+                              maxWidth: '800px',
+                              paddingBottom: '56.25%', // 16:9 aspect ratio (9/16 = 0.5625)
+                              backgroundColor: '#1f2937',
+                              border: '1px solid #4b5563',
+                              borderRadius: '4px',
+                              overflow: 'hidden',
+                              position: 'relative'
+                            }}
+                          >
+                            <iframe
+                              src={youtubeEmbedUrl}
+                              className="absolute top-0 left-0 w-full h-full"
+                              style={{ 
+                                width: '100%',
+                                height: '100%',
+                                border: 'none'
+                              }}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
                     
                     if (isVideo) {
                       return (

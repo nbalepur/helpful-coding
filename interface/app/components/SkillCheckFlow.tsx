@@ -997,6 +997,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       cursor: pointer;
       transition: background-color 0.15s ease-in-out;
       width: 100%;
+      margin-top: 8px;
     }
     .test-run-button:hover:not(:disabled) {
       background: #1d4ed8;

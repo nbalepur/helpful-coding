@@ -3330,7 +3330,7 @@ def generate_js_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
 
     questions.append({
         "question_name": "explain_function",
-        "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n```{sampled_function_code}```",
+        "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you don't know how the function works, please say so.\n```{sampled_function_code}```",
         "question_type": "free_response",
         "choices": [],
         "answer": ''
@@ -3668,7 +3668,7 @@ async def _generate_comprehension_questions(
         },
         {
             "question_name": "self_report_explain",
-            "question": f"{prefix}: I could explain how my code works to someone else.",
+            "question": f"{prefix}: I could explain how my code works to someone else while looking at it.",
             "question_type": "mcqa",
             "choices": self_report_options,
             "answer": ""
