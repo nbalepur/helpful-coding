@@ -41,6 +41,14 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const isInitialMountRef = useRef(true);
   const filesRef = useRef<FileNode[]>(files);
+  const popoutWindowRef = useRef<Window | null>(null);
+  const popoutCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
+  
+  // Detect platform after mount
+  useEffect(() => {
+    setIsMac(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform));
+  }, []);
 
   useEffect(() => {
     filesRef.current = files;
@@ -282,21 +290,122 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
     }
   }, [isDragging, handleDragMove, handleDragEnd, consolePlacement]);
 
+  // Update popout window when content changes
+  const updatePopoutWindow = useCallback(() => {
+    if (!popoutWindowRef.current) return;
+    
+    // Check if window is still open and accessible
+    try {
+      if (popoutWindowRef.current.closed) {
+        popoutWindowRef.current = null;
+        return;
+      }
+      
+      const fullHtml = previewRef.current?.getFullHtml?.();
+      if (!fullHtml) {
+        console.warn('No preview content available for popout update');
+        return;
+      }
+      
+      // Write new content to the popout window
+      // Use try-catch for each step in case of security restrictions
+      const win = popoutWindowRef.current;
+      if (win.document && win.document.open) {
+        win.document.open();
+        win.document.write(fullHtml);
+        win.document.close();
+        
+        // Update title
+        try {
+          win.document.title = `${taskName} - Preview`;
+        } catch (_) {}
+      } else {
+        console.warn('Cannot access popout window document');
+      }
+    } catch (e) {
+      // Window may have been closed or become inaccessible
+      console.warn('Failed to update popout window:', e);
+      popoutWindowRef.current = null;
+    }
+  }, [taskName]);
+
   // Handle popout to new window
   const handlePopout = () => {
     try {
       const fullHtml = previewRef.current?.getFullHtml?.();
-      if (!fullHtml) return;
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank', 'noopener');
+      if (!fullHtml) {
+        console.warn('No preview content available');
+        return;
+      }
+      
+      // If popout window already exists and is open, reuse it
+      if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+        updatePopoutWindow();
+        popoutWindowRef.current.focus();
+        return;
+      }
+      
+      // Create new popout window - use about:blank to allow document.write
+      // Note: We can't use 'noopener' because we need to access the window's document
+      const win = window.open('about:blank', '_blank');
+      
       if (!win) {
         console.warn('Popup blocked by the browser. Please allow popups for this site.');
+        return;
       }
+      
+      // Store reference to the window
+      popoutWindowRef.current = win;
+      
+      // Write initial content - use setTimeout to ensure window is ready
+      setTimeout(() => {
+        try {
+          if (win.closed) return;
+          win.document.open();
+          win.document.write(fullHtml);
+          win.document.close();
+          
+          // Set window title
+          win.document.title = `${taskName} - Preview`;
+        } catch (e) {
+          console.error('Failed to write to popout window:', e);
+        }
+      }, 0);
+      
+      // Clean up reference when window is closed
+      if (popoutCheckIntervalRef.current) {
+        clearInterval(popoutCheckIntervalRef.current);
+      }
+      popoutCheckIntervalRef.current = setInterval(() => {
+        if (win.closed) {
+          popoutWindowRef.current = null;
+          if (popoutCheckIntervalRef.current) {
+            clearInterval(popoutCheckIntervalRef.current);
+            popoutCheckIntervalRef.current = null;
+          }
+        }
+      }, 500);
     } catch (e) {
       console.error('Failed to open popout window', e);
+      popoutWindowRef.current = null;
     }
   };
+
+  // Watch for content changes and update popout window
+  useEffect(() => {
+    if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      updatePopoutWindow();
+    }
+  }, [htmlContent, cssContent, jsContent, internalRefreshKey, updatePopoutWindow]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (popoutCheckIntervalRef.current) {
+        clearInterval(popoutCheckIntervalRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div ref={containerRef} className={`preview-tab h-full w-full flex flex-col bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 overflow-visible ${className}`}>
@@ -320,7 +429,7 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
             <RefreshCw size={16} className="text-gray-300" />
           </button>
           <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-            Refresh (⌘+S)
+            Refresh ({isMac ? '⌘' : 'Ctrl'}+S)
           </div>
         </div>
         

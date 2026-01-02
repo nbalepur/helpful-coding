@@ -1,8 +1,10 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import MonacoEditor, { DiffEditor } from '@monaco-editor/react';
 import FileManager, { FileNode } from './FileManager';
 import { Bot, Check, X, ChevronRight } from 'lucide-react';
+import LoadingSpinner from './LoadingSpinner';
 
 interface MultiFileEditorProps {
   // Editor props
@@ -40,6 +42,8 @@ interface MultiFileEditorProps {
   pendingAgentChanges?: any;
   onAcceptAgentChanges?: (fileType?: string, content?: string) => void;
   onRejectAgentChanges?: (actionType?: 'keep_all' | 'reject_all') => void;
+  // Loading state
+  isLoadingFiles?: boolean;
 }
 
 // Helper function to determine language from filename
@@ -152,8 +156,10 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   pendingAgentChanges,
   onAcceptAgentChanges,
   onRejectAgentChanges,
+  isLoadingFiles = false,
 }: MultiFileEditorProps) => {
   const [isAIVisible, setIsAIVisible] = useState(false);
+  const [aiHelpTooltip, setAiHelpTooltip] = useState<{ x: number; y: number } | null>(null);
   // Use a ref to track the last task index to detect task changes (not just remounts)
   const lastTaskIndexRef = useRef<number | null>(null);
   const lastInitialFilesRef = useRef<any[] | null>(null);
@@ -163,6 +169,12 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   const [activeTab, setActiveTab] = useState<string>('');
   const [showFileManager, setShowFileManager] = useState(true);
   const [highlightedFileId, setHighlightedFileId] = useState<string>('');
+  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
+  
+  // Detect platform after mount
+  useEffect(() => {
+    setIsMac(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform));
+  }, []);
   
   // Track edited modified content in diff view
   const [editedModifiedContent, setEditedModifiedContent] = useState<Record<string, string>>({});
@@ -211,7 +223,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     setActiveTab(`tab_${fileId}`);
   }, [files]);
   
-  const revealLocationInEditor = useCallback((fileId: string, line?: number, column?: number, attempt: number = 0) => {
+  const revealLocationInEditor = useCallback((fileId: string, line?: number, column?: number, attempt: number = 0, scrollOnly: boolean = false) => {
     const MAX_ATTEMPTS = 8;
     const requestedLine = Math.round(typeof line === 'number' && Number.isFinite(line) ? line : 1);
     const requestedColumn = Math.round(typeof column === 'number' && Number.isFinite(column) ? column : NaN);
@@ -224,7 +236,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
 
     if (!editorInstance) {
       if (attempt < MAX_ATTEMPTS) {
-        setTimeout(() => revealLocationInEditor(fileId, requestedLine, requestedColumn, attempt + 1), 80);
+        setTimeout(() => revealLocationInEditor(fileId, requestedLine, requestedColumn, attempt + 1, scrollOnly), 80);
       }
       return;
     }
@@ -260,23 +272,30 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     }
 
     try {
-      if (typeof editorInstance.revealPositionInCenter === 'function') {
-        editorInstance.revealPositionInCenter({ lineNumber: effectiveLine, column: effectiveColumn });
-      } else if (typeof editorInstance.revealLineInCenter === 'function') {
+      // Scroll to the location
+      if (typeof editorInstance.revealLineInCenter === 'function') {
         editorInstance.revealLineInCenter(effectiveLine);
+      } else if (typeof editorInstance.revealPositionInCenter === 'function') {
+        editorInstance.revealPositionInCenter({ lineNumber: effectiveLine, column: effectiveColumn });
       }
 
-      if (typeof editorInstance.setPosition === 'function') {
-        editorInstance.setPosition({ lineNumber: effectiveLine, column: effectiveColumn });
+      // Only set position (move cursor) if scrollOnly is false
+      // When scrollOnly is true, don't touch the cursor at all - let Monaco Editor preserve the user's cursor position
+      if (!scrollOnly) {
+        if (typeof editorInstance.setPosition === 'function') {
+          editorInstance.setPosition({ lineNumber: effectiveLine, column: effectiveColumn });
+        }
       }
+      // When scrollOnly is true, we don't restore or change the cursor - just scroll
 
-      if (typeof editorInstance.focus === 'function') {
+      // Only focus the editor if scrollOnly is false - when scrollOnly is true, keep focus in the assistant input box
+      if (!scrollOnly && typeof editorInstance.focus === 'function') {
         editorInstance.focus();
       }
     } catch (error) {
       console.error('Failed to reveal location in editor:', error);
       if (attempt < MAX_ATTEMPTS) {
-        setTimeout(() => revealLocationInEditor(fileId, requestedLine, requestedColumn, attempt + 1), 120);
+        setTimeout(() => revealLocationInEditor(fileId, requestedLine, requestedColumn, attempt + 1, scrollOnly), 120);
       }
     }
   }, [pendingAgentChanges]);
@@ -417,15 +436,18 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       }
       // If files haven't changed, don't reset - preserve user's edits
     } else {
-      // No files provided; reset state
-      setFiles([]);
-      setOpenTabs([]);
-      setActiveFileId('');
-      setActiveTab('');
-      lastTaskIndexRef.current = null;
-      lastInitialFilesRef.current = null;
+      // No files provided; reset state only if not loading files
+      // This prevents the "No files open" flash when files are being loaded
+      if (!isLoadingFiles) {
+        setFiles([]);
+        setOpenTabs([]);
+        setActiveFileId('');
+        setActiveTab('');
+        lastTaskIndexRef.current = null;
+        lastInitialFilesRef.current = null;
+      }
     }
-  }, [initialFiles, taskIndex]);
+  }, [initialFiles, taskIndex, isLoadingFiles]);
 
   // Don't automatically open any files on mount - keep them closed
 
@@ -655,7 +677,17 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     }
   };
 
+  const showAiHelpTooltip = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setAiHelpTooltip({ x: rect.left + rect.width / 2, y: rect.top });
+  }, []);
+
+  const hideAiHelpTooltip = useCallback(() => {
+    setAiHelpTooltip(null);
+  }, []);
+
   // Function to get current content of a file from the editor
+  // This should read from what's actually visible on screen
   const getCurrentFileContent = (fileId: string): string => {
     const file = files.find(f => f.id === fileId);
     const fileContent = file?.content;
@@ -703,34 +735,28 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       return pendingContent;
     }
 
-    // If this is the currently active file, prefer the live editor value when it is available
+    // When NOT in diff view, file.content is the source of truth (it's updated by updateFileContent)
+    // This ensures we read what's actually stored, which matches what's visible on screen
+    if (typeof fileContent === 'string') {
+      console.log('📄 getCurrentFileContent: returning file.content (source of truth) for', fileId, 'length:', fileContent.length);
+      return fileContent;
+    }
+
+    // Fallback: try to read from the active editor if it's the active file
     if (fileId === activeFileId) {
       if (liveMonacoEditorRef.current && typeof liveMonacoEditorRef.current.getValue === 'function') {
         const editorValue = liveMonacoEditorRef.current.getValue();
         if (typeof editorValue === 'string') {
-          console.log('📄 getCurrentFileContent: active file using Monaco editor value', fileId, 'length:', editorValue.length);
+          console.log('📄 getCurrentFileContent: active file fallback to liveMonacoEditorRef value', fileId, 'length:', editorValue.length);
           return editorValue;
         }
       }
 
       const editorValue = typeof code === 'string' ? code : '';
-
-      if (typeof fileContent === 'string') {
-        console.log('📄 getCurrentFileContent: active file using tracked state', fileId, 'length:', fileContent.length);
-        return fileContent;
-      }
-
       if (editorValue) {
-        console.log('📄 getCurrentFileContent: active file fallback to editor value', fileId, 'length:', editorValue.length);
+        console.log('📄 getCurrentFileContent: active file fallback to code state', fileId, 'length:', editorValue.length);
         return editorValue;
       }
-
-      return '';
-    }
-
-    if (typeof fileContent === 'string') {
-      console.log('📄 getCurrentFileContent: returning file.content for', fileId, 'length:', fileContent.length);
-      return fileContent;
     }
 
     console.log('📄 getCurrentFileContent: no content found for', fileId, 'defaulting to empty string');
@@ -766,7 +792,38 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       });
     });
     
-    // If this is the active file, update the editor code
+    // Check if we're in diff view for this file
+    const hasPendingChanges = pendingAgentChanges && pendingAgentChanges.modified && pendingAgentChanges.modified[fileId];
+    const diffEditor = diffEditorsRef.current[fileId];
+    
+    if (hasPendingChanges && diffEditor) {
+      // Update the diff editor's modified editor
+      const modifiedEditor = diffEditor.getModifiedEditor();
+      if (modifiedEditor && modifiedEditor.getModel) {
+        const model = modifiedEditor.getModel();
+        if (model) {
+          modifiedEditor.executeEdits('update-file-content', [{
+            range: model.getFullModelRange(),
+            text: newContent
+          }]);
+        }
+      }
+    } else {
+      // Update the normal Monaco editor
+      const editor = editorsRef.current[fileId];
+      if (editor && editor.getModel) {
+        const model = editor.getModel();
+        if (model) {
+          // Use pushEditOperations to preserve undo history
+          editor.executeEdits('update-file-content', [{
+            range: model.getFullModelRange(),
+            text: newContent
+          }]);
+        }
+      }
+    }
+    
+    // If this is the active file, also update the editor code state
     if (fileId === activeFileId) {
       setCode(newContent);
     }
@@ -1176,7 +1233,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
         }, 0);
       } catch {}
     },
-    revealLocation: (fileName: string, lineNumber?: number, columnNumber?: number, options?: { originalPath?: string; level?: string; message?: any; meta?: any }) => {
+    revealLocation: (fileName: string, lineNumber?: number, columnNumber?: number, options?: { originalPath?: string; level?: string; message?: any; meta?: any; scrollOnly?: boolean }) => {
       try {
         const normalizedName = String(fileName || '').toLowerCase();
         if (!normalizedName) return;
@@ -1201,13 +1258,14 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
         const safeColumn = typeof columnNumber === 'number' && Number.isFinite(columnNumber) ? columnNumber : undefined;
 
         setTimeout(() => {
-          revealLocationInEditor(target.id, safeLine, safeColumn);
+          revealLocationInEditor(target.id, safeLine, safeColumn, 0, options?.scrollOnly);
         }, 60);
       } catch (error) {
         console.error('Failed to reveal file location:', error);
       }
     },
     getMonacoEditor: () => liveMonacoEditorRef.current,
+    getActiveFileId: () => activeFileId,
   }), [files, activeFileId, code, editedModifiedContent, pendingAgentChanges, layoutAllEditors, clearDiffEditor, handleFileSelect, revealLocationInEditor]);
 
   // Keep active editor ref in sync when switching files
@@ -1253,28 +1311,29 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
               };
               
               const shortcutNum = getShortcutNumber(tab.name);
-              const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
               const cmdSymbol = isMac ? '⌘' : 'Ctrl';
               const hasDiffs = fileHasDiffs(tab.fileId);
+              
+              const isActive = activeTab === tab.id;
               
               return (
                 <div
                   key={tab.id}
-                  className={`tab flex items-center px-3 text-sm cursor-pointer border-r border-gray-600/30 transition-all duration-200 ${
-                    activeTab === tab.id 
+                  className={`tab flex items-center px-3 text-sm cursor-pointer border-r border-gray-600/30 transition-all duration-200 flex-shrink-0 min-w-0 ${
+                    isActive 
                       ? 'text-white bg-gray-800/50 relative after:content-["\""] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-blue-400'
                       : (highlightedFileId === tab.fileId ? 'text-white bg-gray-700/30' : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-700/30') + (highlightedFileId === tab.fileId ? ' translate-y-[-1px]' : '')
                   }`}
                   onClick={() => handleTabSelect(tab.id)}
                 >
-                  <span className="mr-2 flex items-center gap-1.5">
-                    {tab.name}
+                  <span className="mr-2 flex items-center gap-1.5 min-w-0 truncate">
+                    <span className="truncate">{tab.name}</span>
                     {hasDiffs && (
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" title="Modified - needs review" />
                     )}
                   </span>
                   {shortcutNum !== null && (
-                    <span className="ml-2 text-xs text-gray-500 opacity-70">
+                    <span className="ml-2 text-xs text-gray-500 opacity-70 flex-shrink-0 whitespace-nowrap">
                       {cmdSymbol}+{shortcutNum}
                     </span>
                   )}
@@ -1283,18 +1342,15 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
             })}
           </div>
           <div className="flex items-center px-2 border-l border-gray-700/50 bg-gray-950">
-            <div className="relative group">
-              <button
-                onClick={handleOpenAI}
-                className="flex items-center justify-center w-8 h-8 rounded-md bg-gray-700/50 hover:bg-gray-600/50 transition-colors text-gray-300 hover:text-white"
-                aria-pressed={isAIVisible}
-              >
-                <Bot size={16} className={isAIVisible ? 'text-blue-400' : 'text-gray-300'} />
-              </button>
-            <div className="absolute right-full top-1/2 transform -translate-y-1/2 mr-2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                AI Help (⌘+B)
-              </div>
-            </div>
+            <button
+              onClick={handleOpenAI}
+              onMouseEnter={showAiHelpTooltip}
+              onMouseLeave={hideAiHelpTooltip}
+              className="flex items-center justify-center w-8 h-8 rounded-md bg-gray-700/50 hover:bg-gray-600/50 transition-colors text-gray-300 hover:text-white"
+              aria-pressed={isAIVisible}
+            >
+              <Bot size={16} className={isAIVisible ? 'text-blue-400' : 'text-gray-300'} />
+            </button>
           </div>
         </div>
 
@@ -1386,6 +1442,8 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
                         let disposeListener: (() => void) | null = null;
                         if (editor.getModifiedEditor && !readOnly) {
                           const modifiedEditor = editor.getModifiedEditor();
+                          // Store modified editor reference for undo/redo operations in diff view
+                          editorsRef.current[tab.fileId] = modifiedEditor;
                           const listener = modifiedEditor.onDidChangeModelContent(() => {
                             const content = modifiedEditor.getValue();
                             setEditedModifiedContent(prev => ({ ...prev, [editedKey]: content }));
@@ -1426,7 +1484,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
                       }}
                     />
                     {isActive && renderDiff && (() => {
-                      const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
                       const cmdSymbol = isMac ? '⌘' : 'Ctrl';
                       return (
                         <div className="absolute bottom-4 left-2 right-2 flex justify-center z-10 pointer-events-none">
@@ -1442,11 +1499,11 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
                               <span className="ml-1 text-[10px] opacity-70">{cmdSymbol}+R</span>
                             </button>
                             <div className="w-px h-4 bg-gray-600 mx-0.5" />
-                            <button onClick={acceptAllFiles} className="px-2.5 py-1.5 text-xs rounded bg-green-600 hover:bg-green-700 text-white transition-colors flex items-center gap-1.5" title="Keep All (⌘Enter)">
+                            <button onClick={acceptAllFiles} className="px-2.5 py-1.5 text-xs rounded bg-green-600 hover:bg-green-700 text-white transition-colors flex items-center gap-1.5" title={`Keep All (${cmdSymbol}+Enter)`}>
                               Keep All
                               <span className="ml-1 text-[10px] opacity-70">{cmdSymbol}+Enter</span>
                             </button>
-                            <button onClick={rejectAllFiles} className="px-2.5 py-1.5 text-xs rounded bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-1.5" title="Reject All (⌘Delete)">
+                            <button onClick={rejectAllFiles} className="px-2.5 py-1.5 text-xs rounded bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-1.5" title={`Reject All (${cmdSymbol}+Delete)`}>
                               Reject All
                               <span className="ml-1 text-[10px] opacity-70">{cmdSymbol}+Delete</span>
                             </button>
@@ -1533,12 +1590,33 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
           {openTabs.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-gray-500">
               <div className="text-center">
-                <p className="text-lg mb-2">No files open</p>
+                {isLoadingFiles ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <LoadingSpinner size="lg" color="blue" />
+                    <p className="text-lg">Loading files...</p>
+                  </div>
+                ) : (
+                  <p className="text-lg mb-2">No files open</p>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
+      {aiHelpTooltip && typeof window !== 'undefined' && createPortal(
+        <div style={{ 
+          position: 'fixed', 
+          top: aiHelpTooltip.y, 
+          left: aiHelpTooltip.x, 
+          transform: 'translate(-50%, -100%) translateY(-8px)',
+          zIndex: 10000 
+        }}>
+          <div className="px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 shadow-lg whitespace-nowrap">
+            AI Help ({isMac ? '⌘' : 'Ctrl'}+B)
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

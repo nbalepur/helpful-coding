@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../utils/auth";
 import { ENV } from "../config/env";
 import LoadingSpinner from "./LoadingSpinner";
+import { formatDate } from "../utils/dateFormat";
 
 type SubmissionRatingSummary = {
   average: number | null;
@@ -38,21 +39,6 @@ const FALLBACK_IMAGE = `data:image/svg+xml;utf8,${encodeURIComponent(
   </svg>`
 )}`;
 
-const formatDate = (dateString: string | null | undefined): string => {
-  if (!dateString) return "Unknown date";
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return dateString;
-  }
-};
 
 const renderStars = (average: number): JSX.Element[] => {
   const stars: JSX.Element[] = [];

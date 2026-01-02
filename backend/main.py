@@ -32,7 +32,7 @@ from agent import OpenAIAgent
 
 from pydantic import BaseModel, Field, AliasChoices
 from database.config import get_db
-from database.sqlalchemy_models import User, PasswordResetToken, Project, Submission, SubmissionFeedback, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent
+from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent
 from database.models import (
     UserCreate,
     UserResponse,
@@ -53,7 +53,7 @@ from database.models import (
 )
 from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 
 # Load environment variables from .env file
 load_dotenv()
@@ -549,34 +549,57 @@ async def list_tasks_from_db(
     try:
         _sync_project_dates_from_dummy(db)
         projects = db.query(Project).order_by(Project.id.asc()).all()
+        
+        # Batch fetch user data to avoid N+1 queries
+        submissions_by_project = {}
+        latest_code_by_project = {}
+        
+        if user_id:
+            # Fetch only project_id for submissions (we only need to check existence)
+            submission_rows = db.query(Submission.project_id).filter(
+                Submission.user_id == user_id
+            ).all()
+            submissions_by_project = {row[0] for row in submission_rows}
+            
+            # Fetch only needed columns for codes: project_id, code (JSON), created_at, id
+            # We need code to check if it's non-empty, and created_at/id for ordering
+            all_user_codes = db.query(
+                Code.project_id,
+                Code.code,
+                Code.created_at,
+                Code.id
+            ).filter(
+                Code.user_id == user_id
+            ).order_by(Code.project_id, Code.created_at.desc(), Code.id.desc()).all()
+            
+            # Build lookup dictionary keeping only the latest code per project
+            # Since we ordered by created_at desc and id desc, first occurrence per project_id is latest
+            # Store just the code content (JSON) since that's all we need to check
+            for project_id, code_content, created_at, code_id in all_user_codes:
+                if project_id not in latest_code_by_project:
+                    latest_code_by_project[project_id] = code_content
+        
+        # Load dummy metadata once outside the loop (it's cached, but this is clearer)
+        dummy_meta = _load_dummy_task_metadata()
+        
         tasks = []
         for p in projects:
             # Determine status based on user's code and submissions
             status = "not-started"
             if user_id:
-                # Check if user has a submission (completed)
-                submission = (
-                    db.query(Submission)
-                    .filter(
-                        Submission.user_id == user_id,
-                        Submission.project_id == p.id
-                    )
-                    .first()
-                )
-                if submission:
+                # Check if user has a submission (completed) - O(1) lookup
+                if p.id in submissions_by_project:
                     status = "completed"
-                else:
+                elif p.id in latest_code_by_project:
                     # Check if user has saved code (in-progress)
-                    user_code = CodeCRUD.get_latest_by_user_and_project(
-                        db, user_id=user_id, project_id=p.id
-                    )
-                    if user_code and user_code.code:
+                    # latest_code_by_project now stores just the code JSON content
+                    user_code = latest_code_by_project[p.id]
+                    if user_code:  # Check if code content exists and is non-empty
                         # Check if code is different from starter files (has edits)
                         # For now, if code exists, consider it in-progress
                         status = "in-progress"
             
             # Get example from dummy metadata if available
-            dummy_meta = _load_dummy_task_metadata()
             task_meta = dummy_meta.get(_slugify(p.name), {})
             example = task_meta.get("example", "")
             
@@ -2021,6 +2044,290 @@ async def report_skill_check_question(request: dict, db: Session = Depends(get_d
         )
 
 
+def _get_completion_status_for_phase(
+    user_id: int,
+    phase: str,
+    assignment: Optional[SkillCheckAssignment],
+    db: Session
+) -> dict:
+    """
+    Helper function to compute completion status for a given phase.
+    Returns the same structure as get_skill_check_completion_status.
+    """
+    if not assignment:
+        # No assignment means user hasn't started
+        print(f"⚠️  No assignment found for user_id={user_id}")
+        return {
+            "completed": False,
+            "has_responses": False,
+            "total_expected": 0,
+            "total_answered": 0,
+            "current_question_index": 0
+        }
+    
+    # Determine expected question IDs based on phase
+    # Use the same SKILL_CHECK_QUESTION_IDS config as get_skill_check_questions
+    config_key = "pre_test" if phase == "pre-test" else "post_test"
+    question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
+    
+    # Build sets for completion checking (needed to verify specific question IDs are answered)
+    expected_mcqa_question_ids = set()
+    expected_code_question_ids = set()
+    
+    # Calculate total_expected directly from assignment arrays (simpler than counting sets)
+    total_expected_mcqa = 0
+    total_expected_code = 0
+    
+    if phase == "pre-test":
+        # Experience questions: query database to get actual count (not all IDs in config may exist)
+        experience_questions = db.query(ExperienceData).filter(
+            ExperienceData.id.in_(question_ids_config["experience"])
+        ).all()
+        experience_count = len(experience_questions)
+        total_expected_mcqa += experience_count
+        for q in experience_questions:
+            expected_mcqa_question_ids.add(f"exp_{q.id}")
+        
+        # Frontend questions from assignment (now stored as names)
+        # Only count questions that actually exist in the database (matching questions endpoint logic)
+        if assignment.frontend_pre_test:
+            frontend_names = [name for name in assignment.frontend_pre_test if name]
+            # Load questions that actually exist
+            frontend_questions_raw = db.query(MCQAData).filter(
+                MCQAData.type == "frontend",
+                MCQAData.name.in_(frontend_names)
+            ).all() if frontend_names else []
+            frontend_questions_map = {q.name: q for q in frontend_questions_raw}
+            frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
+            frontend_count = len(frontend_questions)
+            total_expected_mcqa += frontend_count
+            for q in frontend_questions:
+                question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
+                expected_mcqa_question_ids.add(question_id)
+        
+        # Add sanity_frontend if assigned to pre-test and it exists in database
+        if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "pre-test":
+            sanity_frontend_q = db.query(MCQAData).filter(
+                MCQAData.type == "frontend",
+                MCQAData.name == "sanity_frontend"
+            ).first()
+            if sanity_frontend_q:
+                total_expected_mcqa += 1
+                expected_mcqa_question_ids.add("frontend_sanity_frontend")
+        
+        # UX questions from assignment (now stored as names)
+        # Only count questions that actually exist in the database (matching questions endpoint logic)
+        if assignment.ux_pre_test:
+            ux_names = [name for name in assignment.ux_pre_test if name]
+            # Load questions that actually exist
+            ux_questions_raw = db.query(MCQAData).filter(
+                MCQAData.type == "ux",
+                MCQAData.name.in_(ux_names)
+            ).all() if ux_names else []
+            ux_questions_map = {q.name: q for q in ux_questions_raw}
+            ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
+            ux_count = len(ux_questions)
+            total_expected_mcqa += ux_count
+            for q in ux_questions:
+                question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
+                expected_mcqa_question_ids.add(question_id)
+        
+        # Add sanity_ux if assigned to pre-test and it exists in database
+        if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "pre-test":
+            sanity_ux_q = db.query(MCQAData).filter(
+                MCQAData.type == "ux",
+                MCQAData.name == "sanity_ux"
+            ).first()
+            if sanity_ux_q:
+                total_expected_mcqa += 1
+                expected_mcqa_question_ids.add("ux_sanity_ux")
+        
+        # Code normal questions from assignment
+        # Only count tasks that actually exist in the database (matching questions endpoint logic)
+        if assignment.code_pre_test:
+            code_normal_names = [name for name in assignment.code_pre_test if name]
+            # Load tasks that actually exist
+            code_questions = db.query(CodeData).filter(
+                CodeData.task_name.in_(code_normal_names)
+            ).all()
+            code_data_map = {q.task_name: q for q in code_questions}
+            code_normal_count = len([name for name in code_normal_names if name in code_data_map])
+            total_expected_code += code_normal_count
+            for task_name in code_normal_names:
+                if task_name in code_data_map:
+                    expected_code_question_ids.add(f"code_normal_{task_name}")
+        
+        # Code debug questions from assignment
+        # Only count tasks that actually exist in the database (matching questions endpoint logic)
+        if assignment.debug_pre_test:
+            code_debug_names = [name for name in assignment.debug_pre_test if name]
+            # Load tasks that actually exist (reuse query if code_normal_names overlap)
+            if assignment.code_pre_test:
+                all_code_names = list(set(code_debug_names + [name for name in assignment.code_pre_test if name]))
+            else:
+                all_code_names = code_debug_names
+            code_questions = db.query(CodeData).filter(
+                CodeData.task_name.in_(all_code_names)
+            ).all()
+            code_data_map = {q.task_name: q for q in code_questions}
+            code_debug_count = len([name for name in code_debug_names if name in code_data_map])
+            total_expected_code += code_debug_count
+            for task_name in code_debug_names:
+                if task_name in code_data_map:
+                    expected_code_question_ids.add(f"code_debug_{task_name}")
+    else:  # post-test
+        # NASA TLI questions: query database to get actual count (not all IDs in config may exist)
+        nasa_questions = db.query(NasaTLIData).filter(
+            NasaTLIData.id.in_(question_ids_config["nasa_tli"])
+        ).all()
+        nasa_count = len(nasa_questions)
+        total_expected_mcqa += nasa_count
+        for q in nasa_questions:
+            expected_mcqa_question_ids.add(f"nasa_{q.id}")
+        
+        # Frontend questions from assignment (now stored as names)
+        # Only count questions that actually exist in the database (matching questions endpoint logic)
+        if assignment.frontend_post_test:
+            frontend_names = [name for name in assignment.frontend_post_test if name]
+            # Load questions that actually exist
+            frontend_questions_raw = db.query(MCQAData).filter(
+                MCQAData.type == "frontend",
+                MCQAData.name.in_(frontend_names)
+            ).all() if frontend_names else []
+            frontend_questions_map = {q.name: q for q in frontend_questions_raw}
+            frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
+            frontend_count = len(frontend_questions)
+            total_expected_mcqa += frontend_count
+            for q in frontend_questions:
+                question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
+                expected_mcqa_question_ids.add(question_id)
+        
+        # Add sanity_frontend if assigned to post-test and it exists in database
+        if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "post-test":
+            sanity_frontend_q = db.query(MCQAData).filter(
+                MCQAData.type == "frontend",
+                MCQAData.name == "sanity_frontend"
+            ).first()
+            if sanity_frontend_q:
+                total_expected_mcqa += 1
+                expected_mcqa_question_ids.add("frontend_sanity_frontend")
+        
+        # UX questions from assignment (now stored as names)
+        # Only count questions that actually exist in the database (matching questions endpoint logic)
+        if assignment.ux_post_test:
+            ux_names = [name for name in assignment.ux_post_test if name]
+            # Load questions that actually exist
+            ux_questions_raw = db.query(MCQAData).filter(
+                MCQAData.type == "ux",
+                MCQAData.name.in_(ux_names)
+            ).all() if ux_names else []
+            ux_questions_map = {q.name: q for q in ux_questions_raw}
+            ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
+            ux_count = len(ux_questions)
+            total_expected_mcqa += ux_count
+            for q in ux_questions:
+                question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
+                expected_mcqa_question_ids.add(question_id)
+        
+        # Add sanity_ux if assigned to post-test and it exists in database
+        if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "post-test":
+            sanity_ux_q = db.query(MCQAData).filter(
+                MCQAData.type == "ux",
+                MCQAData.name == "sanity_ux"
+            ).first()
+            if sanity_ux_q:
+                total_expected_mcqa += 1
+                expected_mcqa_question_ids.add("ux_sanity_ux")
+        
+        # Code normal questions from assignment
+        # Only count tasks that actually exist in the database (matching questions endpoint logic)
+        if assignment.code_post_test:
+            code_normal_names = [name for name in assignment.code_post_test if name]
+            # Load tasks that actually exist
+            code_questions = db.query(CodeData).filter(
+                CodeData.task_name.in_(code_normal_names)
+            ).all()
+            code_data_map = {q.task_name: q for q in code_questions}
+            code_normal_count = len([name for name in code_normal_names if name in code_data_map])
+            total_expected_code += code_normal_count
+            for task_name in code_normal_names:
+                if task_name in code_data_map:
+                    expected_code_question_ids.add(f"code_normal_{task_name}")
+        
+        # Code debug questions from assignment
+        # Only count tasks that actually exist in the database (matching questions endpoint logic)
+        if assignment.debug_post_test:
+            code_debug_names = [name for name in assignment.debug_post_test if name]
+            # Load tasks that actually exist (reuse query if code_normal_names overlap)
+            if assignment.code_post_test:
+                all_code_names = list(set(code_debug_names + [name for name in assignment.code_post_test if name]))
+            else:
+                all_code_names = code_debug_names
+            code_questions = db.query(CodeData).filter(
+                CodeData.task_name.in_(all_code_names)
+            ).all()
+            code_data_map = {q.task_name: q for q in code_questions}
+            code_debug_count = len([name for name in code_debug_names if name in code_data_map])
+            total_expected_code += code_debug_count
+            for task_name in code_debug_names:
+                if task_name in code_data_map:
+                    expected_code_question_ids.add(f"code_debug_{task_name}")
+    
+    # Get all MCQA responses for this user and phase
+    mcqa_responses = db.query(UserMCQASkillResponse).filter(
+        UserMCQASkillResponse.user_id == user_id,
+        UserMCQASkillResponse.phase == phase
+    ).all()
+    
+    # Get all code responses for this user and phase
+    # Only count as answered if state is 'passed' or 'reported' (not 'started' or 'failed')
+    code_responses = db.query(UserCodeSkillResponse).filter(
+        UserCodeSkillResponse.user_id == user_id,
+        UserCodeSkillResponse.phase == phase,
+        UserCodeSkillResponse.state.in_(['passed', 'reported'])
+    ).all()
+    
+    # Track answered questions (use question_id)
+    answered_mcqa_ids = {resp.question_id for resp in mcqa_responses}
+    answered_code_ids = {resp.question_id for resp in code_responses}
+    
+    # Check if all expected questions are answered
+    all_mcqa_answered = expected_mcqa_question_ids.issubset(answered_mcqa_ids)
+    all_code_answered = expected_code_question_ids.issubset(answered_code_ids)
+    
+    # Use the directly calculated totals (simpler than counting sets)
+    total_expected = total_expected_mcqa + total_expected_code
+    total_answered = len(answered_mcqa_ids) + len(answered_code_ids)
+    has_responses = len(mcqa_responses) > 0 or len(code_responses) > 0
+    completed = all_mcqa_answered and all_code_answered
+    
+    # Build ordered list using the same helper function as get_skill_check_questions
+    # Then find first unanswered question in that list
+    current_question_index = 0
+    
+    if not completed:
+        # Use the helper function to build ordered list (guaranteed to match questions endpoint)
+        ordered_question_ids = _build_ordered_question_ids(phase, assignment, db)
+        
+        # Find first unanswered question in the ordered list
+        all_answered_ids = answered_mcqa_ids | answered_code_ids
+        for idx, q_id in enumerate(ordered_question_ids):
+            if q_id not in all_answered_ids:
+                current_question_index = idx
+                break
+        else:
+            # All questions answered (shouldn't happen if completed is False, but handle it)
+            current_question_index = len(ordered_question_ids)
+    
+    return {
+        "completed": completed,
+        "has_responses": has_responses,
+        "total_expected": total_expected,
+        "total_answered": total_answered,
+        "current_question_index": current_question_index
+    }
+
+
 @app.get("/api/skill-check/completion-status", tags=["Tasks"])
 async def get_skill_check_completion_status(
     user_id: int = Query(..., description="User ID to check completion status for"),
@@ -2052,281 +2359,59 @@ async def get_skill_check_completion_status(
             .first()
         )
         
-        if not assignment:
-            # No assignment means user hasn't started
-            print(f"⚠️  No assignment found for user_id={user_id}")
-            return {
-                "completed": False,
-                "has_responses": False,
-                "total_expected": 0,
-                "total_answered": 0,
-                "current_question_index": 0
-            }
+        return _get_completion_status_for_phase(user_id, phase, assignment, db)
         
-        # Determine expected question IDs based on phase
-        # Use the same SKILL_CHECK_QUESTION_IDS config as get_skill_check_questions
-        config_key = "pre_test" if phase == "pre-test" else "post_test"
-        question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to check completion status: {str(e)}"}
+        )
+
+
+@app.get("/api/skill-check/completion-status-both", tags=["Tasks"])
+async def get_skill_check_completion_status_both(
+    user_id: int = Query(..., description="User ID to check completion status for"),
+    db: Session = Depends(get_db),
+):
+    """
+    Check completion status for both pre-test and post-test phases in a single call.
+    This is more efficient than making two separate calls.
+    
+    Returns:
+    {
+        "pre_test": {
+            "completed": boolean,
+            "has_responses": boolean,
+            "total_expected": int,
+            "total_answered": int,
+            "current_question_index": int
+        },
+        "post_test": {
+            "completed": boolean,
+            "has_responses": boolean,
+            "total_expected": int,
+            "total_answered": int,
+            "current_question_index": int
+        }
+    }
+    """
+    try:
+        # Get user's assignment once (shared between both phases)
+        assignment = (
+            db.query(SkillCheckAssignment)
+            .filter(SkillCheckAssignment.user_id == user_id)
+            .first()
+        )
         
-        # Build sets for completion checking (needed to verify specific question IDs are answered)
-        expected_mcqa_question_ids = set()
-        expected_code_question_ids = set()
-        
-        # Calculate total_expected directly from assignment arrays (simpler than counting sets)
-        total_expected_mcqa = 0
-        total_expected_code = 0
-        
-        if phase == "pre-test":
-            # Experience questions: query database to get actual count (not all IDs in config may exist)
-            experience_questions = db.query(ExperienceData).filter(
-                ExperienceData.id.in_(question_ids_config["experience"])
-            ).all()
-            experience_count = len(experience_questions)
-            total_expected_mcqa += experience_count
-            for q in experience_questions:
-                expected_mcqa_question_ids.add(f"exp_{q.id}")
-            
-            # Frontend questions from assignment (now stored as names)
-            # Only count questions that actually exist in the database (matching questions endpoint logic)
-            if assignment.frontend_pre_test:
-                frontend_names = [name for name in assignment.frontend_pre_test if name]
-                # Load questions that actually exist
-                frontend_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.name.in_(frontend_names)
-                ).all() if frontend_names else []
-                frontend_questions_map = {q.name: q for q in frontend_questions_raw}
-                frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
-                frontend_count = len(frontend_questions)
-                total_expected_mcqa += frontend_count
-                for q in frontend_questions:
-                    question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
-                    expected_mcqa_question_ids.add(question_id)
-            
-            # Add sanity_frontend if assigned to pre-test and it exists in database
-            if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "pre-test":
-                sanity_frontend_q = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.name == "sanity_frontend"
-                ).first()
-                if sanity_frontend_q:
-                    total_expected_mcqa += 1
-                    expected_mcqa_question_ids.add("frontend_sanity_frontend")
-            
-            # UX questions from assignment (now stored as names)
-            # Only count questions that actually exist in the database (matching questions endpoint logic)
-            if assignment.ux_pre_test:
-                ux_names = [name for name in assignment.ux_pre_test if name]
-                # Load questions that actually exist
-                ux_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.name.in_(ux_names)
-                ).all() if ux_names else []
-                ux_questions_map = {q.name: q for q in ux_questions_raw}
-                ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
-                ux_count = len(ux_questions)
-                total_expected_mcqa += ux_count
-                for q in ux_questions:
-                    question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
-                    expected_mcqa_question_ids.add(question_id)
-            
-            # Add sanity_ux if assigned to pre-test and it exists in database
-            if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "pre-test":
-                sanity_ux_q = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.name == "sanity_ux"
-                ).first()
-                if sanity_ux_q:
-                    total_expected_mcqa += 1
-                    expected_mcqa_question_ids.add("ux_sanity_ux")
-            
-            # Code normal questions from assignment
-            # Only count tasks that actually exist in the database (matching questions endpoint logic)
-            if assignment.code_pre_test:
-                code_normal_names = [name for name in assignment.code_pre_test if name]
-                # Load tasks that actually exist
-                code_questions = db.query(CodeData).filter(
-                    CodeData.task_name.in_(code_normal_names)
-                ).all()
-                code_data_map = {q.task_name: q for q in code_questions}
-                code_normal_count = len([name for name in code_normal_names if name in code_data_map])
-                total_expected_code += code_normal_count
-                for task_name in code_normal_names:
-                    if task_name in code_data_map:
-                        expected_code_question_ids.add(f"code_normal_{task_name}")
-            
-            # Code debug questions from assignment
-            # Only count tasks that actually exist in the database (matching questions endpoint logic)
-            if assignment.debug_pre_test:
-                code_debug_names = [name for name in assignment.debug_pre_test if name]
-                # Load tasks that actually exist (reuse query if code_normal_names overlap)
-                if assignment.code_pre_test:
-                    all_code_names = list(set(code_debug_names + [name for name in assignment.code_pre_test if name]))
-                else:
-                    all_code_names = code_debug_names
-                code_questions = db.query(CodeData).filter(
-                    CodeData.task_name.in_(all_code_names)
-                ).all()
-                code_data_map = {q.task_name: q for q in code_questions}
-                code_debug_count = len([name for name in code_debug_names if name in code_data_map])
-                total_expected_code += code_debug_count
-                for task_name in code_debug_names:
-                    if task_name in code_data_map:
-                        expected_code_question_ids.add(f"code_debug_{task_name}")
-        else:  # post-test
-            # NASA TLI questions: query database to get actual count (not all IDs in config may exist)
-            nasa_questions = db.query(NasaTLIData).filter(
-                NasaTLIData.id.in_(question_ids_config["nasa_tli"])
-            ).all()
-            nasa_count = len(nasa_questions)
-            total_expected_mcqa += nasa_count
-            for q in nasa_questions:
-                expected_mcqa_question_ids.add(f"nasa_{q.id}")
-            
-            # Frontend questions from assignment (now stored as names)
-            # Only count questions that actually exist in the database (matching questions endpoint logic)
-            if assignment.frontend_post_test:
-                frontend_names = [name for name in assignment.frontend_post_test if name]
-                # Load questions that actually exist
-                frontend_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.name.in_(frontend_names)
-                ).all() if frontend_names else []
-                frontend_questions_map = {q.name: q for q in frontend_questions_raw}
-                frontend_questions = [frontend_questions_map[name] for name in frontend_names if name in frontend_questions_map]
-                frontend_count = len(frontend_questions)
-                total_expected_mcqa += frontend_count
-                for q in frontend_questions:
-                    question_id = f"frontend_{q.name}" if q.name else f"frontend_{q.id}"
-                    expected_mcqa_question_ids.add(question_id)
-            
-            # Add sanity_frontend if assigned to post-test and it exists in database
-            if assignment.sanity_frontend_phase and assignment.sanity_frontend_phase == "post-test":
-                sanity_frontend_q = db.query(MCQAData).filter(
-                    MCQAData.type == "frontend",
-                    MCQAData.name == "sanity_frontend"
-                ).first()
-                if sanity_frontend_q:
-                    total_expected_mcqa += 1
-                    expected_mcqa_question_ids.add("frontend_sanity_frontend")
-            
-            # UX questions from assignment (now stored as names)
-            # Only count questions that actually exist in the database (matching questions endpoint logic)
-            if assignment.ux_post_test:
-                ux_names = [name for name in assignment.ux_post_test if name]
-                # Load questions that actually exist
-                ux_questions_raw = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.name.in_(ux_names)
-                ).all() if ux_names else []
-                ux_questions_map = {q.name: q for q in ux_questions_raw}
-                ux_questions = [ux_questions_map[name] for name in ux_names if name in ux_questions_map]
-                ux_count = len(ux_questions)
-                total_expected_mcqa += ux_count
-                for q in ux_questions:
-                    question_id = f"ux_{q.name}" if q.name else f"ux_{q.id}"
-                    expected_mcqa_question_ids.add(question_id)
-            
-            # Add sanity_ux if assigned to post-test and it exists in database
-            if assignment.sanity_ux_phase and assignment.sanity_ux_phase == "post-test":
-                sanity_ux_q = db.query(MCQAData).filter(
-                    MCQAData.type == "ux",
-                    MCQAData.name == "sanity_ux"
-                ).first()
-                if sanity_ux_q:
-                    total_expected_mcqa += 1
-                    expected_mcqa_question_ids.add("ux_sanity_ux")
-            
-            # Code normal questions from assignment
-            # Only count tasks that actually exist in the database (matching questions endpoint logic)
-            if assignment.code_post_test:
-                code_normal_names = [name for name in assignment.code_post_test if name]
-                # Load tasks that actually exist
-                code_questions = db.query(CodeData).filter(
-                    CodeData.task_name.in_(code_normal_names)
-                ).all()
-                code_data_map = {q.task_name: q for q in code_questions}
-                code_normal_count = len([name for name in code_normal_names if name in code_data_map])
-                total_expected_code += code_normal_count
-                for task_name in code_normal_names:
-                    if task_name in code_data_map:
-                        expected_code_question_ids.add(f"code_normal_{task_name}")
-            
-            # Code debug questions from assignment
-            # Only count tasks that actually exist in the database (matching questions endpoint logic)
-            if assignment.debug_post_test:
-                code_debug_names = [name for name in assignment.debug_post_test if name]
-                # Load tasks that actually exist (reuse query if code_normal_names overlap)
-                if assignment.code_post_test:
-                    all_code_names = list(set(code_debug_names + [name for name in assignment.code_post_test if name]))
-                else:
-                    all_code_names = code_debug_names
-                code_questions = db.query(CodeData).filter(
-                    CodeData.task_name.in_(all_code_names)
-                ).all()
-                code_data_map = {q.task_name: q for q in code_questions}
-                code_debug_count = len([name for name in code_debug_names if name in code_data_map])
-                total_expected_code += code_debug_count
-                for task_name in code_debug_names:
-                    if task_name in code_data_map:
-                        expected_code_question_ids.add(f"code_debug_{task_name}")
-        
-        # Get all MCQA responses for this user and phase
-        mcqa_responses = db.query(UserMCQASkillResponse).filter(
-            UserMCQASkillResponse.user_id == user_id,
-            UserMCQASkillResponse.phase == phase
-        ).all()
-        
-        # Get all code responses for this user and phase
-        # Only count as answered if state is 'passed' or 'reported' (not 'started' or 'failed')
-        code_responses = db.query(UserCodeSkillResponse).filter(
-            UserCodeSkillResponse.user_id == user_id,
-            UserCodeSkillResponse.phase == phase,
-            UserCodeSkillResponse.state.in_(['passed', 'reported'])
-        ).all()
-        
-        # Track answered questions (use question_id)
-        answered_mcqa_ids = {resp.question_id for resp in mcqa_responses}
-        answered_code_ids = {resp.question_id for resp in code_responses}
-        
-        # Check if all expected questions are answered
-        all_mcqa_answered = expected_mcqa_question_ids.issubset(answered_mcqa_ids)
-        all_code_answered = expected_code_question_ids.issubset(answered_code_ids)
-        
-        # Use the directly calculated totals (simpler than counting sets)
-        total_expected = total_expected_mcqa + total_expected_code
-        total_answered = len(answered_mcqa_ids) + len(answered_code_ids)
-        has_responses = len(mcqa_responses) > 0 or len(code_responses) > 0
-        completed = all_mcqa_answered and all_code_answered
-        
-        # Find missing questions for debugging
-        missing_mcqa = expected_mcqa_question_ids - answered_mcqa_ids
-        missing_code = expected_code_question_ids - answered_code_ids
-        
-        # Build ordered list using the same helper function as get_skill_check_questions
-        # Then find first unanswered question in that list
-        current_question_index = 0
-        
-        if not completed:
-            # Use the helper function to build ordered list (guaranteed to match questions endpoint)
-            ordered_question_ids = _build_ordered_question_ids(phase, assignment, db)
-            
-            # Find first unanswered question in the ordered list
-            all_answered_ids = answered_mcqa_ids | answered_code_ids
-            for idx, q_id in enumerate(ordered_question_ids):
-                if q_id not in all_answered_ids:
-                    current_question_index = idx
-                    break
-            else:
-                # All questions answered (shouldn't happen if completed is False, but handle it)
-                current_question_index = len(ordered_question_ids)
+        # Get completion status for both phases
+        pre_test_status = _get_completion_status_for_phase(user_id, "pre-test", assignment, db)
+        post_test_status = _get_completion_status_for_phase(user_id, "post-test", assignment, db)
         
         return {
-            "completed": completed,
-            "has_responses": has_responses,
-            "total_expected": total_expected,
-            "total_answered": total_answered,
-            "current_question_index": current_question_index
+            "pre_test": pre_test_status,
+            "post_test": post_test_status
         }
         
     except Exception as e:
@@ -3320,13 +3405,15 @@ def generate_js_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
         random.shuffle(all_function_names_to_show)
         all_function_names_to_show = all_function_names_to_show[:MAX_FUNCTION_NAMES_TO_SHOW]
 
-    questions.append({
-        "question_name": "function_names_distractors",
-        "question": f"Which of the following JavaScript functions exist in your code? It is possible that all of these or none of these exist.",
-        "question_type": "multi_select",
-        "choices": [x + '()' for x in all_function_names_to_show],
-        "answer": [0 if name in fake_function_names else 1 for name in all_function_names_to_show]
-    })
+    function_name_choices = [x + '()' for x in all_function_names_to_show]
+    if function_name_choices:
+        questions.append({
+            "question_name": "function_names_distractors",
+            "question": f"Which of the following JavaScript functions exist in your code? It is possible that all of these or none of these exist.",
+            "question_type": "multi_select",
+            "choices": function_name_choices,
+            "answer": [0 if name in fake_function_names else 1 for name in all_function_names_to_show]
+        })
 
     questions.append({
         "question_name": "explain_function",
@@ -3845,32 +3932,58 @@ async def check_user_submission(
 async def get_leaderboard(db: Session = Depends(get_db)):
     """Get leaderboard with user rankings based on average rating and submission count"""
     try:
-        # Get all users
-        all_users = db.query(User).all()
+        # Optimization: Use batch queries instead of N+1 queries
+        # Note: We could further optimize by selecting only specific columns, but:
+        # 1. The biggest win is already achieved (3 queries vs N+1)
+        # 2. build_rating_summary expects ORM objects, so we'd need refactoring
+        # 3. Column selection would help with network/memory but database still reads rows
+        # 4. The complexity isn't worth the marginal gain for this use case
         
-        # Calculate stats for each user
+        # 1. Get all users
+        all_users = db.query(User).all()
+        user_ids = [user.id for user in all_users]
+        if not user_ids:
+            return []
+        
+        # 2. Get all submissions in one query, grouped by user_id
+        all_submissions = db.query(Submission).filter(Submission.user_id.in_(user_ids)).all()
+        
+        # Build lookup structures
+        submissions_by_user: Dict[int, List[Submission]] = defaultdict(list)
+        submission_ids = []
+        for submission in all_submissions:
+            submissions_by_user[submission.user_id].append(submission)
+            submission_ids.append(submission.id)
+        
+        # Count unique projects per user using the pre-loaded submissions
+        user_submission_counts: Dict[int, int] = {}
+        for user_id, user_submissions in submissions_by_user.items():
+            unique_projects = {sub.project_id for sub in user_submissions}
+            user_submission_counts[user_id] = len(unique_projects)
+        
+        # 3. Get all feedback entries in one query (ordered by created_at desc for each submission)
+        feedback_by_submission: Dict[int, List[SubmissionFeedback]] = defaultdict(list)
+        if submission_ids:
+            all_feedback = (
+                db.query(SubmissionFeedback)
+                .filter(SubmissionFeedback.submission_id.in_(submission_ids))
+                .order_by(SubmissionFeedback.submission_id, SubmissionFeedback.created_at.desc())
+                .all()
+            )
+            # Group feedback by submission_id (already ordered by created_at desc)
+            for feedback in all_feedback:
+                feedback_by_submission[feedback.submission_id].append(feedback)
+        
+        # 4. Calculate stats for each user using pre-loaded data
         user_stats = []
         for user in all_users:
-            # Get all submissions for this user
-            user_submissions = db.query(Submission).filter(Submission.user_id == user.id).all()
+            user_submissions = submissions_by_user.get(user.id, [])
+            submission_count = user_submission_counts.get(user.id, 0)
             
-            # Count unique project_ids (unique submissions per project)
-            unique_projects = set()
-            for submission in user_submissions:
-                unique_projects.add(submission.project_id)
-            submission_count = len(unique_projects)
-            
-            # Calculate average rating across all submissions
+            # Calculate average rating across all submissions using pre-loaded feedback
             all_ratings = []
             for submission in user_submissions:
-                # Get all feedback for this submission
-                feedback_entries = (
-                    db.query(SubmissionFeedback)
-                    .filter(SubmissionFeedback.submission_id == submission.id)
-                    .order_by(SubmissionFeedback.created_at.desc())
-                    .all()
-                )
-                
+                feedback_entries = feedback_by_submission.get(submission.id, [])
                 if feedback_entries:
                     # Use the same logic as build_rating_summary to get average
                     rating_summary = build_rating_summary(feedback_entries)

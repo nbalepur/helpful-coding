@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import SkillCheckFlow from "../components/SkillCheckFlow";
 import { useAuth } from "../utils/auth";
+import LoadingSpinner from "../components/LoadingSpinner";
+import { useUserStudyPopup } from "../components/UserStudyPopup";
 
 interface SkillCheckPageProps {
   skillCheckMode: 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
@@ -11,6 +13,7 @@ interface SkillCheckPageProps {
 
 export default function SkillCheckPage({ skillCheckMode, isCalculating = false }: SkillCheckPageProps) {
   const { user } = useAuth();
+  const { recalculateState } = useUserStudyPopup();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   const [isStarted, setIsStarted] = useState(false);
   const [currentQuestionType, setCurrentQuestionType] = useState<string | null>(null);
@@ -84,10 +87,22 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
   // Show loading state while calculating to avoid flickering
   if (isCalculating) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center pt-2 px-2 mx-auto w-full h-full">
+      <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
         <div className="flex items-center justify-center space-x-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
-          <p className="text-gray-400 text-lg">Loading skill check...</p>
+          <LoadingSpinner size="lg" color="blue" />
+          <p className="text-gray-400 text-lg">Loading Skill Check Progress</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state when verifying completion after finishing skill check
+  if (!isStarted && completionStatus.loading && (skillCheckMode === 'pre-test' || skillCheckMode === 'post-test')) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
+        <div className="flex items-center justify-center space-x-3">
+          <LoadingSpinner size="lg" color="blue" />
+          <p className="text-gray-400 text-lg">Loading Skill Check Progress</p>
         </div>
       </div>
     );
@@ -105,7 +120,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
         </h1>
       )}
       {/* Completion Message - Show if skill check is completed */}
-      {!isStarted && (skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && !completionStatus.loading && completionStatus.completed && (
+      {!isStarted && (skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed && (
         <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
           <p className="text-gray-300 text-lg">
             Thanks for completing the skill check! {skillCheckMode === 'pre-test' && (
@@ -117,7 +132,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
             )}
             {skillCheckMode === 'post-test' && (
               <>You have completed the research study. If you had fun building websites in VibeJam and want to do more, you can head over to the{" "}
-              <Link href="/browse" className="text-blue-400 hover:text-blue-300 underline font-semibold">
+              <Link href="/vibe" className="text-blue-400 hover:text-blue-300 underline font-semibold">
                 browse page
               </Link>
               , where we've unlocked 50+ tasks for you to refine your AI-assisted coding skills and compete with other users 🎉</>
@@ -131,8 +146,8 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
           <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
             <p className="text-gray-300 text-lg">
               Thanks for completing the skill check! Head over to the{" "}
-              <Link href="/browse" className="text-blue-400 hover:text-blue-300 underline font-semibold">
-                browse page
+              <Link href="/vibe" className="text-blue-400 hover:text-blue-300 underline font-semibold">
+                tasks page
               </Link>{" "}
               to start building websites in VibeJam 🚀
             </p>
@@ -177,19 +192,38 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
                 setIsStarted(false);
                 setCurrentQuestionType(null);
                 setCurrentCodeType(null);
-                // Refresh completion status
+                // Show loading spinner while we verify completion status
+                setCompletionStatus(prev => ({
+                  ...prev,
+                  completed: false,
+                  loading: true,
+                }));
+                // Refresh completion status and popup state
                 const phase = skillCheckMode === 'pre-test' ? 'pre-test' : 'post-test';
                 fetch(`/api/skill-check/completion-status?user_id=${encodeURIComponent(userId!)}&phase=${encodeURIComponent(phase)}`)
                   .then(res => res.json())
                   .then(data => {
+                    // Update status based on API response
                     setCompletionStatus({
                       completed: data.completed || false,
                       has_responses: data.has_responses || false,
                       loading: false,
                       current_question_index: data.current_question_index || 0,
                     });
+                    // Refresh popup state so it knows skill check is done (this prevents the popup from showing)
+                    recalculateState?.();
                   })
-                  .catch(err => console.error('Error refreshing completion status:', err));
+                  .catch(err => {
+                    console.error('Error refreshing completion status:', err);
+                    // If API call fails, assume it's completed (user just finished it)
+                    setCompletionStatus(prev => ({
+                      ...prev,
+                      completed: true,
+                      loading: false,
+                    }));
+                    // Still refresh popup state
+                    recalculateState?.();
+                  });
               }}
               onCancel={() => {
                 setIsStarted(false);

@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   BsFileEarmarkCode, 
   BsFileEarmarkText, 
@@ -48,6 +48,12 @@ const FileManager: React.FC<FileManagerProps> = ({
     fileId: string;
     type: 'file' | 'folder' | 'root';
   } | null>(null);
+  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
+  
+  // Detect platform after mount
+  useEffect(() => {
+    setIsMac(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform));
+  }, []);
 
   const getFileIcon = (fileName: string, type: 'file' | 'folder') => {
     if (type === 'folder') {
@@ -171,12 +177,12 @@ const FileManager: React.FC<FileManagerProps> = ({
                 <BsFolder className={`peer h-5 w-5 ${isSidebarOpen ? 'text-blue-400' : 'text-gray-400'}`} />
                 {!isSidebarOpen && (
                   <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
-                    Show Files (⌘B)
+                    Show Files ({isMac ? '⌘' : 'Ctrl'}B)
                   </div>
                 )}
               </div>
             )}
-            <h3 className={`ml-2 text-sm font-semibold text-gray-200 ${!isSidebarOpen ? 'hidden' : ''}`}>Files (⌘B)</h3>
+            <h3 className={`ml-2 text-sm font-semibold text-gray-200 ${!isSidebarOpen ? 'hidden' : ''}`}>Files ({isMac ? '⌘' : 'Ctrl'}B)</h3>
           </div>
         </div>
       </div>

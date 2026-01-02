@@ -33,20 +33,8 @@ export default function AboutPage() {
         const processedText = text.replace(/<br\s*\/?>/gi, '\n\n<div style="height: 1.5em; margin: 0;" data-br-spacer="true" aria-hidden="true"></div>\n\n');
         setMarkdownContent(processedText);
         setIsLoading(false);
-        
-        // Count videos in the markdown
-        const videoCount = (processedText.match(/\.(mp4|webm|ogg|avi|mov)(\?.*)?/gi) || []).length;
-        
-        if (videoCount > 0) {
-          // Add delay to allow videos to load metadata before showing content
-          // This prevents layout shifts
-          setTimeout(() => {
-            setShowContent(true);
-          }, 1500); // 1.5 second delay
-        } else {
-          // No videos, show immediately
-          setShowContent(true);
-        }
+        // Show content immediately - videos have fixed-size containers to prevent layout shifts
+        setShowContent(true);
       })
       .catch((err) => {
         console.error('Error loading instructions:', err);

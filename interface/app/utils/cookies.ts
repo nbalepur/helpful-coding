@@ -175,6 +175,34 @@ export function clearAuthCookies(): void {
 }
 
 /**
+ * Clear all cookies for the current domain
+ * This function reads all cookies from document.cookie and removes each one
+ */
+export function clearAllCookies(): void {
+  if (typeof document === 'undefined') return; // SSR safety
+
+  // Get all cookies
+  const cookies = document.cookie.split(';');
+  
+  // Iterate through each cookie and remove it
+  for (let cookie of cookies) {
+    cookie = cookie.trim();
+    if (cookie) {
+      // Extract the cookie name (everything before the first '=')
+      const eqPos = cookie.indexOf('=');
+      const name = eqPos > -1 ? cookie.substring(0, eqPos) : cookie;
+      
+      // Decode the cookie name in case it was encoded
+      const decodedName = decodeURIComponent(name);
+      
+      // Remove the cookie with path='/'
+      // This will work for all cookies in our codebase as they use path='/' by default
+      removeCookie(decodedName, { path: '/' });
+    }
+  }
+}
+
+/**
  * Check if user is authenticated (has both user ID and token)
  */
 export function isUserAuthenticated(): boolean {

@@ -16,29 +16,9 @@ export async function middleware(request: NextRequest) {
   const userId = request.cookies.get(`${prefix}user_id`)?.value
   const authToken = request.cookies.get(`${prefix}auth_token`)?.value
   
-  let isAuthenticated = false
-
-  if (userId && authToken) {
-    try {
-      // Middleware runs server-side, so use internal backend URL directly
-      // Don't use proxy route - middleware can access 127.0.0.1:4828 directly
-      const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828'
-      const response = await fetch(`${backendUrl}/auth/validate`, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-        },
-        cache: 'no-store',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        isAuthenticated = Boolean(data?.valid)
-      }
-    } catch (error) {
-      console.error('Error validating auth token in middleware:', error)
-      isAuthenticated = false
-    }
-  }
+  // IMPORTANT: Avoid blocking navigation with network calls here.
+  // We only check for the presence of auth cookies; API routes still validate tokens.
+  const isAuthenticated = Boolean(userId && authToken);
   
   // If not authenticated and trying to access protected routes
   if (!isAuthenticated && pathname !== '/landing') {

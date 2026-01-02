@@ -1,7 +1,7 @@
 
 # RealHumanEval Interface
 
-This is a local version of RealHumanEval, however, by replacing the API calls to be non-local in [app/functions/cloud_functions_helper.js](app/functions/cloud_functions_helper.js) and task loading in [app/functions/task_logic.js](app/functions/task_logic.js) and [app/browse/page.tsx](app/browse/page.tsx) you can host this with Firebase as we did for the actual user study.
+This is a local version of RealHumanEval, however, by replacing the API calls to be non-local in [app/functions/cloud_functions_helper.js](app/functions/cloud_functions_helper.js) and task loading in [app/functions/task_logic.js](app/functions/task_logic.js) and [app/vibe/page.tsx](app/vibe/page.tsx) you can host this with Firebase as we did for the actual user study.
 
 The repo is organized as follows:
 
@@ -11,7 +11,7 @@ The repo is organized as follows:
 
 - [app/functions](app/functions): Contains the helper functions for the project.
 
-- The main page is [app/browse/page.tsx](app/browse/page.tsx).
+- The main page is [app/vibe/page.tsx](app/vibe/page.tsx).
 
 ### Installation
 This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).

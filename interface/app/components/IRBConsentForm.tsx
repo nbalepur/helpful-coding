@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { irbConsentContent } from '../data/irbContent';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Download } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
+import { formatTodayDate } from '../utils/dateFormat';
 
 interface IRBConsentFormProps {
   onAgree: () => void;
@@ -13,21 +14,16 @@ interface IRBConsentFormProps {
 }
 
 export default function IRBConsentForm({ onAgree, onCancel }: IRBConsentFormProps) {
-  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [markdownContent, setMarkdownContent] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [todayDate, setTodayDate] = useState<string>('');
 
   useEffect(() => {
     // Use the imported content directly
     setMarkdownContent(irbConsentContent);
+    // Set today's date on client side only to avoid hydration mismatch
+    setTodayDate(formatTodayDate());
   }, []);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 1;
-    setHasScrolledToBottom(isAtBottom);
-  };
 
   // Simple markdown to HTML converter for basic formatting
   const parseMarkdown = (text: string) => {
@@ -141,7 +137,7 @@ export default function IRBConsentForm({ onAgree, onCancel }: IRBConsentFormProp
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 overflow-y-auto">
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 relative z-20">
       <div className="w-full max-w-4xl my-8 relative">
         {/* Back Button */}
         <button
@@ -175,39 +171,24 @@ export default function IRBConsentForm({ onAgree, onCancel }: IRBConsentFormProp
             <h2 className="text-xl text-white mb-0" style={{textAlign: 'center'}}>Please agree to the consent form before proceeding</h2>
           </div>
 
-          {/* Scrollable Content - Improved dark theme styling */}
+          {/* Content - No max-height constraint, page is scrollable */}
           <div 
-            className="max-h-96 overflow-y-auto mb-8 pr-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 bg-gray-900 rounded-md p-6 border border-gray-700"
-            onScroll={handleScroll}
+            className="mb-8 pr-4 bg-gray-900 rounded-md p-6 border border-gray-700"
           >
             <div 
-              ref={contentRef}
               className="text-gray-300 leading-relaxed"
               dangerouslySetInnerHTML={{ __html: parseMarkdown(markdownContent) }}
             />
           </div>
 
-          {/* Scroll Indicator - Always present but invisible when scrolled */}
-          <div className={`text-center mb-6 transition-opacity duration-300 ${hasScrolledToBottom ? 'opacity-0' : 'opacity-100'}`}>
-            <p className="text-gray-400 text-sm">Please scroll down to read the full consent form before proceeding</p>
-            <div className="mt-3">
-              <svg className="w-6 h-6 text-gray-400 mx-auto animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-              </svg>
-            </div>
-          </div>
-
           {/* Current Date */}
-          <div className="text-center mb-4">
-            <p className="text-white-400 text-sm">
-              Today's Date:{" "}{new Date().toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
-          </div>
+          {todayDate && (
+            <div className="text-center mb-4">
+              <p className="text-white-400 text-sm">
+                Today's Date: {todayDate}
+              </p>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -219,12 +200,7 @@ export default function IRBConsentForm({ onAgree, onCancel }: IRBConsentFormProp
             </button>
             <button
               onClick={onAgree}
-              disabled={!hasScrolledToBottom}
-              className={`px-8 py-3 font-medium rounded-md transition-all duration-200 ${
-                hasScrolledToBottom
-                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white hover:-translate-y-0.5'
-                  : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-              }`}
+              className="px-8 py-3 font-medium rounded-md transition-all duration-200 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white hover:-translate-y-0.5"
             >
               I Agree
             </button>

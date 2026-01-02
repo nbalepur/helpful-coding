@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Check, Send as SendIcon, Hand, PanelBottom, PanelRight } from 'lucide-react';
+import { Bot, Check, Send as SendIcon, Hand, PanelBottom, PanelRight, X, Undo, Redo } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
 import { useAnimatedText } from '../hooks/useAnimatedText';
 
@@ -13,7 +13,7 @@ export interface AssistantItem {
   message?: string;
   text?: string;
   type?: AssistantType;
-  status?: 'pending' | 'done';
+  status?: 'pending' | 'done' | 'failed';
   diff?: {
     additions?: number;
     deletions?: number;
@@ -41,6 +41,10 @@ interface AssistantTerminalPaneProps {
   onHalt?: () => void;
   assistantPlacement?: 'bottom' | 'side';
   onAssistantPlacementChange?: (placement: 'bottom' | 'side') => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 // Track which messages have been fully animated (persists across re-renders)
@@ -107,6 +111,10 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   onHalt,
   assistantPlacement,
   onAssistantPlacementChange,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }, ref) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -144,6 +152,12 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   const [textareaHeight, setTextareaHeight] = useState(32);
   // Track animation completions to trigger ellipses recalculation
   const [animationCompletionCounter, setAnimationCompletionCounter] = useState(0);
+  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
+  
+  // Detect platform after mount
+  useEffect(() => {
+    setIsMac(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform));
+  }, []);
   
   // Callback when animation completes to update ellipses logic
   const handleAnimationComplete = useCallback(() => {
@@ -190,6 +204,27 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClearMessages]);
+
+  // Style placeholder to use monospace font for better "I" visibility
+  useEffect(() => {
+    const styleId = 'assistant-terminal-placeholder-style';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        .assistant-terminal-input::placeholder {
+          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    return () => {
+      const style = document.getElementById(styleId);
+      if (style) {
+        style.remove();
+      }
+    };
+  }, []);
 
   const handleSuggestionClickInternal = useCallback((suggestion: string) => {
     if (!suggestion) return;
@@ -241,8 +276,8 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     // Don't show if summary is generating
     if (summaryGenerated) return false;
     
-    // Don't show if last message is a tool message that's still editing (spinning animation)
-    if (lastMessage?.type === 'tool' && lastMessage?.status !== 'done') {
+    // Don't show if last message is a tool message that's still pending (spinning animation)
+    if (lastMessage?.type === 'tool' && lastMessage?.status === 'pending') {
       return false;
     }
     
@@ -334,6 +369,37 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     };
   }, [awaitingResponse, renderedItems.messages, animationCompletionCounter]);
 
+  // Scroll to bottom when coding trace finishes (awaitingResponse changes from true to false)
+  const prevAwaitingResponseRef = useRef(awaitingResponse);
+  useEffect(() => {
+    // Check if awaitingResponse changed from true to false
+    if (prevAwaitingResponseRef.current === true && awaitingResponse === false) {
+      if (!messagesContainerRef.current) {
+        prevAwaitingResponseRef.current = awaitingResponse;
+        return;
+      }
+      if (!messagesEndRef.current) {
+        prevAwaitingResponseRef.current = awaitingResponse;
+        return;
+      }
+
+      const container = messagesContainerRef.current;
+      // Auto scroll with a small delay to ensure layout is updated
+      const timeout = setTimeout(() => {
+        try {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (error) {
+          container.scrollTop = container.scrollHeight;
+        }
+      }, 100);
+
+      prevAwaitingResponseRef.current = awaitingResponse;
+      return () => clearTimeout(timeout);
+    }
+    // Update ref for next comparison
+    prevAwaitingResponseRef.current = awaitingResponse;
+  }, [awaitingResponse]);
+
   // Auto-resize textarea based on content
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -415,26 +481,54 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         document.body
       )}
       {/* Header row with title and placement toggle button */}
-      <div className="flex items-center justify-between px-2 py-1 flex-shrink-0 bg-black border-b border-white/20">
+      <div className="flex items-center justify-between px-2 py-1 flex-shrink-0 bg-black border-b border-white/20 h-10">
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 font-medium">AI Assistant</span>
         </div>
-        {assistantPlacement && onAssistantPlacementChange && (
-          <button
-            onClick={() => onAssistantPlacementChange(assistantPlacement === 'bottom' ? 'side' : 'bottom')}
-            className="px-2 py-1 text-xs rounded transition-colors relative group flex-shrink-0 h-7 w-7 flex items-center justify-center bg-gray-700/50 hover:bg-gray-600 text-gray-400 hover:text-gray-300"
-            onMouseEnter={(e) => showTooltip(e.currentTarget, 'Toggle layout', 'left')}
-            onMouseLeave={hideTooltip}
-            type="button"
-            aria-label="Toggle AI Pane"
-          >
-            {assistantPlacement === 'bottom' ? (
-              <PanelRight size={14} />
-            ) : (
-              <PanelBottom size={14} />
-            )}
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {onUndo && (
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="px-2 py-1 text-xs rounded transition-colors relative group flex-shrink-0 h-7 w-7 flex items-center justify-center bg-gray-700/50 hover:bg-gray-600 text-gray-400 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-gray-700/50"
+              onMouseEnter={(e) => showTooltip(e.currentTarget, 'Undo Edit', 'top')}
+              onMouseLeave={hideTooltip}
+              type="button"
+              aria-label="Undo"
+            >
+              <Undo size={14} />
+            </button>
+          )}
+          {onRedo && (
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="px-2 py-1 text-xs rounded transition-colors relative group flex-shrink-0 h-7 w-7 flex items-center justify-center bg-gray-700/50 hover:bg-gray-600 text-gray-400 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-gray-700/50"
+              onMouseEnter={(e) => showTooltip(e.currentTarget, 'Redo Edit', 'top')}
+              onMouseLeave={hideTooltip}
+              type="button"
+              aria-label="Redo"
+            >
+              <Redo size={14} />
+            </button>
+          )}
+          {assistantPlacement && onAssistantPlacementChange && (
+            <button
+              onClick={() => onAssistantPlacementChange(assistantPlacement === 'bottom' ? 'side' : 'bottom')}
+              className="px-2 py-1 text-xs rounded transition-colors relative group flex-shrink-0 h-7 w-7 flex items-center justify-center bg-gray-700/50 hover:bg-gray-600 text-gray-400 hover:text-gray-300"
+              onMouseEnter={(e) => showTooltip(e.currentTarget, 'Toggle layout', 'top')}
+              onMouseLeave={hideTooltip}
+              type="button"
+              aria-label="Toggle AI Pane"
+            >
+              {assistantPlacement === 'bottom' ? (
+                <PanelRight size={14} />
+              ) : (
+                <PanelBottom size={14} />
+              )}
+            </button>
+          )}
+        </div>
       </div>
       {/* Messages area grows to fill available space */}
       <div
@@ -472,6 +566,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
             if (item.type === 'tool') {
               const isDone = item.status === 'done';
+              const isFailed = item.status === 'failed';
               const additions = item.diff?.additions ?? 0;
               const deletions = item.diff?.deletions ?? 0;
               return (
@@ -493,6 +588,8 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                 >
                   {isDone ? (
                     <Check size={14} className="text-emerald-400" />
+                  ) : isFailed ? (
+                    <X size={14} className="text-red-400" />
                   ) : (
                     <LoadingSpinner size="sm" color="blue" />
                   )}
@@ -564,39 +661,45 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       </div>
       {/* Toolbar outside the iframe, inside the assistant terminal */}
       <div className="flex flex-col gap-2 p-2 bg-gray-800/50">
-        <div className="flex gap-2 items-center">
-          <Bot size={16} className="flex-shrink-0 text-gray-400" />
-          <textarea
-            ref={textareaRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (awaitingResponse) return;
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (onSubmit && inputValue.trim()) {
-                  onSubmit(inputValue);
+        <div className="flex gap-2 items-center w-full">
+          <Bot size={16} className="flex-shrink-0 text-gray-400 self-center" />
+          <div className="flex-1 relative min-w-0 flex items-center">
+            {!inputValue && (
+              <div className="absolute inset-0 flex items-center px-2 text-sm text-gray-400 pointer-events-none">
+                Ask anything... ({isMac ? '⌘' : 'Ctrl'}+<span className="font-mono font-semibold">I</span>)
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (awaitingResponse) return;
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (onSubmit && inputValue.trim()) {
+                    onSubmit(inputValue);
+                  }
                 }
-              }
-            }}
-            placeholder="Ask anything... (⌘+I)"
-            className="flex-1 text-sm rounded px-2 py-1 text-white placeholder-gray-400 focus:outline-none resize-none overflow-y-auto disabled:text-gray-400 disabled:bg-gray-800/60 disabled:border-gray-700 disabled:cursor-not-allowed"
-            style={{ 
-              background: 'rgba(59, 130, 246, 0.1)', 
-              border: '1px solid #374151',
-              minHeight: '32px',
-              maxHeight: '160px',
-              height: `${textareaHeight}px`
-            }}
-            disabled={awaitingResponse}
-            onMouseEnter={() => { if (awaitingResponse) showTooltip(textareaRef.current, 'Agent running – input locked'); }}
-            onMouseLeave={hideTooltip}
-          />
+              }}
+              className="assistant-terminal-input w-full text-sm rounded px-2 py-1 text-white focus:outline-none resize-none overflow-y-auto disabled:text-gray-400 disabled:bg-gray-800/60 disabled:border-gray-700 disabled:cursor-not-allowed"
+              style={{ 
+                background: 'rgba(59, 130, 246, 0.1)', 
+                border: '1px solid #374151',
+                minHeight: '32px',
+                maxHeight: '160px',
+                height: `${textareaHeight}px`
+              }}
+              disabled={awaitingResponse}
+              onMouseEnter={() => { if (awaitingResponse) showTooltip(textareaRef.current, 'Agent running – input locked'); }}
+              onMouseLeave={hideTooltip}
+            />
+          </div>
           <button 
             ref={clearBtnRef}
-            className="px-2 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors relative group flex-shrink-0 h-8"
+            className="px-2 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors relative group flex-shrink-0 h-8 flex items-center justify-center self-center"
             onClick={onClearMessages}
-            onMouseEnter={() => showTooltip(clearBtnRef.current, 'Clear messages (⌘⌫)')}
+            onMouseEnter={() => showTooltip(clearBtnRef.current, `Clear messages (${isMac ? '⌘' : 'Ctrl'}⌫)`)}
             onMouseLeave={hideTooltip}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -610,11 +713,11 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
           {awaitingResponse ? (
             <button
               ref={haltBtnRef}
-              className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors relative group flex-shrink-0 h-8"
+              className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors relative group flex-shrink-0 h-8 flex items-center justify-center self-center"
               onClick={() => { onHalt?.(); }}
               type="button"
-              aria-label="Halt (Command+D)"
-              onMouseEnter={() => showTooltip(haltBtnRef.current, 'Halt (⌘D)')}
+              aria-label={isMac ? "Halt (Command+D)" : "Halt (Ctrl+D)"}
+              onMouseEnter={() => showTooltip(haltBtnRef.current, `Halt (${isMac ? '⌘' : 'Ctrl'}D)`)}
               onMouseLeave={hideTooltip}
             >
               <Hand size={16} />
@@ -623,7 +726,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
           ) : (
             <button 
               ref={sendBtnRef}
-              className="px-2 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors relative group flex-shrink-0 h-8"
+              className="px-2 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors relative group flex-shrink-0 h-8 flex items-center justify-center self-center"
               onClick={() => {
                 if (onSubmit && inputValue.trim()) {
                   onSubmit(inputValue);

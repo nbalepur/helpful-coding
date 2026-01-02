@@ -12,9 +12,9 @@ export default function TaskPage({ params }: PageProps) {
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect to the main browse page with the task parameter
+    // Redirect to the main vibe page with the task parameter
     // This will trigger the main page's URL handling logic
-    router.replace(`/browse?task=${params.task_name}`);
+    router.replace(`/vibe?task=${params.task_name}`);
   }, [params.task_name, router]);
 
   return (

@@ -45,7 +45,7 @@ After completing the pre-test, you will be prompted to move on to the next step 
 
 ### Step 2: Building Websites in VibeJam
 
-After completing the first skill check, you will be taken to the [browse](/browse) page where you will see all tasks that you must complete.
+After completing the first skill check, you will be taken to the [tasks page](/vibe) where you will see all tasks that you must complete.
 
 ![Browse Tasks](instruction_assets/browse.png)
 
@@ -151,5 +151,5 @@ Once you have finished the post-test, you can keep building websites in VibeJam 
 ### Additional Warnings and Notes
 
 - Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.
-- There will be sanity checks scattered throughout the skill-check questions to make sure you are paying attention.
+- There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention.
 - Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.

@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import LoginForm from "./LoginForm";
 import SignupForm from "./SignupForm";
@@ -20,6 +20,48 @@ export default function LandingPage() {
   // Set mounted state to prevent hydration mismatch
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  // Generate stars only on client side to avoid hydration mismatch
+  const backgroundStars = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return {
+        largeStars: [],
+        mediumStars: [],
+        smallDots: [],
+        animatedDots: [],
+      };
+    }
+
+    const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+    const animatedColors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+
+    const makeStars = (count: number, sizeRange: [number, number], opacityRange: [number, number]) =>
+      Array.from({ length: count }, () => ({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: Math.random() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        opacity: Math.random() * (opacityRange[1] - opacityRange[0]) + opacityRange[0],
+      }));
+
+    const makeAnimatedDots = () =>
+      Array.from({ length: 12 }, () => ({
+        color: animatedColors[Math.floor(Math.random() * animatedColors.length)],
+        size: Math.random() * 8 + 4,
+        top: Math.random() * 100,
+        duration: Math.random() * 30 + 40,
+        delay: Math.random() * 5,
+        direction: (Math.random() > 0.5 ? 'left-to-right' : 'right-to-left') as 'left-to-right' | 'right-to-left',
+        opacity: Math.random() * 0.6 + 0.4,
+      }));
+
+    return {
+      largeStars: makeStars(20, [2, 4], [0.4, 0.6]),
+      mediumStars: makeStars(40, [1, 2], [0.3, 0.5]),
+      smallDots: makeStars(100, [0.5, 1.5], [0.2, 0.4]),
+      animatedDots: makeAnimatedDots(),
+    };
   }, []);
 
   // Redirect if already authenticated
@@ -54,8 +96,8 @@ export default function LandingPage() {
   const handleAuthSuccess = (user: any, token: string) => {
     // Use the auth context login method
     login(user, token);
-    // Redirect to browse page
-    router.push('/browse');
+    // Redirect to vibe page
+    router.push('/vibe');
   };
 
   const handleSwitchToSignup = () => {
@@ -112,113 +154,76 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-gray-900 text-white relative">
+    <div className={`${showIRBForm ? 'min-h-screen overflow-y-auto' : 'h-screen overflow-hidden'} bg-gray-900 text-white relative`}>
       {/* Space Theme with Jam-Colored Stars */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         {/* Large stars */}
-        {[...Array(20)].map((_, i) => {
-          const colors = ['#3b82f6', '#8b5cf6', '#ec4899']; // Red-blue gradient colors
-          const color = colors[Math.floor(Math.random() * colors.length)];
-          const size = Math.random() * 4 + 2;
-          const left = Math.random() * 100;
-          const top = Math.random() * 100;
-          const opacity = Math.random() * 0.6 + 0.4;
-          
-          return (
-            <div
-              key={`star-${i}`}
-              className="absolute rounded-full"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                left: `${left}%`,
-                top: `${top}%`,
-                backgroundColor: color,
-                opacity: opacity,
-                boxShadow: `0 0 ${size * 2}px ${color}, 0 0 ${size * 4}px ${color}`,
-              }}
-            />
-          );
-        })}
+        {backgroundStars.largeStars.map((star, i) => (
+          <div
+            key={`star-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${star.size}px`,
+              height: `${star.size}px`,
+              left: `${star.left}%`,
+              top: `${star.top}%`,
+              backgroundColor: star.color,
+              opacity: star.opacity,
+              boxShadow: `0 0 ${star.size * 2}px ${star.color}, 0 0 ${star.size * 4}px ${star.color}`,
+            }}
+          />
+        ))}
         
         {/* Medium stars */}
-        {[...Array(40)].map((_, i) => {
-          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
-          const color = colors[Math.floor(Math.random() * colors.length)];
-          const size = Math.random() * 2 + 1;
-          const left = Math.random() * 100;
-          const top = Math.random() * 100;
-          const opacity = Math.random() * 0.5 + 0.3;
-          
-          return (
-            <div
-              key={`medium-${i}`}
-              className="absolute rounded-full"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                left: `${left}%`,
-                top: `${top}%`,
-                backgroundColor: color,
-                opacity: opacity,
-                boxShadow: `0 0 ${size * 1.5}px ${color}`,
-              }}
-            />
-          );
-        })}
+        {backgroundStars.mediumStars.map((star, i) => (
+          <div
+            key={`medium-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${star.size}px`,
+              height: `${star.size}px`,
+              left: `${star.left}%`,
+              top: `${star.top}%`,
+              backgroundColor: star.color,
+              opacity: star.opacity,
+              boxShadow: `0 0 ${star.size * 1.5}px ${star.color}`,
+            }}
+          />
+        ))}
         
         {/* Small twinkling dots */}
-        {[...Array(100)].map((_, i) => {
-          const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
-          const color = colors[Math.floor(Math.random() * colors.length)];
-          const size = Math.random() * 1.5 + 0.5;
-          const left = Math.random() * 100;
-          const top = Math.random() * 100;
-          const opacity = Math.random() * 0.4 + 0.2;
-          
-          return (
-            <div
-              key={`dot-${i}`}
-              className="absolute rounded-full"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                left: `${left}%`,
-                top: `${top}%`,
-                backgroundColor: color,
-                opacity: opacity,
-              }}
-            />
-          );
-        })}
+        {backgroundStars.smallDots.map((dot, i) => (
+          <div
+            key={`dot-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${dot.size}px`,
+              height: `${dot.size}px`,
+              left: `${dot.left}%`,
+              top: `${dot.top}%`,
+              backgroundColor: dot.color,
+              opacity: dot.opacity,
+            }}
+          />
+        ))}
         
         {/* Animated jam-like dots moving across screen */}
-        {[...Array(12)].map((_, i) => {
-          const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
-          const color = colors[Math.floor(Math.random() * colors.length)];
-          const size = Math.random() * 8 + 4;
-          const top = Math.random() * 100;
-          const duration = Math.random() * 30 + 40; // 40-70 seconds (slower)
-          const delay = Math.random() * 5; // 0-5 seconds delay
-          const direction = Math.random() > 0.5 ? 'left-to-right' : 'right-to-left';
-          
-          return (
-            <div
-              key={`animated-dot-${i}`}
-              className="absolute rounded-full"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                top: `${top}%`,
-                left: direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
-                backgroundColor: color,
-                opacity: Math.random() * 0.6 + 0.4,
-                boxShadow: `0 0 ${size * 1.5}px ${color}, 0 0 ${size * 3}px ${color}`,
-                animation: `moveAcross${direction === 'left-to-right' ? 'Right' : 'Left'} ${duration}s linear ${delay}s infinite`,
-              }}
-            />
-          );
-        })}
+        {backgroundStars.animatedDots.map((dot, i) => (
+          <div
+            key={`animated-dot-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${dot.size}px`,
+              height: `${dot.size}px`,
+              top: `${dot.top}%`,
+              left: dot.direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
+              backgroundColor: dot.color,
+              opacity: dot.opacity,
+              boxShadow: `0 0 ${dot.size * 1.5}px ${dot.color}, 0 0 ${dot.size * 3}px ${dot.color}`,
+              animation: `moveAcross${dot.direction === 'left-to-right' ? 'Right' : 'Left'} ${dot.duration}s linear ${dot.delay}s infinite`,
+            }}
+          />
+        ))}
       </div>
       {/* Show loading state while checking authentication */}
       {isLoading && (

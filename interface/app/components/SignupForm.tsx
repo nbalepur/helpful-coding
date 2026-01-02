@@ -93,7 +93,17 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
         // Call success callback
         onSuccess(data.user, data.access_token);
       } else {
-        setError(data.detail || "Signup failed. Please try again.");
+        // Handle validation errors (array) or regular errors (string)
+        let errorMessage = "Signup failed. Please try again.";
+        if (data.detail) {
+          if (Array.isArray(data.detail)) {
+            // Format Pydantic validation errors
+            errorMessage = data.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+          } else {
+            errorMessage = data.detail;
+          }
+        }
+        setError(errorMessage);
       }
     } catch (err) {
       setError("Network error. Please check your connection and try again.");
@@ -103,7 +113,7 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 overflow-y-auto">
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 overflow-y-auto relative z-20">
       <div className="w-full max-w-lg my-8">
         {/* Back Button */}
         <button
