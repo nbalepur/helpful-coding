@@ -17,6 +17,9 @@ interface UserStudyPopupContextType {
   setPopupState: (state: PopupState) => void;
   recalculateState?: () => Promise<void>;
   isCalculating?: boolean;
+  onTutorialClose?: () => void;
+  preTestCompleted?: boolean | null;
+  postTestCompleted?: boolean | null;
 }
 
 export const UserStudyPopupContext = createContext<UserStudyPopupContextType | undefined>(undefined);
@@ -34,7 +37,7 @@ const VIDEO_THRESHOLD_SECONDS = 30;
 function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
-  const { popupState, setPopupState, recalculateState } = useUserStudyPopup();
+  const { popupState, setPopupState, recalculateState, onTutorialClose } = useUserStudyPopup();
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
@@ -471,10 +474,11 @@ function UserStudyPopupInner() {
     if (popupState === 'tutorial' && !canCloseTutorial) {
       return;
     }
-    setPopupState('none');
-    // Recalculate popup state to check if we need to show another popup (e.g., pre-test)
-    if (popupState === 'tutorial' && recalculateState) {
-      await recalculateState();
+    // When tutorial closes, directly transition to pre-test (no API calls needed)
+    if (popupState === 'tutorial' && onTutorialClose) {
+      onTutorialClose();
+    } else {
+      setPopupState('none');
     }
   };
 
@@ -572,6 +576,8 @@ function UserStudyPopupInner() {
                 fontWeight: 500,
                 cursor: 'pointer',
                 transition: 'background-color 0.2s ease',
+                width: '100%',
+                marginBottom: '8px',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#1d4ed8';

@@ -1112,6 +1112,19 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 s = re.sub(r"tmp\/aider_[^\/\s]+", "", s)
                 return s
 
+            def _strip_trailing_code_fence(text: str) -> str:
+                """Remove trailing '```' markers that sometimes appear in generated code."""
+                if not text:
+                    return text
+                # Strip trailing newlines first
+                text = text.rstrip("\n\r")
+                # Strip trailing '```' (with optional language specifier and whitespace) at the end of the string
+                # Handle cases where '```' appears on its own line or inline at the end
+                text = re.sub(r'[\n\r]*\s*```[a-zA-Z]*\s*$', '', text)
+                # Also strip any remaining trailing whitespace after removing the fence
+                text = text.rstrip()
+                return text
+
             try:
                 for chunk in coder.run_stream(prompt_):
                     text = str(chunk)
@@ -1173,6 +1186,8 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             if line.strip().startswith("```"):
                                 # fence closed: finalize edit
                                 content_str = "\n".join(edit_lines)
+                                # Strip trailing code fence markers
+                                content_str = _strip_trailing_code_fence(content_str)
                                 raw_lines.append(line)
                                 # write to file
                                 # compute diff stats vs old content (from memory)
@@ -1181,12 +1196,12 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 sr = parse_search_replace_block(content_str)
                                 if sr:
                                     orig_block, upd_block = sr
-                                    target_name, new_text = apply_search_replace_in_memory(file_contents, orig_block, upd_block)
+                                    target_name, new_text = apply_search_replace_in_memory(file_contents, orig_block, upd_block, current_filename)
                                     if target_name and new_text is not None:
                                         # success, emit tool_result with updated content
                                         target_type = filetype_map.get(target_name)
-                                        # update in-memory contents (strip trailing newlines)
-                                        new_text_stripped = new_text.rstrip("\n")
+                                        # update in-memory contents (strip trailing newlines and code fences)
+                                        new_text_stripped = _strip_trailing_code_fence(new_text)
                                         file_contents[target_name] = new_text_stripped
                                         # store edit block text for this file
                                         try:
@@ -1241,8 +1256,8 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                         raw_lines = []
                                         continue
 
-                                # Non S/R: update in-memory content only (strip trailing newlines)
-                                content_str_stripped = content_str.rstrip("\n")
+                                # Non S/R: update in-memory content only (strip trailing newlines and code fences)
+                                content_str_stripped = _strip_trailing_code_fence(content_str)
                                 file_contents[current_filename] = content_str_stripped
                                 target_type = filetype_map.get(current_filename)
                                 # Only send tool_result if we haven't already sent it for this file
@@ -1253,7 +1268,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                         # Compare against initial content, not intermediate state
                                         old_text_initial = initial_contents.get(current_filename, "")
                                         a_lines = old_text_initial.splitlines()
-                                        b_lines = content_str.splitlines()
+                                        b_lines = content_str_stripped.splitlines()
                                         diff = difflib.ndiff(a_lines, b_lines)
                                         additions = sum(1 for d in diff if d.startswith('+ ') )
                                         deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
@@ -1269,7 +1284,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                             "target_files": [target_type] if target_type else [],
                                             "diff_stats": diff_stats,
                                             "filename": current_filename,
-                                            "updated_content": content_str,
+                                            "updated_content": content_str_stripped,
                                         },
                                     }) + "\n").encode("utf-8")
                                     files_sent_tool_result.add(current_filename)
@@ -1293,16 +1308,19 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 # If we are still inside a fence and the remaining buffer is a closing fence
                 if in_fence and buffer.strip().startswith("```") and current_filename:
                     content_str = "\n".join(edit_lines)
+                    # Strip trailing code fence markers
+                    content_str = _strip_trailing_code_fence(content_str)
                     old_text = file_contents.get(current_filename, "")
                     # Handle SEARCH/REPLACE at EOF (dry-run)
                     sr = parse_search_replace_block(content_str)
                     updated_payload_text = None
                     updated_target_name = current_filename
+                    search_replace_failed = False
                     if sr:
                         orig_block, upd_block = sr
-                        tname, new_text = apply_search_replace_in_memory(file_contents, orig_block, upd_block)
+                        tname, new_text = apply_search_replace_in_memory(file_contents, orig_block, upd_block, current_filename)
                         if tname and new_text is not None:
-                            updated_payload_text = new_text.rstrip("\n")
+                            updated_payload_text = _strip_trailing_code_fence(new_text)
                             updated_target_name = tname
                             file_contents[updated_target_name] = updated_payload_text
                             # store edit block for this file
@@ -1311,6 +1329,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             except Exception:
                                 pass
                         else:
+                            search_replace_failed = True
                             yield (json.dumps({
                                 "state": "error",
                                 "data": {"message": "edit_fail: SEARCH block did not match any open files"},
@@ -1322,46 +1341,51 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             edit_lines = []
                             raw_lines = []
                             # still flush remaining buffer below
-                            pass
                     else:
-                        updated_payload_text = content_str.rstrip("\n")
+                        updated_payload_text = _strip_trailing_code_fence(content_str)
                         file_contents[updated_target_name] = updated_payload_text
-                    target_type = filetype_map.get(updated_target_name)
-                    # Only send tool_result if we haven't already sent it for this file
-                    if updated_target_name not in files_sent_tool_result:
-                        try:
-                            import difflib
-                            # Compare against initial content, not intermediate state
-                            old_text_initial = initial_contents.get(updated_target_name, "")
-                            a_lines = old_text_initial.splitlines()
-                            b_lines = updated_payload_text.splitlines()
-                            diff = difflib.ndiff(a_lines, b_lines)
-                            additions = sum(1 for d in diff if d.startswith('+ ') )
-                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                        except Exception:
-                            additions = 0
-                            deletions = 0
-                        # Store final diff stats (not accumulated)
-                        file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
-                        diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                        yield (json.dumps({
-                            "state": "tool_result",
-                            "data": {
-                                "target_files": [target_type] if target_type else [],
-                                "diff_stats": diff_stats,
-                                "filename": updated_target_name,
-                                "updated_content": (updated_payload_text or content_str),
-                            },
-                        }) + "\n").encode("utf-8")
-                        files_sent_tool_result.add(updated_target_name)
-                    in_tool = False
-                    in_fence = False
-                    fence_lang_seen = False
-                    current_filename = None
-                    edit_lines = []
-                    raw_lines = []
-                    # We consumed the closing fence from the buffer; clear any leftover backticks
-                    buffer = ""
+                    
+                    # Only send tool_result if search/replace succeeded or it wasn't a search/replace block
+                    if not search_replace_failed and updated_payload_text is not None:
+                        target_type = filetype_map.get(updated_target_name)
+                        # Only send tool_result if we haven't already sent it for this file
+                        if updated_target_name not in files_sent_tool_result:
+                            try:
+                                import difflib
+                                # Compare against initial content, not intermediate state
+                                old_text_initial = initial_contents.get(updated_target_name, "")
+                                a_lines = old_text_initial.splitlines()
+                                b_lines = updated_payload_text.splitlines()
+                                diff = difflib.ndiff(a_lines, b_lines)
+                                additions = sum(1 for d in diff if d.startswith('+ ') )
+                                deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                            except Exception:
+                                additions = 0
+                                deletions = 0
+                            # Store final diff stats (not accumulated)
+                            file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
+                            diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                            yield (json.dumps({
+                                "state": "tool_result",
+                                "data": {
+                                    "target_files": [target_type] if target_type else [],
+                                    "diff_stats": diff_stats,
+                                    "filename": updated_target_name,
+                                    "updated_content": (updated_payload_text or content_str),
+                                },
+                            }) + "\n").encode("utf-8")
+                            files_sent_tool_result.add(updated_target_name)
+                    
+                    # Only reset state if we didn't already reset it due to search/replace failure
+                    if not search_replace_failed:
+                        in_tool = False
+                        in_fence = False
+                        fence_lang_seen = False
+                        current_filename = None
+                        edit_lines = []
+                        raw_lines = []
+                        # We consumed the closing fence from the buffer; clear any leftover backticks
+                        buffer = ""
 
                 # Flush any remaining accumulated assistant text
                 tail_text = (message_accum + buffer)

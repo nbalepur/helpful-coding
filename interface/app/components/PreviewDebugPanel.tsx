@@ -262,7 +262,7 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
     const messagesHTML = consoleMessages.length === 0 
       ? `
         <div style="text-align: center; padding: 20px; color: #888;">
-          <div style="font-size: 12px;">No console messages</div>
+          <div style="font-size: 12px;">No console log messages</div>
         </div>
       `
       : consoleMessages.map((msg, index) => {
@@ -467,7 +467,7 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
       {/* Console Header */}
       <div className="px-3 py-2 border-b border-gray-700 flex items-center justify-between bg-gray-800 flex-shrink-0">
         <div className="flex items-center space-x-2">
-          <span className="text-gray-300 text-sm font-medium">Console</span>
+          <span className="text-gray-300 text-sm font-medium">Console Logs</span>
         </div>
         <div className="flex items-center space-x-1.5">
           {onTogglePlacement && (
@@ -527,7 +527,7 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
               const spaceBelow = vh - rect.bottom;
               const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
               const top = placeAbove ? rect.top : rect.bottom;
-              setTooltipText('Clear console');
+              setTooltipText('Clear console logs');
               setTooltipLeft(left);
               setTooltipTop(top);
               setTooltipPlaceAbove(placeAbove);
@@ -563,7 +563,7 @@ const PreviewDebugPanel = forwardRef<PreviewDebugPanelRef, PreviewDebugPanelProp
         className="flex-1 w-full border-none bg-black"
         style={{ minHeight: 0 }}
         srcDoc={generateConsoleHTML()}
-        title="Console Output"
+        title="Console Logs Output"
         sandbox="allow-same-origin"
       />
       

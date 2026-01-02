@@ -1919,12 +1919,19 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+    }
     body {
       background: #1a1f2e;
       color: #e5e7eb;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       padding: 0;
       line-height: 1.6;
+      display: flex;
+      flex-direction: column;
     }
     /* Transparent scrollbar */
     ::-webkit-scrollbar {
@@ -1968,9 +1975,15 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       padding: 0;
       position: relative;
       height: 100%;
+      display: flex;
+      flex-direction: column;
     }
     .content-wrapper {
       padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
     }
     .question-text {
       font-size: 18px;
@@ -2001,6 +2014,8 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       display: flex;
       flex-direction: column;
       gap: 8px;
+      flex: 1;
+      min-height: 0;
     }
     .choice-label {
       display: flex;
@@ -3306,7 +3321,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex-1 flex items-center justify-center min-h-[calc(100vh-3rem)]">
         <div className="text-center">
           <LoadingSpinner size="xl" color="blue" className="mx-auto mb-4" />
           <p className="text-gray-400">Loading questions...</p>
@@ -3352,7 +3367,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   const currentAnswer = answers[currentQuestion.id];
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col flex-1 min-h-0">
       <div ref={topRef} />
       {/* Progress Bar */}
       <div className="mb-4 flex-shrink-0">

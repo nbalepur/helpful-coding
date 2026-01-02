@@ -4,6 +4,7 @@ import './globals.css'
 import { AuthProvider } from './utils/auth'
 import { SnackbarProvider } from './components/SnackbarProvider'
 import UserStudyPopupProvider from './components/UserStudyPopupProvider'
+import AppLayout from './components/AppLayout'
 import { Suspense } from 'react'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -25,7 +26,9 @@ export default function RootLayout({
           <SnackbarProvider>
             <Suspense fallback={null}>
               <UserStudyPopupProvider>
-                {children}
+                <AppLayout>
+                  {children}
+                </AppLayout>
               </UserStudyPopupProvider>
             </Suspense>
           </SnackbarProvider>

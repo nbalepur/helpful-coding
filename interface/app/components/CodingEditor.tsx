@@ -13,6 +13,7 @@ import { buildFullHTMLDocument } from '../utils/htmlBuilder';
 import { useSnackbar } from './SnackbarProvider';
 import LoadingSpinner from './LoadingSpinner';
 import Link from 'next/link';
+import { useUserStudyPopup } from './UserStudyPopup';
 
 const flattenFileTree = (nodes: any[] = []): any[] => {
   const result: any[] = [];
@@ -222,6 +223,8 @@ interface CodingEditorProps {
   sidebarOpen?: boolean;
   // Callback when project is successfully submitted
   onProjectSubmitted?: () => void | Promise<void>;
+  // Loading state for files
+  isLoadingFiles?: boolean;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -287,8 +290,10 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   taskName,
   sidebarOpen = false,
   onProjectSubmitted,
+  isLoadingFiles = false,
 }: CodingEditorProps) => {
   const { showSnackbar } = useSnackbar();
+  const { recalculateState } = useUserStudyPopup();
   const [output, setOutput] = useState(
     "Output will be shown here when Run is pressed."
   );
@@ -1136,7 +1141,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               ${code}
               resultDiv.innerHTML = '<div class="success">✓ Code executed successfully!</div>';
             } catch (error) {
-              resultDiv.innerHTML = '<div class="error">❌ Error: ' + error.message + '</div>';
+              resultDiv.innerHTML = '<div class="error">❌ Error: ' + error.message + ' Please try again</div>';
             }
           `
         };
@@ -1980,7 +1985,28 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       // Reset comprehension answers
       setComprehensionAnswers({});
       
-      // Call onProjectSubmitted callback if provided (e.g., to recalculate UserStudyPopup state)
+      // Show success snackbar immediately after submission
+      showSnackbar(
+        <>
+          Nice work! Navigate back to the{' '}
+          <Link href="/vibe" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+            tasks page
+          </Link>{' '}
+          to work on other projects
+        </>,
+        12000 // 12 seconds
+      );
+      
+      // Recalculate popup state after successful submission (run in background)
+      if (recalculateState) {
+        try {
+          await recalculateState();
+        } catch (error) {
+          console.error('Error recalculating popup state after submission:', error);
+        }
+      }
+      
+      // Call onProjectSubmitted callback if provided (e.g., for other callbacks) (run in background)
       if (onProjectSubmitted) {
         try {
           await onProjectSubmitted();
@@ -1988,18 +2014,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           console.error('Error in onProjectSubmitted callback:', error);
         }
       }
-      
-      // Show success snackbar
-      showSnackbar(
-        <>
-          Nice work! Navigate back to the{' '}
-          <Link href="/browse" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
-            Browse page
-          </Link>{' '}
-          to work on other projects
-        </>,
-        12000 // 12 seconds
-      );
     } catch (error) {
       console.error('Project submission failed:', error);
       setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again');
@@ -2062,6 +2076,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               pendingAgentChanges={pendingAgentChanges}
               onAcceptAgentChanges={onAcceptAgentChanges}
               onRejectAgentChanges={onRejectAgentChanges}
+              isLoadingFiles={isLoadingFiles}
             />
           ) : (
             <MonacoEditor
@@ -2229,23 +2244,29 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               </h2>
               <button
                 type="button"
-                onClick={() => setShowSubmitModal(false)}
+                onClick={() => !isSubmittingProject && setShowSubmitModal(false)}
                 aria-label="Close submit modal"
+                disabled={isSubmittingProject}
                 style={{
                   background: 'transparent',
                   border: 'none',
                   color: '#9ca3af',
                   fontSize: '18px',
-                  cursor: 'pointer',
+                  cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
                   padding: '4px 8px',
                   lineHeight: 1,
-                  transition: 'color 0.2s ease'
+                  transition: 'color 0.2s ease',
+                  opacity: isSubmittingProject ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#ffffff';
+                  if (!isSubmittingProject) {
+                    e.currentTarget.style.color = '#ffffff';
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#9ca3af';
+                  if (!isSubmittingProject) {
+                    e.currentTarget.style.color = '#9ca3af';
+                  }
                 }}
               >
                 ✕
@@ -2406,7 +2427,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         const spaceBelow = vh - rect.bottom;
                         const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
                         const top = placeAbove ? rect.top : rect.bottom;
-                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. You can use any image as long as it is appropriate and relevant to your project.");
+                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. We sugget using a screenshot of your site, but you can use any appropriate image that is relevant to your project.");
                         setTooltipLeft(left);
                         setTooltipTop(top);
                         setTooltipPlaceAbove(placeAbove);
@@ -2679,7 +2700,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         You already have a submission called "{existingSubmission.title}"!
                       </span>
                       <span>
-                        Submitting again will override your current submission and clear all votes..
+                        Submitting again will override your current submission and clear all votes (if the voting period has begun) on your site.
                       </span>
                     </div>
                   </div>
@@ -2796,7 +2817,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 }}
               >
                 <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
-                  Please answer the following questions about your project before you submit! If questions do not generate after 30 seconds, please refresh the page and try again.
+                  Please answer the following questions about your project before you submit! If questions do not generate after 60 seconds, please refresh the page and try again.
                 </p>
                 
                 {isLoadingComprehensionQuestions && (

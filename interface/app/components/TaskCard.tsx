@@ -35,15 +35,20 @@ interface TaskCardProps {
 }
 
 // Extract text from HTML description
+// Use consistent method for both server and client to avoid hydration mismatches
 const getTextFromHtml = (html: string): string => {
-  if (typeof window === 'undefined') {
-    // Server-side: strip HTML tags
-    return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-  }
-  // Client-side: use DOM parser
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return tmp.textContent || tmp.innerText || '';
+  // Always use regex-based approach for consistency between server and client
+  // This avoids hydration mismatches from DOM parsing differences
+  return html
+    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
+    .replace(/&amp;/g, '&') // Replace &amp; with &
+    .replace(/&lt;/g, '<') // Replace &lt; with <
+    .replace(/&gt;/g, '>') // Replace &gt; with >
+    .replace(/&quot;/g, '"') // Replace &quot; with "
+    .replace(/&#39;/g, "'") // Replace &#39; with '
+    .replace(/\s+/g, ' ') // Collapse multiple spaces
+    .trim();
 };
 
 const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = false }) => {
@@ -51,8 +56,8 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onSaveToggle, disableHover = 
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleTaskClick = () => {
-    // Use standard vibe route for all tasks including playground
-    router.push(`/vibe/${task.id}`);
+    // Navigate directly to vibe page with task query parameter (no redirect needed)
+    router.push(`/vibe?task=${task.id}`);
   };
 
   const handleExpandClick = (e: React.MouseEvent) => {

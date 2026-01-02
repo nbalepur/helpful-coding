@@ -305,11 +305,24 @@ def parse_search_replace_block(block: str):
     return None
 
 
-def apply_search_replace_in_memory(file_contents: Dict[str, str], original: str, updated: str) -> Tuple[Optional[str], Optional[str]]:
-    """Apply SEARCH/REPLACE to any file content in memory using aider-like matching.
+def apply_search_replace_in_memory(file_contents: Dict[str, str], original: str, updated: str, target_filename: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    """Apply SEARCH/REPLACE to file content in memory using aider-like matching.
+
+    If target_filename is specified, only attempts to apply the edit to that file.
+    Otherwise, tries all files (legacy behavior for backward compatibility).
 
     Returns (filename, new_content) if successful, otherwise (None, None).
     """
+    if target_filename:
+        # Only try the specified file
+        content = file_contents.get(target_filename)
+        if content is not None:
+            new_content = do_replace(target_filename, content, original, updated)
+            if new_content:
+                return target_filename, new_content
+        return None, None
+    
+    # Legacy behavior: try all files (for backward compatibility)
     for name, content in file_contents.items():
         new_content = do_replace(name, content, original, updated)
         if new_content:

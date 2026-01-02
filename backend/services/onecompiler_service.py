@@ -331,8 +331,23 @@ def endpoint(path):
                     # Extract fields with fallbacks for different naming conventions
                     stdout = result.get("stdout", result.get("output", ""))
                     stderr = result.get("stderr", result.get("error", ""))
+                    exception = result.get("exception", "")
                     exit_code = result.get("exitCode", result.get("exit_code", result.get("exitCode", 0)))
                     execution_time = result.get("executionTime", result.get("execution_time", 0))
+                    
+                    # If there's an exception (e.g., "Output limit exceeded"), treat it as a failure
+                    if exception:
+                        # Combine exception with stderr if stderr exists
+                        combined_stderr = f"{stderr}\n{exception}".strip() if stderr else exception
+                        return {
+                            "success": False,
+                            "stdout": stdout if stdout else "",
+                            "stderr": combined_stderr,
+                            "exit_code": 1,
+                            "execution_time": int(execution_time) if execution_time else 0,
+                            "error": exception,
+                            "raw_response": result  # Include raw response for debugging
+                        }
                     
                     return {
                         "success": True,
@@ -508,8 +523,23 @@ def endpoint(path):
                     # Extract fields with fallbacks for different naming conventions
                     stdout = result.get("stdout", result.get("output", ""))
                     stderr = result.get("stderr", result.get("error", ""))
+                    exception = result.get("exception", "")
                     exit_code = result.get("exitCode", result.get("exit_code", result.get("exitCode", 0)))
                     execution_time = result.get("executionTime", result.get("execution_time", 0))
+                    
+                    # If there's an exception (e.g., "Output limit exceeded"), treat it as a failure
+                    if exception:
+                        # Combine exception with stderr if stderr exists
+                        combined_stderr = f"{stderr}\n{exception}".strip() if stderr else exception
+                        return {
+                            "success": False,
+                            "stdout": stdout if stdout else "",
+                            "stderr": combined_stderr,
+                            "exit_code": 1,
+                            "execution_time": int(execution_time) if execution_time else 0,
+                            "error": exception,
+                            "raw_response": result  # Include raw response for debugging
+                        }
                     
                     return {
                         "success": True,

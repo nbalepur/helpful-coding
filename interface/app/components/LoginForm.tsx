@@ -58,7 +58,17 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
         // Call success callback
         onSuccess(data.user, data.access_token);
       } else {
-        setError(data.detail || "Login failed. Please try again.");
+        // Handle validation errors (array) or regular errors (string)
+        let errorMessage = "Login failed. Please try again.";
+        if (data.detail) {
+          if (Array.isArray(data.detail)) {
+            // Format Pydantic validation errors
+            errorMessage = data.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+          } else {
+            errorMessage = data.detail;
+          }
+        }
+        setError(errorMessage);
       }
     } catch (err) {
       setError("Network error. Please check your connection and try again.");
@@ -78,7 +88,7 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 overflow-y-auto">
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4 overflow-y-auto relative z-20">
       <div className="w-full max-w-lg my-8">
         {/* Back Button */}
         <button

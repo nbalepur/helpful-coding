@@ -24,6 +24,16 @@ export default function LeaderboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("rank");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  // Generate animated dots only on client side to avoid hydration mismatch
+  const [animatedDots, setAnimatedDots] = useState<Array<{
+    color: string;
+    size: number;
+    top: number;
+    duration: number;
+    delay: number;
+    direction: 'left-to-right' | 'right-to-left';
+    opacity: number;
+  }>>([]);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -45,6 +55,23 @@ export default function LeaderboardPage() {
     };
 
     fetchLeaderboard();
+  }, []);
+
+  // Generate animated dots only on client side
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+    const dots = Array.from({ length: 12 }, () => ({
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: Math.random() * 8 + 4,
+      top: Math.random() * 100,
+      duration: Math.random() * 30 + 40, // 40-70 seconds
+      delay: Math.random() * 5, // 0-5 seconds delay
+      direction: (Math.random() > 0.5 ? 'left-to-right' : 'right-to-left') as 'left-to-right' | 'right-to-left',
+      opacity: Math.random() * 0.6 + 0.4,
+    }));
+    setAnimatedDots(dots);
   }, []);
 
   // Filter and sort the leaderboard
@@ -201,32 +228,22 @@ export default function LeaderboardPage() {
         })}
         
         {/* Animated jam-like dots moving across screen */}
-        {[...Array(12)].map((_, i) => {
-          const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
-          const color = colors[Math.floor(Math.random() * colors.length)];
-          const size = Math.random() * 8 + 4;
-          const top = Math.random() * 100;
-          const duration = Math.random() * 30 + 40; // 40-70 seconds (slower)
-          const delay = Math.random() * 5; // 0-5 seconds delay
-          const direction = Math.random() > 0.5 ? 'left-to-right' : 'right-to-left';
-          
-          return (
-            <div
-              key={`animated-dot-${i}`}
-              className="absolute rounded-full"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                top: `${top}%`,
-                left: direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
-                backgroundColor: color,
-                opacity: Math.random() * 0.6 + 0.4,
-                boxShadow: `0 0 ${size * 1.5}px ${color}, 0 0 ${size * 3}px ${color}`,
-                animation: `moveAcross${direction === 'left-to-right' ? 'Right' : 'Left'} ${duration}s linear ${delay}s infinite`,
-              }}
-            />
-          );
-        })}
+        {animatedDots.map((dot, i) => (
+          <div
+            key={`animated-dot-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${dot.size}px`,
+              height: `${dot.size}px`,
+              top: `${dot.top}%`,
+              left: dot.direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
+              backgroundColor: dot.color,
+              opacity: dot.opacity,
+              boxShadow: `0 0 ${dot.size * 1.5}px ${dot.color}, 0 0 ${dot.size * 3}px ${dot.color}`,
+              animation: `moveAcross${dot.direction === 'left-to-right' ? 'Right' : 'Left'} ${dot.duration}s linear ${dot.delay}s infinite`,
+            }}
+          />
+        ))}
       </div>
       
       <div className="relative z-10 w-full flex flex-col items-center">

@@ -1,12 +1,13 @@
 "use client";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { 
   getUserIdCookie, 
   getAuthTokenCookie, 
   setUserIdCookie, 
   setAuthTokenCookie, 
-  clearAuthCookies, 
+  clearAuthCookies,
+  clearAllCookies, 
   generateUuidV4
 } from '../utils/cookies';
 import { ENV } from '../config/env';
@@ -35,23 +36,18 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  // Always start with null values to ensure server and client render match
+  // This prevents hydration errors - we'll hydrate from localStorage in useEffect
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  // Initialize loading state based on whether cookies exist (synchronous check)
-  const [isLoading, setIsLoading] = useState(() => {
-    if (typeof window === 'undefined') return true; // SSR safety
-    const userId = getUserIdCookie();
-    const authToken = getAuthTokenCookie();
-    // If no cookies exist, we can immediately set loading to false
-    return !!(userId && authToken);
-  });
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const clearClientAuthState = useCallback(() => {
     setUser(null);
     setToken(null);
-    clearAuthCookies();
+    clearAllCookies(); // Clear all cookies on logout
     try {
       localStorage.removeItem('user');
       localStorage.removeItem('auth_token');
@@ -60,79 +56,104 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  const checkAuthStatus = useCallback(async () => {
-    // Check for cached login info synchronously first
+  // Hydrate auth state from localStorage first (fast path), then validate with backend
+  useEffect(() => {
+    if (hasInitialized) return;
+    
+    // First, try to load from localStorage (fast path for client-side navigation)
+    let parsedUser: User | null = null;
+    let storedToken: string | null = null;
+    
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUserStr = localStorage.getItem('user');
+        storedToken = localStorage.getItem('auth_token');
+        
+        if (storedUserStr && storedToken) {
+          try {
+            parsedUser = JSON.parse(storedUserStr);
+          } catch (error) {
+            // Invalid JSON in localStorage, clear it
+            localStorage.removeItem('user');
+            localStorage.removeItem('auth_token');
+            storedToken = null;
+          }
+        }
+      } catch (error) {
+        // localStorage access failed, continue to cookie check
+      }
+    }
+    
+    // Check cookies for auth state
     const userId = getUserIdCookie();
     const authToken = getAuthTokenCookie();
 
-    // If no cached login info exists, immediately clear state and stop loading
+    // If no cookies, we're not authenticated - middleware will redirect
     if (!userId || !authToken) {
-      clearClientAuthState();
+      // If we loaded from storage but have no cookies, clear storage (session expired)
+      if (parsedUser || storedToken) {
+        clearClientAuthState();
+      }
       setIsLoading(false);
+      setHasInitialized(true);
       return;
     }
 
-    // Only perform async validation if we have cached credentials
-    setIsLoading(true);
-
-    try {
-      const response = await fetch(`${ENV.BACKEND_URL}/auth/validate`, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-        },
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        throw new Error(`Token validation failed with status ${response.status}`);
-      }
-
-      const data = await response.json();
-      const validatedUser = data?.user;
-
-      if (!data?.valid || !validatedUser) {
-        throw new Error('Invalid validation response');
-      }
-
-      const normalizedUser: User = {
-        id: String(validatedUser.id),
-        username: validatedUser.username,
-        email: validatedUser.email,
-      };
-
-      setUser(normalizedUser);
-      setToken(authToken);
-
-      try {
-        localStorage.setItem('user', JSON.stringify(normalizedUser));
-        localStorage.setItem('auth_token', authToken);
-      } catch (error) {
-        console.error('Error persisting auth state:', error);
-      }
-    } catch (error) {
-      console.error('Error checking auth status:', error);
-      clearClientAuthState();
-    } finally {
+    // If we loaded from localStorage and have cookies, use localStorage values
+    // Backend validation happens on API calls, so we trust localStorage for fast navigation
+    if (parsedUser && storedToken) {
+      setUser(parsedUser);
+      setToken(storedToken);
       setIsLoading(false);
+      setHasInitialized(true);
+      return;
     }
-  }, [clearClientAuthState]);
 
-  // Check authentication status on mount and when pathname changes
-  useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus, pathname]);
+    // Fetch user data if we have cookies but no localStorage (first load or cleared storage)
+    fetch(`${ENV.BACKEND_URL}/auth/validate`, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      cache: 'no-store',
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Token validation failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data?.valid || !data?.user) {
+          throw new Error('Invalid validation response');
+        }
 
-  // Handle route protection logic
-  useEffect(() => {
-    if (!isLoading) {
-      const hasAuth = !!(user && token);
-      if (!hasAuth && pathname !== '/landing') {
-        router.replace('/landing');
-      } else if (hasAuth && pathname === '/landing') {
-        router.replace('/browse');
-      }
-    }
-  }, [user, token, isLoading, pathname, router]);
+        const normalizedUser: User = {
+          id: String(data.user.id),
+          username: data.user.username,
+          email: data.user.email,
+        };
+
+        setUser(normalizedUser);
+        setToken(authToken);
+
+        try {
+          localStorage.setItem('user', JSON.stringify(normalizedUser));
+          localStorage.setItem('auth_token', authToken);
+        } catch (error) {
+          console.error('Error persisting auth state:', error);
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching user data:', error);
+        // Clear state if validation fails - middleware will redirect
+        clearClientAuthState();
+      })
+      .finally(() => {
+        setIsLoading(false);
+        setHasInitialized(true);
+      });
+  }, [hasInitialized, clearClientAuthState]);
+
+  // Note: Route protection is handled by middleware.ts for faster server-side redirects.
+  // We don't need client-side redirects here as they delay URL updates and cause flickering.
 
   const login = (userData: User, authToken: string) => {
     const normalizedUser: User = {
@@ -196,11 +217,11 @@ export function withAuth<T extends object>(WrappedComponent: React.ComponentType
   return function AuthenticatedComponent(props: T) {
     const { isAuthenticated, isLoading } = useAuth();
     const router = useRouter();
-    const pathname = usePathname();
 
     useEffect(() => {
       if (!isLoading && !isAuthenticated) {
         // If not authenticated, redirect to landing
+        // Note: Middleware also handles this, but this provides a fallback for client-side navigation
         router.push('/landing');
       }
     }, [isAuthenticated, isLoading, router]);

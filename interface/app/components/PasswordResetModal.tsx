@@ -66,7 +66,17 @@ export default function PasswordResetModal({ onSuccess, onCancel }: PasswordRese
         if (response.status === 404) {
           setError("No account found with that username or email address. Please check your input and try again.");
         } else {
-          setError(data.detail || "Failed to send reset email. Please try again.");
+          // Handle validation errors (array) or regular errors (string)
+          let errorMessage = "Failed to send reset email. Please try again.";
+          if (data.detail) {
+            if (Array.isArray(data.detail)) {
+              // Format Pydantic validation errors
+              errorMessage = data.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+            } else {
+              errorMessage = data.detail;
+            }
+          }
+          setError(errorMessage);
         }
       }
     } catch (err) {

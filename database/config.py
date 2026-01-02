@@ -26,6 +26,14 @@ ASYNC_DATABASE_URL = os.getenv("ASYNC_DATABASE_URL", "postgresql+asyncpg://postg
 # Check if this is a Supabase connection (requires SSL)
 is_supabase = "supabase" in DATABASE_URL.lower() or "supabase" in ASYNC_DATABASE_URL.lower()
 
+# Connection pool configuration
+# Supabase has connection limits (typically 60-100 for free tier, 200+ for paid)
+# These settings prevent exceeding the connection limit
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))  # Number of connections to keep in pool
+MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))  # Additional connections beyond pool_size
+POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # Recycle connections after 1 hour (in seconds)
+POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"  # Test connections before using
+
 # Configure engine with SSL for Supabase connections
 # Supabase requires SSL and doesn't support GSSAPI
 if is_supabase:
@@ -33,6 +41,10 @@ if is_supabase:
     engine = create_engine(
         DATABASE_URL,
         echo=False,  # Disable SQL query logging
+        pool_size=POOL_SIZE,
+        max_overflow=MAX_OVERFLOW,
+        pool_recycle=POOL_RECYCLE,
+        pool_pre_ping=POOL_PRE_PING,
         connect_args={
             "sslmode": "require",
             "gssencmode": "disable",  # Disable GSSAPI encryption
@@ -43,11 +55,35 @@ if is_supabase:
     if "?sslmode=" not in ASYNC_DATABASE_URL and "?ssl=" not in ASYNC_DATABASE_URL:
         separator = "&" if "?" in ASYNC_DATABASE_URL else "?"
         ASYNC_DATABASE_URL = f"{ASYNC_DATABASE_URL}{separator}sslmode=require"
-    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=False)  # Disable SQL query logging
+    async_engine = create_async_engine(
+        ASYNC_DATABASE_URL,
+        echo=False,  # Disable SQL query logging
+        pool_size=POOL_SIZE,
+        max_overflow=MAX_OVERFLOW,
+        pool_recycle=POOL_RECYCLE,
+        pool_pre_ping=POOL_PRE_PING,
+    )
 else:
     # Standard PostgreSQL connection (local or non-SSL)
-    engine = create_engine(DATABASE_URL, echo=False)  # Disable SQL query logging
-    async_engine = create_async_engine(ASYNC_DATABASE_URL, echo=False)  # Disable SQL query logging
+    # Still use connection pooling, but with slightly higher defaults for local connections
+    local_pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
+    local_max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,  # Disable SQL query logging
+        pool_size=local_pool_size,
+        max_overflow=local_max_overflow,
+        pool_recycle=POOL_RECYCLE,
+        pool_pre_ping=POOL_PRE_PING,
+    )
+    async_engine = create_async_engine(
+        ASYNC_DATABASE_URL,
+        echo=False,  # Disable SQL query logging
+        pool_size=local_pool_size,
+        max_overflow=local_max_overflow,
+        pool_recycle=POOL_RECYCLE,
+        pool_pre_ping=POOL_PRE_PING,
+    )
 
 # Create session makers
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
