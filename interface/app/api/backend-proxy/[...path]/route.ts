@@ -97,7 +97,51 @@ async function proxyRequest(
       body,
     });
     
-    // Get response body
+    // Check if this is a streaming response
+    const contentType = response.headers.get('Content-Type') || '';
+    const isStreaming = contentType.includes('application/x-ndjson') || 
+                        contentType.includes('text/event-stream') ||
+                        contentType.includes('text/plain') ||
+                        response.headers.get('Transfer-Encoding') === 'chunked' ||
+                        backendPath.includes('/stream');
+    
+    // If streaming, pipe the response through without buffering
+    if (isStreaming && response.body) {
+      // Create a ReadableStream that pipes the backend response to the client
+      const stream = new ReadableStream({
+        async start(controller) {
+          const reader = response.body!.getReader();
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              // Enqueue the chunk immediately to avoid buffering
+              controller.enqueue(value);
+            }
+            controller.close();
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+      });
+      
+      // Forward headers with buffering disabled
+      const responseHeaders = new Headers(response.headers);
+      // Disable buffering in nginx/proxies
+      responseHeaders.set('X-Accel-Buffering', 'no');
+      responseHeaders.set('Cache-Control', 'no-cache, no-transform');
+      responseHeaders.set('Connection', 'keep-alive');
+      
+      return new NextResponse(stream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    }
+    
+    // For non-streaming responses, buffer as before
     const responseBody = await response.text();
     
     // Forward the response with status and headers
