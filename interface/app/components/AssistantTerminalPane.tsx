@@ -310,12 +310,30 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     if (!messagesEndRef.current) return;
 
     const container = messagesContainerRef.current;
+    const messagesEnd = messagesEndRef.current;
+    
+    // Check if the message end is visible in the container
+    const checkVisibility = () => {
+      const containerRect = container.getBoundingClientRect();
+      const endRect = messagesEnd.getBoundingClientRect();
+      
+      // Check if the end element is within the visible area of the container
+      const isVisible = 
+        endRect.top >= containerRect.top &&
+        endRect.bottom <= containerRect.bottom;
+      
+      return isVisible;
+    };
+    
     // Auto scroll with a small delay to ensure layout is updated
     const timeout = setTimeout(() => {
-      try {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      } catch (error) {
-        container.scrollTop = container.scrollHeight;
+      // Only scroll if the message end is not visible (went off screen)
+      if (!checkVisibility()) {
+        try {
+          messagesEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (error) {
+          container.scrollTop = container.scrollHeight;
+        }
       }
     }, 40);
 
@@ -341,6 +359,19 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
     if (!hasActiveAnimation) return;
 
+    // Helper function to check if message end is visible
+    const checkVisibility = () => {
+      const containerRect = container.getBoundingClientRect();
+      const endRect = messagesEnd.getBoundingClientRect();
+      
+      // Check if the end element is within the visible area of the container
+      const isVisible = 
+        endRect.top >= containerRect.top &&
+        endRect.bottom <= containerRect.bottom;
+      
+      return isVisible;
+    };
+
     // Use requestAnimationFrame for smooth scrolling during animation
     let animationFrameId: number;
     let lastScrollTime = 0;
@@ -349,11 +380,14 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     const scrollLoop = () => {
       const now = Date.now();
       if (now - lastScrollTime >= scrollThrottle) {
-        try {
-          // Use instant scrolling during animation for better responsiveness
-          container.scrollTop = container.scrollHeight;
-        } catch (error) {
-          // Fallback
+        // Only scroll if the message end is not visible (went off screen)
+        if (!checkVisibility()) {
+          try {
+            // Use instant scrolling during animation for better responsiveness
+            container.scrollTop = container.scrollHeight;
+          } catch (error) {
+            // Fallback
+          }
         }
         lastScrollTime = now;
       }
@@ -368,6 +402,67 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       }
     };
   }, [awaitingResponse, renderedItems.messages, animationCompletionCounter]);
+
+  // Continuous scrolling during summary animation (when summaryGenerated is true)
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    if (!messagesEndRef.current) return;
+    if (!summaryGenerated) return;
+
+    const container = messagesContainerRef.current;
+    const messagesEnd = messagesEndRef.current;
+
+    // Find the summary message (last assistant message)
+    const lastAssistant = [...renderedItems.messages].reverse().find(m => m.type === 'assistant');
+    
+    // Check if the summary message is still animating
+    const isSummaryAnimating = lastAssistant?.id && !animatedMessageIds.has(lastAssistant.id);
+    
+    if (!isSummaryAnimating) return;
+
+    // Helper function to check if message end is visible
+    const checkVisibility = () => {
+      const containerRect = container.getBoundingClientRect();
+      const endRect = messagesEnd.getBoundingClientRect();
+      
+      // Check if the end element is within the visible area of the container
+      const isVisible = 
+        endRect.top >= containerRect.top &&
+        endRect.bottom <= containerRect.bottom;
+      
+      return isVisible;
+    };
+
+    // Use requestAnimationFrame for smooth scrolling during animation
+    let animationFrameId: number;
+    let lastScrollTime = 0;
+    const scrollThrottle = 50; // Throttle to every 50ms for performance
+
+    const scrollLoop = () => {
+      const now = Date.now();
+      if (now - lastScrollTime >= scrollThrottle) {
+        // Only scroll if the message end is not visible (went off screen)
+        if (!checkVisibility()) {
+          try {
+            // Use instant scrolling during animation for better responsiveness
+            container.scrollTop = container.scrollHeight;
+          } catch (error) {
+            // Fallback
+          }
+        }
+        lastScrollTime = now;
+      }
+      animationFrameId = requestAnimationFrame(scrollLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(scrollLoop);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [summaryGenerated, renderedItems.messages, animationCompletionCounter]);
 
   // Scroll to bottom when coding trace finishes (awaitingResponse changes from true to false)
   const prevAwaitingResponseRef = useRef(awaitingResponse);
@@ -384,12 +479,30 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       }
 
       const container = messagesContainerRef.current;
+      const messagesEnd = messagesEndRef.current;
+      
+      // Check if the message end is visible in the container
+      const checkVisibility = () => {
+        const containerRect = container.getBoundingClientRect();
+        const endRect = messagesEnd.getBoundingClientRect();
+        
+        // Check if the end element is within the visible area of the container
+        const isVisible = 
+          endRect.top >= containerRect.top &&
+          endRect.bottom <= containerRect.bottom;
+        
+        return isVisible;
+      };
+      
       // Auto scroll with a small delay to ensure layout is updated
       const timeout = setTimeout(() => {
-        try {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        } catch (error) {
-          container.scrollTop = container.scrollHeight;
+        // Only scroll if the message end is not visible (went off screen)
+        if (!checkVisibility()) {
+          try {
+            messagesEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          } catch (error) {
+            container.scrollTop = container.scrollHeight;
+          }
         }
       }, 100);
 
@@ -399,6 +512,55 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     // Update ref for next comparison
     prevAwaitingResponseRef.current = awaitingResponse;
   }, [awaitingResponse]);
+
+  // Scroll when summary is generated
+  const prevSummaryGeneratedRef = useRef(summaryGenerated);
+  useEffect(() => {
+    // Check if summaryGenerated changed from false to true
+    if (prevSummaryGeneratedRef.current === false && summaryGenerated === true) {
+      if (!messagesContainerRef.current) {
+        prevSummaryGeneratedRef.current = summaryGenerated;
+        return;
+      }
+      if (!messagesEndRef.current) {
+        prevSummaryGeneratedRef.current = summaryGenerated;
+        return;
+      }
+
+      const container = messagesContainerRef.current;
+      const messagesEnd = messagesEndRef.current;
+      
+      // Check if the message end is visible in the container
+      const checkVisibility = () => {
+        const containerRect = container.getBoundingClientRect();
+        const endRect = messagesEnd.getBoundingClientRect();
+        
+        // Check if the end element is within the visible area of the container
+        const isVisible = 
+          endRect.top >= containerRect.top &&
+          endRect.bottom <= containerRect.bottom;
+        
+        return isVisible;
+      };
+      
+      // Auto scroll with a delay to ensure the summary message is fully rendered
+      const timeout = setTimeout(() => {
+        // Only scroll if the message end is not visible (went off screen)
+        if (!checkVisibility()) {
+          try {
+            messagesEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          } catch (error) {
+            container.scrollTop = container.scrollHeight;
+          }
+        }
+      }, 100);
+
+      prevSummaryGeneratedRef.current = summaryGenerated;
+      return () => clearTimeout(timeout);
+    }
+    // Update ref for next comparison
+    prevSummaryGeneratedRef.current = summaryGenerated;
+  }, [summaryGenerated]);
 
   // Auto-resize textarea based on content
   useEffect(() => {
@@ -453,8 +615,29 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   // Scroll container down when textarea expands
   useEffect(() => {
     if (!messagesContainerRef.current) return;
+    if (!messagesEndRef.current) return;
+    
+    const container = messagesContainerRef.current;
+    const messagesEnd = messagesEndRef.current;
+    
+    // Check if the message end is visible in the container
+    const checkVisibility = () => {
+      const containerRect = container.getBoundingClientRect();
+      const endRect = messagesEnd.getBoundingClientRect();
+      
+      // Check if the end element is within the visible area of the container
+      const isVisible = 
+        endRect.top >= containerRect.top &&
+        endRect.bottom <= containerRect.bottom;
+      
+      return isVisible;
+    };
+    
     const timeout = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      // Only scroll if the message end is not visible (went off screen)
+      if (!checkVisibility()) {
+        messagesEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
     }, 16);
     return () => clearTimeout(timeout);
   }, [textareaHeight]);
@@ -569,6 +752,8 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               const isFailed = item.status === 'failed';
               const additions = item.diff?.additions ?? 0;
               const deletions = item.diff?.deletions ?? 0;
+              // For failed patches, show "Failed to edit ..." without error message
+              const displayText = isFailed && item.fileName ? `Failed to edit ${item.fileName}` : item.text;
               return (
                 <div
                   key={item.id}
@@ -593,7 +778,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                   ) : (
                     <LoadingSpinner size="sm" color="blue" />
                   )}
-                  <span className="font-medium text-gray-100"><AnimatedTerminalText text={item.text} messageId={item.id} onAnimationComplete={handleAnimationComplete} /></span>
+                  <span className="font-medium text-gray-100"><AnimatedTerminalText text={displayText} messageId={item.id} onAnimationComplete={handleAnimationComplete} /></span>
                   {isDone && (additions !== 0 || deletions !== 0) && (
                     <span className="ml-auto flex items-center gap-2 text-[11px]">
                       <span className="text-emerald-400">+{additions}</span>

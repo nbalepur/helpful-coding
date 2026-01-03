@@ -1551,7 +1551,15 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 # It will only be deleted when user clears history
                 pass
 
-        return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+        return StreamingResponse(
+            event_generator(), 
+            media_type="application/x-ndjson",
+            headers={
+                "X-Accel-Buffering": "no",  # Disable buffering in nginx
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+            }
+        )
     except Exception as e:
         import traceback
         traceback.print_exc()

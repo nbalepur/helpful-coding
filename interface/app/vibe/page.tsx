@@ -1781,10 +1781,38 @@ function HomeInner() {
             if (data.summary) {
               appendMessage({ type: 'assistant', message: data.summary });
               setSummaryGenerated(true);
+              
+              // Build the updated messages array with summary included
+              // This ensures the snapshot includes the summary even though state updates are async
+              const currentMessages = [...assistantMessagesRef.current];
+              
+              // Create the summary message with an ID
+              const summaryMessageId = createMessageId();
+              const summaryMessage: AssistantItem = {
+                id: summaryMessageId,
+                type: 'assistant',
+                message: data.summary,
+              };
+              
+              // Get all tool message IDs from the map values
+              const allToolMessageIds = new Set(Array.from(toolMessageIds.values()));
+              
               // Mark all pending tool messages as done when summary is generated
+              const updatedMessages = currentMessages.map((msg) => {
+                if (msg.id && allToolMessageIds.has(msg.id) && !completedToolMessages.has(msg.id)) {
+                  completedToolMessages.add(msg.id);
+                  return { ...msg, status: 'done' as const };
+                }
+                return msg;
+              });
+              
+              // Add the summary message to the array
+              const messagesWithSummary = [...updatedMessages, summaryMessage];
+              
+              // Also update state for UI (these calls happen asynchronously)
               toolMessageIds.forEach((msgId) => {
                 if (msgId && !completedToolMessages.has(msgId)) {
-                  completedToolMessages.add(msgId);
+                  // Note: msgId is already the value from the Map (Map.forEach gives value, key)
                   updateMessage(msgId, { status: 'done' });
                 }
               });
@@ -1808,8 +1836,8 @@ function HomeInner() {
                     codeStateFromStream[fileId] = content;
                   });
                   
-                  // Save snapshot with the final file state
-                  saveSnapshot(undefined, codeStateFromStream);
+                  // Save snapshot with the final file state AND messages including summary
+                  saveSnapshot(messagesWithSummary, codeStateFromStream);
                   snapshotSaved = true;
                 } else if (finalPayload && finalPayload.final_files && Object.keys(finalPayload.final_files).length > 0) {
                   // Fallback: use finalPayload if available (in case summary comes after complete)
@@ -1832,7 +1860,8 @@ function HomeInner() {
                     });
                   }
                   
-                  saveSnapshot(undefined, codeStateFromFinalFiles);
+                  // Save snapshot with the final file state AND messages including summary
+                  saveSnapshot(messagesWithSummary, codeStateFromFinalFiles);
                   snapshotSaved = true;
                 }
               }
