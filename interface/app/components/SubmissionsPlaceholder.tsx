@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { Search, Shuffle, Bookmark, Flag, ArrowLeft, Filter, ArrowUpDown, Scale, RefreshCw } from "lucide-react";
-import PreviewIframe from "./PreviewIframe";
+import PreviewIframe, { type PreviewIframeRef } from "./PreviewIframe";
 import ReportSubmissionModal from "./ReportSubmissionModal";
 import { ENV } from "../config/env";
 import { useAuth } from "../utils/auth";
@@ -759,6 +759,9 @@ const SubmissionsGallery = ({ projectId, taskId }: SubmissionsGalleryProps = {})
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const selectedPreviewRef = useRef<PreviewIframeRef | null>(null);
+  const popoutWindowRef = useRef<Window | null>(null);
+  const popoutCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [tooltipState, setTooltipState] = useState<{
     visible: boolean;
     text: string;
@@ -2036,6 +2039,106 @@ const selectedTitle =
 const isSelectedFavorite = selectedSubmission ? !!favorites[selectedSubmission.id] : false;
 const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id] : false;
 
+  const updatePopoutWindow = useCallback(() => {
+    if (!popoutWindowRef.current) return;
+    try {
+      if (popoutWindowRef.current.closed) {
+        popoutWindowRef.current = null;
+        return;
+      }
+
+      const fullHtml = selectedPreviewRef.current?.getFullHtml?.();
+      if (!fullHtml) {
+        console.warn("[SubmissionsGallery] No preview content available for popout update");
+        return;
+      }
+
+      const win = popoutWindowRef.current;
+      if (win.document && win.document.open) {
+        win.document.open();
+        win.document.write(fullHtml);
+        win.document.close();
+        try {
+          win.document.title = selectedTitle ?? "Submission";
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn("[SubmissionsGallery] Failed to update popout window:", e);
+      popoutWindowRef.current = null;
+    }
+  }, [selectedTitle]);
+
+  const handlePopout = useCallback(() => {
+    try {
+      const fullHtml = selectedPreviewRef.current?.getFullHtml?.();
+      if (!fullHtml) {
+        console.warn("[SubmissionsGallery] No preview content available");
+        return;
+      }
+
+      // If popout window already exists and is open, reuse it
+      if (popoutWindowRef.current && !popoutWindowRef.current.closed) {
+        updatePopoutWindow();
+        popoutWindowRef.current.focus();
+        return;
+      }
+
+      // Create new popout window - use about:blank to allow document.write
+      // Note: We can't use 'noopener' because we need to access the window's document
+      const win = window.open("about:blank", "_blank");
+      if (!win) {
+        console.warn("Popup blocked by the browser. Please allow popups for this site.");
+        return;
+      }
+
+      popoutWindowRef.current = win;
+
+      setTimeout(() => {
+        try {
+          if (win.closed) return;
+          win.document.open();
+          win.document.write(fullHtml);
+          win.document.close();
+          win.document.title = selectedTitle ?? "Submission";
+        } catch (e) {
+          console.error("[SubmissionsGallery] Failed to write to popout window:", e);
+        }
+      }, 0);
+
+      if (popoutCheckIntervalRef.current) {
+        clearInterval(popoutCheckIntervalRef.current);
+      }
+      popoutCheckIntervalRef.current = setInterval(() => {
+        if (win.closed) {
+          popoutWindowRef.current = null;
+          if (popoutCheckIntervalRef.current) {
+            clearInterval(popoutCheckIntervalRef.current);
+            popoutCheckIntervalRef.current = null;
+          }
+        }
+      }, 500);
+    } catch (e) {
+      console.error("[SubmissionsGallery] Failed to open popout window", e);
+      popoutWindowRef.current = null;
+    }
+  }, [selectedTitle, updatePopoutWindow]);
+
+  // If the selected submission changes while a popout is open, keep it in sync.
+  useEffect(() => {
+    if (isDetailView && popoutWindowRef.current && !popoutWindowRef.current.closed) {
+      updatePopoutWindow();
+    }
+  }, [isDetailView, selectedSubmission?.id, selectedSubmissionPreview, updatePopoutWindow]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (popoutCheckIntervalRef.current) {
+        clearInterval(popoutCheckIntervalRef.current);
+      }
+    };
+  }, []);
+
   const iframeContent = useMemo(() => {
     if (isLoading && !hasLoaded && showLoadingIndicator) {
       return `<div class="centered"><strong>Loading submissions…</strong>Please hold on while we fetch the latest projects.</div>`;
@@ -2277,6 +2380,36 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
             <div className="flex items-center space-x-2">
               <button
                 type="button"
+                data-tooltip="Pop out preview"
+                onClick={handlePopout}
+                onPointerEnter={(event) =>
+                  showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
+                }
+                onPointerMove={(event) =>
+                  showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
+                }
+                onPointerLeave={hideTooltip}
+                className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700"
+                aria-label="Pop out preview"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4"
+                >
+                  <path d="M14 3h7v7" />
+                  <path d="M10 14 21 3" />
+                  <path d="M21 14v7h-7" />
+                  <path d="M3 10 14 21" />
+                </svg>
+              </button>
+              <button
+                type="button"
                 data-tooltip={isSelectedFavorite ? "Remove bookmark" : "Save"}
                 onClick={() => selectedSubmission && toggleFavorite(selectedSubmission.id)}
                 aria-pressed={isSelectedFavorite}
@@ -2507,6 +2640,7 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                 <>
                   <div className="flex-1 border-r border-gray-800/60 bg-black">
                     <PreviewIframe
+                      ref={selectedPreviewRef}
                       key={selectedSubmission?.id ?? "detail-view"}
                       htmlContent={selectedSubmissionPreview.html}
                       cssContent={selectedSubmissionPreview.css}

@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "../utils/auth";
-import { isPlaygroundCompleted } from "../utils/cookies";
+import { isPlaygroundCompletedFromSettings } from "../utils/userSettings";
 import {
   Shuffle,
   Search,
@@ -16,6 +16,7 @@ import TaskCardGrid from "../components/TaskCardGrid";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 import { useSnackbar } from "../components/SnackbarProvider";
+import { PASSWORD_HASH, hashString } from "../utils/password";
 
 function BrowseInner() {
   const router = useRouter();
@@ -42,12 +43,26 @@ function BrowseInner() {
     'replication': true
   });
   
-  // Check for secret password bypass
-  const hasSecretPassword = searchParams?.get('password') === 'penguin';
+  // Check for secret password bypass using hash comparison
+  const [hasSecretPassword, setHasSecretPassword] = useState(false);
+  
+  useEffect(() => {
+    const checkPassword = async () => {
+      const password = searchParams?.get('password');
+      if (password) {
+        const passwordHash = await hashString(password);
+        setHasSecretPassword(passwordHash === PASSWORD_HASH);
+      } else {
+        setHasSecretPassword(false);
+      }
+    };
+    checkPassword();
+  }, [searchParams]);
   
   // Generate background circle data once on mount
   const backgroundStars = useMemo(() => {
     const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
+    const animatedColors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
     
     // Large stars (20)
     const largeStars = Array.from({ length: 20 }, () => ({
@@ -76,7 +91,18 @@ function BrowseInner() {
       opacity: Math.random() * 0.4 + 0.2,
     }));
     
-    return { largeStars, mediumStars, smallDots };
+    // Animated dots moving across screen
+    const animatedDots = Array.from({ length: 12 }, () => ({
+      color: animatedColors[Math.floor(Math.random() * animatedColors.length)],
+      size: Math.random() * 8 + 4,
+      top: Math.random() * 100,
+      duration: Math.random() * 30 + 40,
+      delay: Math.random() * 5,
+      direction: (Math.random() > 0.5 ? 'left-to-right' : 'right-to-left') as 'left-to-right' | 'right-to-left',
+      opacity: Math.random() * 0.6 + 0.4,
+    }));
+    
+    return { largeStars, mediumStars, smallDots, animatedDots };
   }, []);
   
   // Clear snackbars when leaving the Browse page
@@ -89,6 +115,10 @@ function BrowseInner() {
 
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+  const [allRequiredTasksCompleted, setAllRequiredTasksCompleted] = useState(false);
+  const [lockedTaskIds, setLockedTaskIds] = useState<Set<string>>(new Set());
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [isPlaygroundNotCompleted, setIsPlaygroundNotCompleted] = useState(false);
   const filterModalRef = useRef<HTMLDivElement | null>(null);
   
   // Load tasks
@@ -104,7 +134,7 @@ function BrowseInner() {
           const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
           
           // Add playground task at the beginning of the list
-          const playgroundCompleted = isPlaygroundCompleted();
+          const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
           const playgroundTask = {
             id: 'playground',
             name: 'Playground',
@@ -158,7 +188,7 @@ function BrowseInner() {
         }
         
         // Add playground task
-        const playgroundCompleted = isPlaygroundCompleted();
+        const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
         const playgroundTask = {
           id: 'playground',
           name: 'Playground',
@@ -203,8 +233,40 @@ function BrowseInner() {
     };
   }, [loadTasks]);
 
+  // Helper function to create a seeded random number generator
+  const createSeededRandom = useCallback((seed: string) => {
+    // Convert seed string to a number
+    let seedValue = 0;
+    for (let i = 0; i < seed.length; i++) {
+      const char = seed.charCodeAt(i);
+      seedValue = ((seedValue << 5) - seedValue) + char;
+      seedValue = seedValue & seedValue; // Convert to 32-bit integer
+    }
+    
+    // Seeded PRNG (Linear Congruential Generator)
+    let state = Math.abs(seedValue) || 1;
+    return () => {
+      state = (state * 9301 + 49297) % 233280;
+      return state / 233280;
+    };
+  }, []);
+
+  // Helper function to shuffle an array (Fisher-Yates shuffle) with user-specific seed
+  const shuffleArray = useCallback(<T,>(array: T[], seed: string): T[] => {
+    if (array.length <= 1) return array;
+    
+    const shuffled = [...array];
+    const random = createSeededRandom(seed);
+    
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }, [createSeededRandom]);
+
   // Helper function to filter tasks by required status
-  const filterTasksByRequiredStatus = useCallback((tasks: any[]): any[] => {
+  const filterTasksByRequiredStatus = useCallback((tasks: any[], userSeed: string): any[] => {
     const playgroundTask = tasks.find((task: any) => task.id === 'playground');
     const otherTasks = tasks.filter((task: any) => task.id !== 'playground');
     
@@ -219,24 +281,48 @@ function BrowseInner() {
     );
     
     if (allRequiredTasksCompleted) {
+      // When all tasks are completed, return in current order (alphabetical)
       return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
     }
     
+    // When not all required tasks are completed, filter and order them
     const requiredTaskNamesSet = new Set(POST_TEST_REQUIRED_TASKS);
     const filteredOtherTasks = otherTasks.filter((task: any) => requiredTaskNamesSet.has(task.name));
     
-    return playgroundTask ? [playgroundTask, ...filteredOtherTasks] : filteredOtherTasks;
-  }, []);
+    // Separate into replication and open-ended tasks
+    const replicationTasks = filteredOtherTasks.filter((task: any) => (task.label || 'open-ended') === 'replication');
+    const openEndedTasks = filteredOtherTasks.filter((task: any) => (task.label || 'open-ended') === 'open-ended');
+    
+    // Shuffle each group with user-specific seed (consistent per user, random across users)
+    const shuffledReplication = shuffleArray(replicationTasks, `${userSeed}_replication`);
+    const shuffledOpenEnded = shuffleArray(openEndedTasks, `${userSeed}_openended`);
+    
+    // Return: Playground first, then replication tasks, then open-ended tasks
+    const orderedTasks = [...shuffledReplication, ...shuffledOpenEnded];
+    return playgroundTask ? [playgroundTask, ...orderedTasks] : orderedTasks;
+  }, [shuffleArray]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
-    const playgroundCompleted = isPlaygroundCompleted();
+    const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
     const tasksWithUpdatedPlayground = allTasks.map((task: any) => {
       if (task.id === 'playground') {
         return { ...task, status: playgroundCompleted ? 'completed' : 'not-started' };
       }
       return task;
     });
+    
+    // Check if all required tasks are completed
+    const otherTasks = tasksWithUpdatedPlayground.filter((task: any) => task.id !== 'playground');
+    const completedTaskNames = new Set(
+      otherTasks
+        .filter((task: any) => task.status === 'completed')
+        .map((task: any) => task.name)
+    );
+    const allRequiredCompleted = POST_TEST_REQUIRED_TASKS.every(
+      taskName => completedTaskNames.has(taskName)
+    );
+    setAllRequiredTasksCompleted(allRequiredCompleted);
     
     let tasksAfterRequiredFilter: any[];
     if (hasSecretPassword) {
@@ -252,7 +338,9 @@ function BrowseInner() {
         return true;
       });
     } else {
-      tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground);
+      // Create user-specific seed (use username if available, otherwise user ID, fallback to 'default')
+      const userSeed = user?.username || (numericUserId ? `user_${numericUserId}` : 'default');
+      tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground, userSeed);
     }
     
     // Filter by status
@@ -274,17 +362,58 @@ function BrowseInner() {
     });
     
     // Filter by search query
+    let finalFilteredTasks: any[];
     if (searchQuery.trim() === "") {
-      setFilteredTasks(tasksAfterRequiredFilter);
+      finalFilteredTasks = tasksAfterRequiredFilter;
     } else {
-      const filtered = tasksAfterRequiredFilter.filter((task: any) =>
+      finalFilteredTasks = tasksAfterRequiredFilter.filter((task: any) =>
         task.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (task.tags && task.tags.some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase())))
       );
-      setFilteredTasks(filtered);
     }
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword]);
+    
+    // Calculate locked tasks and active task (only when not all required tasks are completed)
+    if (!allRequiredCompleted && !hasSecretPassword) {
+      const lockedIds = new Set<string>();
+      let activeId: string | null = null;
+      
+      // Check if playground is completed
+      const playgroundTask = finalFilteredTasks.find((task: any) => task.id === 'playground');
+      const playgroundCompleted = playgroundTask?.status === 'completed';
+      setIsPlaygroundNotCompleted(!playgroundCompleted);
+      
+      // Find the first uncompleted task (excluding playground)
+      for (const task of finalFilteredTasks) {
+        if (task.id === 'playground') continue; // Playground is always unlocked
+        
+        // If playground is not completed, lock all other tasks
+        if (!playgroundCompleted) {
+          lockedIds.add(task.id);
+          continue;
+        }
+        
+        const isCompleted = task.status === 'completed';
+        
+        if (!isCompleted && activeId === null) {
+          // This is the active task (first uncompleted)
+          activeId = task.id;
+        } else if (!isCompleted && activeId !== null) {
+          // This task comes after the active task, so it's locked
+          lockedIds.add(task.id);
+        }
+      }
+      
+      setLockedTaskIds(lockedIds);
+      setActiveTaskId(activeId);
+    } else {
+      // When all tasks are unlocked, clear locks
+      setLockedTaskIds(new Set());
+      setActiveTaskId(null);
+    }
+    
+    setFilteredTasks(finalFilteredTasks);
+  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -393,6 +522,24 @@ function BrowseInner() {
             }}
           />
         ))}
+        
+        {/* Animated jam-like dots moving across screen */}
+        {backgroundStars.animatedDots.map((dot, i) => (
+          <div
+            key={`animated-dot-${i}`}
+            className="absolute rounded-full"
+            style={{
+              width: `${dot.size}px`,
+              height: `${dot.size}px`,
+              top: `${dot.top}%`,
+              left: dot.direction === 'left-to-right' ? '-20px' : 'calc(100% + 20px)',
+              backgroundColor: dot.color,
+              opacity: dot.opacity,
+              boxShadow: `0 0 ${dot.size * 1.5}px ${dot.color}, 0 0 ${dot.size * 3}px ${dot.color}`,
+              animation: `moveAcross${dot.direction === 'left-to-right' ? 'Right' : 'Left'} ${dot.duration}s linear ${dot.delay}s infinite`,
+            }}
+          />
+        ))}
       </div>
 
       {/* Main Content */}
@@ -418,128 +565,130 @@ function BrowseInner() {
             </div>
 
             {/* Search Bar */}
-            <div className="flex items-center justify-between w-full mb-6">
-              {/* Left side - Search questions, Filter button - 50% width */}
-              <div className="flex items-center space-x-3 w-1/2">
-                {/* Search bar */}
-                <div className="relative flex-1">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Search problems"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2 border-gray-600 rounded-lg bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                {/* Filter button with tooltip */}
-                <div className="relative group">
-                  <button 
-                    onClick={() => setShowFilterModal(!showFilterModal)}
-                    className="px-3 h-[38px] rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors flex items-center justify-center"
-                  >
-                    <Filter className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
-                  </button>
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
-                    Filter tasks
+            {(allRequiredTasksCompleted || hasSecretPassword) && (
+              <div className="flex items-center justify-between w-full mb-6">
+                {/* Left side - Search questions, Filter button - 50% width */}
+                <div className="flex items-center space-x-3 w-1/2">
+                  {/* Search bar */}
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search problems"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="block w-full pl-10 pr-3 py-2 border-gray-600 rounded-lg bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </div>
                   
-                  {/* Filter dropdown */}
-                  {showFilterModal && (
-                    <div ref={filterModalRef} className="absolute top-full left-0 mt-2 w-64 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-[200] p-4">
-                      <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white mb-2">Status</h3>
-                        <div className="space-y-2">
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={statusFilters['completed']}
-                              onChange={(e) => setStatusFilters({...statusFilters, 'completed': e.target.checked})}
-                              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-300">Completed</span>
-                          </label>
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={statusFilters['in-progress']}
-                              onChange={(e) => setStatusFilters({...statusFilters, 'in-progress': e.target.checked})}
-                              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-300">In Progress</span>
-                          </label>
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={statusFilters['not-started']}
-                              onChange={(e) => setStatusFilters({...statusFilters, 'not-started': e.target.checked})}
-                              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-300">Not Started</span>
-                          </label>
+                  {/* Filter button with tooltip */}
+                  <div className="relative group">
+                    <button 
+                      onClick={() => setShowFilterModal(!showFilterModal)}
+                      className="px-3 h-[38px] rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors flex items-center justify-center"
+                    >
+                      <Filter className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </button>
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
+                      Filter tasks
+                    </div>
+                    
+                    {/* Filter dropdown */}
+                    {showFilterModal && (
+                      <div ref={filterModalRef} className="absolute top-full left-0 mt-2 w-64 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-[200] p-4">
+                        <div className="mb-4">
+                          <h3 className="text-sm font-semibold text-white mb-2">Status</h3>
+                          <div className="space-y-2">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={statusFilters['completed']}
+                                onChange={(e) => setStatusFilters({...statusFilters, 'completed': e.target.checked})}
+                                className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">Completed</span>
+                            </label>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={statusFilters['in-progress']}
+                                onChange={(e) => setStatusFilters({...statusFilters, 'in-progress': e.target.checked})}
+                                className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">In Progress</span>
+                            </label>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={statusFilters['not-started']}
+                                onChange={(e) => setStatusFilters({...statusFilters, 'not-started': e.target.checked})}
+                                className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">Not Started</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-semibold text-white mb-2">Category</h3>
+                          <div className="space-y-2">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={categoryFilters['open-ended']}
+                                onChange={(e) => setCategoryFilters({...categoryFilters, 'open-ended': e.target.checked})}
+                                className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">Open-Ended</span>
+                            </label>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={categoryFilters['replication']}
+                                onChange={(e) => setCategoryFilters({...categoryFilters, 'replication': e.target.checked})}
+                                className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-300">Replication</span>
+                            </label>
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-white mb-2">Category</h3>
-                        <div className="space-y-2">
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={categoryFilters['open-ended']}
-                              onChange={(e) => setCategoryFilters({...categoryFilters, 'open-ended': e.target.checked})}
-                              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-300">Open-Ended</span>
-                          </label>
-                          <label className="flex items-center space-x-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={categoryFilters['replication']}
-                              onChange={(e) => setCategoryFilters({...categoryFilters, 'replication': e.target.checked})}
-                              className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-300">Replication</span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* Right side - Number of problems and Random button */}
-              <div className="flex items-center space-x-4">
-                {/* Number of problems */}
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1">
-                    <div className="w-4 h-4 rounded-full border-2 border-gray-600 bg-gray-800 relative">
-                      <div className="absolute inset-0 rounded-full bg-blue-500" style={{clipPath: 'circle(50% at 50% 50%)'}}></div>
-                    </div>
-                    <span className="text-sm text-gray-400">
-                      {filteredTasks.length} problems
-                    </span>
+                    )}
                   </div>
                 </div>
                 
-                {/* Random button with tooltip */}
-                <div className="relative group">
-                  <button 
-                    onClick={handleRandomTask}
-                    className="px-3 h-[38px] rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors flex items-center justify-center"
-                  >
-                    <Shuffle className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
-                  </button>
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
-                    Random task
+                {/* Right side - Number of problems and Random button */}
+                <div className="flex items-center space-x-4">
+                  {/* Number of problems */}
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1">
+                      <div className="w-4 h-4 rounded-full border-2 border-gray-600 bg-gray-800 relative">
+                        <div className="absolute inset-0 rounded-full bg-blue-500" style={{clipPath: 'circle(50% at 50% 50%)'}}></div>
+                      </div>
+                      <span className="text-sm text-gray-400">
+                        {filteredTasks.length} problems
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Random button with tooltip */}
+                  <div className="relative group">
+                    <button 
+                      onClick={handleRandomTask}
+                      className="px-3 h-[38px] rounded-lg bg-gray-800 border border-gray-600 hover:bg-gray-700 transition-colors flex items-center justify-center"
+                    >
+                      <Shuffle className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </button>
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
+                      Random task
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Content Area */}
             <div className="flex-1 flex flex-col min-h-0">
@@ -549,6 +698,10 @@ function BrowseInner() {
                   <TaskCardGrid
                     tasks={filteredTasks}
                     onGetStarted={handleGetStarted}
+                    lockedTaskIds={lockedTaskIds}
+                    activeTaskId={activeTaskId}
+                    isLockingEnabled={!allRequiredTasksCompleted && !hasSecretPassword}
+                    isPlaygroundNotCompleted={isPlaygroundNotCompleted}
                   />
                 </div>
               )}

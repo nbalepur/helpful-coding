@@ -62,9 +62,9 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     // Task type indicator
     let taskTypeInfo = '';
     if (label === 'replication') {
-      taskTypeInfo = '<p style="margin: 0 0 12px 0; color: #d6dde6;">This is a <span style="color: #8ac4ff; font-weight: 600;">replication</span> task. You should try to recreate the game closely with some elements of personal flair.</p>';
+      taskTypeInfo = '<p style="margin: 0 0 12px 0; color: #d6dde6;">This is a <span style="color: #8ac4ff; font-weight: 600;">replication</span> task: fixed rules are provided to help scope the game, but you can do whatever you want within those rules. This is based on an existing, popular game. Other users will judge your project based on how well it adheres to the task, style, creativity, and enjoyment (details below).</p>';
     } else if (label === 'open-ended') {
-      taskTypeInfo = '<p style="margin: 0 0 12px 0; color: #d6dde6;">This is an <span style="color: #8ac4ff; font-weight: 600;">open-ended</span> task. You have more freedom to create your own interpretation and design.</p>';
+      taskTypeInfo = '<p style="margin: 0 0 12px 0; color: #d6dde6;">This is an <span style="color: #8ac4ff; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Other users will judge your project based on how well it adheres to the task, style, creativity, and enjoyment (details below).</p>';
     }
     
     // Split examples by newline and create individual example divs

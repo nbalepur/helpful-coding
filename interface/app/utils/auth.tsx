@@ -17,6 +17,7 @@ interface User {
   id: string;
   username: string;
   email: string;
+  settings?: Record<string, any>;
 }
 
 interface AuthContextType {
@@ -27,6 +28,7 @@ interface AuthContextType {
   login: (user: User, token: string) => void;
   logout: () => void;
   checkAuth: () => boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -129,6 +131,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           id: String(data.user.id),
           username: data.user.username,
           email: data.user.email,
+          settings: data.user.settings || {},
         };
 
         setUser(normalizedUser);
@@ -160,6 +163,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       id: String(userData.id),
       username: userData.username,
       email: userData.email,
+      settings: userData.settings || {},
     };
 
     setUser(normalizedUser);
@@ -185,6 +189,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return !!user && !!token;
   };
 
+  const refreshUser = useCallback(async () => {
+    const authToken = getAuthTokenCookie();
+    if (!authToken) return;
+
+    try {
+      const response = await fetch(`${ENV.BACKEND_URL}/auth/validate`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        cache: 'no-store',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.valid && data?.user) {
+          const normalizedUser: User = {
+            id: String(data.user.id),
+            username: data.user.username,
+            email: data.user.email,
+            settings: data.user.settings || {},
+          };
+          setUser(normalizedUser);
+          try {
+            localStorage.setItem('user', JSON.stringify(normalizedUser));
+          } catch (error) {
+            console.error('Error persisting auth state:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  }, []);
+
   const value: AuthContextType = {
     user,
     token,
@@ -192,7 +230,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isLoading,
     login,
     logout,
-    checkAuth
+    checkAuth,
+    refreshUser
   };
 
   return (
