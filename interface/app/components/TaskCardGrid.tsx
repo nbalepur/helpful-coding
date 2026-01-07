@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical } from 'lucide-react';
+import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical, Lock } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -19,10 +19,29 @@ interface Task {
 interface TaskCardGridProps {
   tasks: Task[];
   onGetStarted: (taskId: string) => void;
+  lockedTaskIds?: Set<string>;
+  activeTaskId?: string | null;
+  isLockingEnabled?: boolean;
+  isPlaygroundNotCompleted?: boolean;
 }
 
 // Get status icon component
-const getStatusIcon = (status: string) => {
+const getStatusIcon = (status: string, isLocked: boolean = false, isPlaygroundNotCompleted: boolean = false) => {
+  if (isLocked) {
+    const tooltipText = isPlaygroundNotCompleted 
+      ? "Locked: Complete the tutorial first"
+      : "Locked: Complete previous tasks first";
+    
+    return (
+      <div className="relative" style={{ zIndex: 100 }}>
+        <Lock className="peer h-4 w-4 text-gray-500 transition-colors cursor-help" />
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none shadow-lg" style={{ zIndex: 1000 }}>
+          {tooltipText}
+        </div>
+      </div>
+    );
+  }
+  
   switch (status) {
     case "completed":
       return (
@@ -81,7 +100,7 @@ const getFirstParagraph = (html: string): string => {
   return tmp.textContent || tmp.innerText || '';
 };
 
-const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
+const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, lockedTaskIds = new Set(), activeTaskId = null, isLockingEnabled = false, isPlaygroundNotCompleted = false }) => {
   return (
     <div className="w-full">
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 py-4">
@@ -94,40 +113,68 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
           const label = task.label || '';
           const isPlayground = task.id === 'playground';
           const isPlaygroundNotStarted = isPlayground && task.status !== 'completed' && task.status !== 'in-progress';
+          const isLocked = isLockingEnabled && !isPlayground && lockedTaskIds.has(task.id);
+          const isActive = isLockingEnabled && !isPlayground && task.id === activeTaskId && !isLocked;
+          const isDisabled = isLocked;
+          
+          // Determine border and glow styles
+          let borderColor = 'rgba(107, 114, 128, 0.5)';
+          let boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4)';
+          
+          if (isPlaygroundNotStarted) {
+            borderColor = 'rgba(34, 197, 94, 0.6)';
+            boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4), 0 0 20px rgba(34, 197, 94, 0.3)';
+          } else if (isActive) {
+            // Active task: blue border and blue glow, always visible
+            borderColor = 'rgba(59, 130, 246, 0.6)';
+            boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4), 0 0 20px rgba(59, 130, 246, 0.3)';
+          }
           
           return (
             <div
               key={task.id}
-              className="group relative rounded-none transition-all duration-150 hover:-translate-y-1 cursor-pointer"
+              className={`group relative rounded-none transition-all duration-150 ${isDisabled ? '' : 'hover:-translate-y-1 cursor-pointer'}`}
               style={{ 
-                border: isPlaygroundNotStarted 
-                  ? '1px solid rgba(34, 197, 94, 0.6)' 
-                  : '1px solid rgba(107, 114, 128, 0.5)',
-                background: 'rgba(17, 24, 39, 0.85)',
-                boxShadow: isPlaygroundNotStarted
-                  ? '0 10px 25px rgba(15, 23, 42, 0.4), 0 0 20px rgba(34, 197, 94, 0.3)'
-                  : '0 10px 25px rgba(15, 23, 42, 0.4)',
-                overflow: 'visible'
+                border: `1px solid ${borderColor}`,
+                background: isDisabled ? 'rgba(17, 24, 39, 0.5)' : 'rgba(17, 24, 39, 0.85)',
+                boxShadow: boxShadow,
+                overflow: 'visible',
+                opacity: isDisabled ? 0.5 : 1,
+                filter: isDisabled ? 'grayscale(0.3)' : 'none'
               }}
               onMouseEnter={(e) => {
+                if (isDisabled) return;
                 if (isPlaygroundNotStarted) {
-                  e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.8)';
+                  e.currentTarget.style.border = '1px solid rgba(34, 197, 94, 0.8)';
                   e.currentTarget.style.boxShadow = '0 16px 35px rgba(34, 197, 94, 0.4), 0 0 25px rgba(34, 197, 94, 0.4)';
+                } else if (isActive) {
+                  // Active task: enhance glow on hover but keep border
+                  e.currentTarget.style.border = '1px solid rgba(59, 130, 246, 0.8)';
+                  e.currentTarget.style.boxShadow = '0 16px 35px rgba(59, 130, 246, 0.4), 0 0 25px rgba(59, 130, 246, 0.4)';
                 } else {
-                  e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.6)';
+                  e.currentTarget.style.border = '1px solid rgba(59, 130, 246, 0.6)';
                   e.currentTarget.style.boxShadow = '0 16px 35px rgba(59, 130, 246, 0.25)';
                 }
               }}
               onMouseLeave={(e) => {
+                if (isDisabled) return;
                 if (isPlaygroundNotStarted) {
-                  e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.6)';
+                  e.currentTarget.style.border = '1px solid rgba(34, 197, 94, 0.6)';
                   e.currentTarget.style.boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4), 0 0 20px rgba(34, 197, 94, 0.3)';
+                } else if (isActive) {
+                  // Active task: return to persistent blue border and glow
+                  e.currentTarget.style.border = '1px solid rgba(59, 130, 246, 0.6)';
+                  e.currentTarget.style.boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4), 0 0 20px rgba(59, 130, 246, 0.3)';
                 } else {
-                  e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.5)';
+                  e.currentTarget.style.border = '1px solid rgba(107, 114, 128, 0.5)';
                   e.currentTarget.style.boxShadow = '0 10px 25px rgba(15, 23, 42, 0.4)';
                 }
               }}
-              onClick={() => onGetStarted(task.id)}
+              onClick={() => {
+                if (!isDisabled) {
+                  onGetStarted(task.id);
+                }
+              }}
             >
               {/* Card Header with Title */}
               <div className="px-3 py-2.5 relative">
@@ -161,9 +208,9 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
                     </div>
                   )}
                   {/* Status Indicator */}
-                  {getStatusIcon(task.status || 'not-started')}
+                  {getStatusIcon(task.status || 'not-started', isLocked, isPlaygroundNotCompleted)}
                 </div>
-                <h3 className={`text-sm font-semibold line-clamp-2 transition-colors duration-150 pr-12 ${isPlayground ? 'text-white group-hover:text-white' : 'text-white group-hover:text-blue-400'}`} style={{ lineHeight: '1.35' }}>
+                <h3 className={`text-sm font-semibold line-clamp-2 transition-colors duration-150 pr-12 ${isDisabled ? 'text-gray-500' : isPlayground ? 'text-white group-hover:text-white' : 'text-white group-hover:text-blue-400'}`} style={{ lineHeight: '1.35' }}>
                   {task.title}
                 </h3>
               </div>
@@ -173,7 +220,8 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
                 <img
                   src={imagePath}
                   alt={task.title}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  className={`w-full h-full object-cover transition-transform duration-300 ${isDisabled ? '' : 'group-hover:scale-105'}`}
+                  style={{ opacity: isDisabled ? 0.5 : 1 }}
                   onError={(e) => {
                     // Fallback to a placeholder if image doesn't exist
                     (e.target as HTMLImageElement).src = '/toast.png';
@@ -181,7 +229,7 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
                 />
                 
                 {/* Description Overlay on Hover - covers just the image */}
-                {descriptionText && (
+                {descriptionText && !isDisabled && (
                   <div 
                     className="absolute inset-0 text-gray-200 text-sm p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-y-auto overflow-x-hidden"
                     style={{ background: 'rgba(0, 0, 0, 0.90)' }}
@@ -198,9 +246,12 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted }) => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onGetStarted(task.id);
+                    if (!isDisabled) {
+                      onGetStarted(task.id);
+                    }
                   }}
-                  className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-md transition-all duration-200 hover:scale-105 ${isPlayground ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  disabled={isDisabled}
+                  className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-md transition-all duration-200 ${isDisabled ? 'bg-gray-600 cursor-not-allowed opacity-50' : isPlayground ? 'bg-green-600 hover:bg-green-700 hover:scale-105' : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`}
                 >
                   <Play className="h-3 w-3" />
                   <span>

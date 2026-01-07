@@ -4874,6 +4874,7 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
                 "id": db_user.id,
                 "username": db_user.username,
                 "email": db_user.email,
+                "settings": db_user.settings or {},
                 "created_at": db_user.created_at
             },
             "access_token": access_token,
@@ -4930,6 +4931,7 @@ async def login(credentials: dict, db: Session = Depends(get_db)):
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
+                "settings": user.settings or {},
                 "created_at": user.created_at
             },
             "access_token": access_token,
@@ -4993,6 +4995,7 @@ async def validate_auth_token(request: Request, db: Session = Depends(get_db)):
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
+                "settings": user.settings or {},
                 "created_at": user.created_at
             }
         }
@@ -5109,6 +5112,53 @@ async def validate_reset_token(token: str, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error validating token: {str(e)}"
+        )
+
+
+@app.put("/api/users/{user_id}/settings", tags=["Users"])
+async def update_user_settings(
+    user_id: int,
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """Update user settings. Merges with existing settings."""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Get new settings from request
+        new_settings = request.get("settings", {})
+        if not isinstance(new_settings, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Settings must be a dictionary"
+            )
+        
+        # Merge with existing settings
+        current_settings = user.settings or {}
+        updated_settings = {**current_settings, **new_settings}
+        
+        # Update user settings
+        user.settings = updated_settings
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "message": "Settings updated successfully",
+            "settings": user.settings
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating settings: {str(e)}"
         )
 
 

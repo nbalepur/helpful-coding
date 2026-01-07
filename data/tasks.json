@@ -57,7 +57,7 @@
     {
       "name": "battleship",
       "title": "Battleship",
-      "description": "<p>a game where ships are placed on a hidden grid and the player fires shots by selecting coordinates. Each shot should reveal hit or miss and remain marked so the player can track previous guesses.</p><p>The game should either be two-player or one-player against an AI opponent. Track ship health so a ship is “sunk” when all its cells are hit, and end the game when all ships are sunk. The UI should show shot history clearly and communicate hit/miss/sunk feedback instantly after each move.</p>",
+      "description": "<p>a game where ships are placed on a hidden grid and the player fires shots by selecting coordinates. Each shot should reveal hit or miss and remain marked so the player can track previous guesses.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Track ship health so a ship is “sunk” when all its cells are hit, and end the game when all ships are sunk. The UI should show shot history clearly and communicate hit/miss/sunk feedback instantly after each move.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.battleshiponline.org/\">Battleship</a>",
       "code_start_date": "2025-01-01",
@@ -165,7 +165,7 @@
     {
       "name": "checkers",
       "title": "Checkers",
-      "description": "<p>the classic board game on an 8×8 board where players move pieces diagonally and take turns to capture opponent pieces. A normal piece moves forward one square into an empty space, and captures by jumping over an adjacent opponent piece into the empty square beyond it.</p><p>The game should be two-player or one-player against an AI opponent. Require captures when available, remove captured pieces immediately, and promote a piece to a king when it reaches the far row so it can move backward too. The game ends when a player has no legal moves, and the UI should highlight legal moves and clearly show whose turn it is.</p>",
+      "description": "<p>the classic board game on an 8×8 board where players move pieces diagonally and take turns to capture opponent pieces. A normal piece moves forward one square into an empty space, and captures by jumping over an adjacent opponent piece into the empty square beyond it.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Require captures when available, remove captured pieces immediately, and promote a piece to a king when it reaches the far row so it can move backward too. The game ends when a player has no legal moves, and the UI should highlight legal moves and clearly show whose turn it is.</p>",
       "label": "replication",
       "example": "<a href=\"https://cardgames.io/checkers/\">Checkers</a>",
       "code_start_date": "2025-01-01",
@@ -219,7 +219,7 @@
     {
       "name": "connect_four",
       "title": "Connect Four",
-      "description": "<p>a vertical grid game where players drop discs into columns to connect four discs in a row. On a turn, the player selects a column and the disc falls to the lowest empty slot as if pulled by gravity.</p><p>The game should be two-player or one-player against an AI opponent. The first player to connect four of their discs in a single line—horizontal, vertical, or diagonal—wins the round. If the grid fills without a four-in-a-row, it’s a draw, and the UI should make turn order and win states very obvious.</p>",
+      "description": "<p>a vertical grid game where players drop discs into columns to connect four discs in a row. On a turn, the player selects a column and the disc falls to the lowest empty slot as if pulled by gravity.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. The first player to connect four of their discs in a single line—horizontal, vertical, or diagonal—wins the round. If the grid fills without a four-in-a-row, it’s a draw, and the UI should make turn order and win states very obvious.</p>",
       "label": "replication",
       "example": "<a href=\"https://papergames.io/en/connect4\">Connect Four</a>",
       "code_start_date": "2025-01-01",
@@ -651,7 +651,7 @@
     {
       "name": "memory_match",
       "title": "Memory Matching",
-      "description": "<p>a concentration game where players flip cards to try and find matching pairs. The player flips two cards per turn, trying to find matching pairs by remembering previously seen card faces.</p><p>If the two revealed cards match they stay face-up, and if they don’t match they flip back after a short delay, giving the player a moment to memorize them. The game ends when all pairs are found, and you can show moves or time as the “score” to encourage replay. The game should be two-player or one-player against an AI opponent.</p>",
+      "description": "<p>a concentration game where players flip cards to try and find matching pairs. The player flips two cards per turn, trying to find matching pairs by remembering previously seen card faces.</p><p>If the two revealed cards match they stay face-up, and if they don’t match they flip back after a short delay, giving the player a moment to memorize them. The game ends when all pairs are found, and you can show moves or time as the “score” to encourage replay. The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.helpfulgames.com/subjects/brain-training/memory.html\">Memory</a>",
       "code_start_date": "2025-01-01",

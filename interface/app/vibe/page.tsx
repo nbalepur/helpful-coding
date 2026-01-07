@@ -6,7 +6,8 @@ import { useState, useEffect, useRef, useTransition, useCallback, useMemo, Suspe
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "../utils/auth";
-import { getUserSettingsCookie, updateUserSetting, setPlaygroundCompletedCookie, isPlaygroundCompleted } from "../utils/cookies";
+import { getUserSettingsCookie, updateUserSetting } from "../utils/cookies";
+import { isPlaygroundCompletedFromSettings, setPlaygroundCompletedInSettings } from "../utils/userSettings";
 import {
   Grid3X3, 
   Plus, 
@@ -47,23 +48,9 @@ import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 import { useSnackbar } from "../components/SnackbarProvider";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { formatDateOnly } from "../utils/dateFormat";
+import { PASSWORD_HASH, hashString } from "../utils/password";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
-
-// Pre-computed SHA-256 hash of "penguin" (hex)
-const PASSWORD_HASH = '0a4346f806b28b3ce94905c3ac56fcd5ee2337d8613161696aba52eb0c3551cc';
-
-/**
- * Hash a string using SHA-256
- */
-async function hashString(str: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(str);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
-}
 
 function HomeInner() {
   const router = useRouter();
@@ -72,7 +59,7 @@ function HomeInner() {
   
   // Use route protection hook
   const { isAuthenticated, isLoading } = useRouteProtection();
-  const { user } = useAuth();
+  const { user, token, refreshUser } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   
   // This page now exclusively renders tasks.
@@ -106,8 +93,21 @@ function HomeInner() {
   // Skill check recalc hook for submission flow
   const { recalculateState } = useUserStudyPopup();
   
-  // Check for secret password bypass
-  const hasSecretPassword = searchParams?.get('password') === 'penguin';
+  // Check for secret password bypass using hash comparison
+  const [hasSecretPassword, setHasSecretPassword] = useState(false);
+  
+  useEffect(() => {
+    const checkPassword = async () => {
+      const password = searchParams?.get('password');
+      if (password) {
+        const passwordHash = await hashString(password);
+        setHasSecretPassword(passwordHash === PASSWORD_HASH);
+      } else {
+        setHasSecretPassword(false);
+      }
+    };
+    checkPassword();
+  }, [searchParams]);
   
   // Generate background circle data once on mount - prevents re-triggering on state changes
   const backgroundStars = useMemo(() => {
@@ -632,11 +632,14 @@ function HomeInner() {
     // Disable submissions viewing in playground mode
     if (isPlaygroundMode) return false;
     
+    // Check if correct password is present in URL to unlock submissions
+    if (hasSecretPassword) return true;
+    
     if (!currentTaskMeta?.votingStartDate) return false;
     const start = new Date(currentTaskMeta.votingStartDate);
     if (Number.isNaN(start.getTime())) return false;
     return Date.now() >= start.getTime();
-  }, [currentTaskMeta?.votingStartDate, isPlaygroundMode]);
+  }, [currentTaskMeta?.votingStartDate, isPlaygroundMode, hasSecretPassword]);
 
   // Keyboard shortcuts: Cmd/Ctrl + [ and ] to switch Task/Preview; Cmd/Ctrl + Shift to next file; Cmd/Ctrl + (/) for Code/Submissions
   useEffect(() => {
@@ -784,8 +787,8 @@ function HomeInner() {
   const viewSubmissionsTooltip = isViewSubmissionsUnlocked
     ? 'View community submissions.'
     : currentTaskMeta?.votingStartDate
-      ? `The voting period begins on ${formatVotingStartDate(currentTaskMeta.votingStartDate)}.`
-      : 'The voting period has not started yet.';
+      ? `Viewing and voting on submissions is locked. Check back later!`
+      : 'Viewing and voting on submissions is locked. Check back later!';
 
   useEffect(() => {
     try {
@@ -964,8 +967,8 @@ function HomeInner() {
           const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
           
           // Add playground task at the beginning of the list
-          // Check cookie to determine if playground is completed
-          const playgroundCompleted = isPlaygroundCompleted();
+          // Check user settings to determine if playground is completed
+          const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
           const playgroundTask = {
             id: 'playground',
             name: 'Playground',
@@ -1023,8 +1026,8 @@ function HomeInner() {
         }
         
         // Add playground task at the beginning of the list
-        // Check cookie to determine if playground is completed
-        const playgroundCompleted = isPlaygroundCompleted();
+        // Check user settings to determine if playground is completed
+        const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
         const playgroundTask = {
           id: 'playground',
           name: 'Playground',
@@ -2240,9 +2243,9 @@ function HomeInner() {
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
-    // Update playground task status based on cookie before filtering
-    // This re-checks the cookie every time the effect runs, including when returning to tasks view
-    const playgroundCompleted = isPlaygroundCompleted();
+    // Update playground task status based on user settings before filtering
+    // This re-checks the settings every time the effect runs, including when returning to tasks view
+    const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
     const tasksWithUpdatedPlayground = allTasks.map((task: any) => {
       if (task.id === 'playground') {
         return { ...task, status: playgroundCompleted ? 'completed' : 'not-started' };
@@ -2655,9 +2658,16 @@ function HomeInner() {
       setLeftColumnWidth(leftWidth);
     }
     
-    // Set playground completion cookie when navigating to playground
-    if (taskId === 'playground') {
-      setPlaygroundCompletedCookie();
+    // Set playground completion in user settings when navigating to playground
+    if (taskId === 'playground' && numericUserId) {
+      setPlaygroundCompletedInSettings(numericUserId, user?.settings, token || undefined)
+        .then(() => {
+          // Refresh user data to get updated settings
+          refreshUser();
+        })
+        .catch((error) => {
+          console.error('Failed to update playground completion:', error);
+        });
     }
     
     // Batch critical state updates to prevent glitching using React transitions
