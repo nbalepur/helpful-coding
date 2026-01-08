@@ -238,6 +238,15 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     recalculateState();
   }, [isAuthLoading, numericUserId, hasSecretPassword, recalculateState]);
   
+  // Handle password check completing after initialization
+  // This ensures that if the password check completes after initialization,
+  // we still bypass the popup immediately
+  useEffect(() => {
+    if (hasSecretPassword) {
+      setPopupState('none');
+    }
+  }, [hasSecretPassword]);
+  
   // Handle tutorial close - first hide the tutorial, then recalculate to show next popup
   const handleTutorialClose = useCallback(() => {
     // First, hide the tutorial popup immediately

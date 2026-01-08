@@ -1,6 +1,7 @@
 // Pre-computed SHA-256 hash (hex)
 export const PASSWORD_HASH = '0a4346f806b28b3ce94905c3ac56fcd5ee2337d8613161696aba52eb0c3551cc';
 
+
 /**
  * Hash a string using SHA-256
  */
