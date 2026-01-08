@@ -32,46 +32,118 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent duplicate submissions
+    if (isLoading) {
+      console.log('[LoginForm] Already submitting, ignoring duplicate submission');
+      return;
+    }
+    
+    console.log('[LoginForm] Form submitted with data:', { username_or_email: formData.username_or_email, password: '***' });
     setIsLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${ENV.BACKEND_URL}/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
+      console.log('[LoginForm] Making request to:', `${ENV.BACKEND_URL}/login`);
+      
+      // Add timeout to prevent hanging requests (30 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      let response;
+      try {
+        response = await fetch(`${ENV.BACKEND_URL}/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(formData),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. Please check your connection and try again.');
+        }
+        throw fetchError;
+      }
 
-      const data = await response.json();
-
-      if (response.ok) {
-        // Store token in localStorage
-        localStorage.setItem('auth_token', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Store in cookies for persistence (use UUID for user_id cookie)
-        setUserIdCookie(generateUuidV4());
-        setAuthTokenCookie(data.access_token);
-        
-        // Call success callback
-        onSuccess(data.user, data.access_token);
-      } else {
-        // Handle validation errors (array) or regular errors (string)
+      // Check if response is ok before trying to parse JSON
+      if (!response.ok) {
+        // Try to parse error response
         let errorMessage = "Login failed. Please try again.";
-        if (data.detail) {
-          if (Array.isArray(data.detail)) {
-            // Format Pydantic validation errors
-            errorMessage = data.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-          } else {
-            errorMessage = data.detail;
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) {
+            if (Array.isArray(errorData.detail)) {
+              // Format Pydantic validation errors
+              errorMessage = errorData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+            } else {
+              errorMessage = errorData.detail;
+            }
           }
+        } catch (parseError) {
+          // If we can't parse the error response, use status text
+          errorMessage = `Login failed: ${response.status} ${response.statusText || 'Unknown error'}`;
         }
         setError(errorMessage);
+        setIsLoading(false);
+        return;
       }
+
+      // Parse successful response
+      let data;
+      try {
+        const responseText = await response.text();
+        if (!responseText) {
+          throw new Error('Empty response from server');
+        }
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse login response:', parseError);
+        setError("Invalid response from server. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate response has required fields
+      if (!data.access_token || !data.user) {
+        console.error('[LoginForm] Invalid login response structure:', data);
+        setError("Invalid response from server. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('[LoginForm] Login successful, storing auth data');
+      
+      // Store token in localStorage
+      try {
+        localStorage.setItem('auth_token', data.access_token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        console.log('[LoginForm] Stored auth in localStorage');
+      } catch (storageError) {
+        console.error('[LoginForm] Failed to store auth in localStorage:', storageError);
+        // Continue anyway - cookies will still work
+      }
+      
+      // Store in cookies for persistence (use UUID for user_id cookie)
+      try {
+        setUserIdCookie(generateUuidV4());
+        setAuthTokenCookie(data.access_token);
+        console.log('[LoginForm] Stored auth in cookies');
+      } catch (cookieError) {
+        console.error('[LoginForm] Failed to set auth cookies:', cookieError);
+        // Continue anyway - localStorage will still work
+      }
+      
+      console.log('[LoginForm] Calling onSuccess callback');
+      // Call success callback
+      onSuccess(data.user, data.access_token);
     } catch (err) {
-      setError("Network error. Please check your connection and try again.");
+      console.error('Login error:', err);
+      const errorMessage = err instanceof Error ? err.message : "Network error. Please check your connection and try again.";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -175,14 +247,20 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full px-6 py-3 text-white text-base font-semibold rounded-md shadow transition-all duration-300 hover:animate-gradient-shift disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+              className="w-full px-6 py-3 text-white text-base font-semibold rounded-md shadow transition-all duration-300 hover:animate-gradient-shift disabled:cursor-not-allowed disabled:opacity-60"
+              style={isLoading ? {
+                backgroundImage: 'linear-gradient(-45deg, #4b5563, #6b7280, #4b5563, #6b7280)',
                 backgroundSize: '400% 400%',
-                backgroundPosition: '0% 50%'
+                backgroundPosition: '0% 50%',
+              } : {
+                backgroundImage: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                backgroundSize: '400% 400%',
+                backgroundPosition: '0% 50%',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                if (!isLoading) {
+                  e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                }
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.animation = '';

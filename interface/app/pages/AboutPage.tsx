@@ -248,7 +248,7 @@ export default function AboutPage() {
                     
                     // Replace instructions.mp4 with YouTube iframe
                     if (isInstructionsVideo) {
-                      const youtubeVideoId = '_EjgKIJ5xBo';
+                      const youtubeVideoId = 'cMGgMO6DttE';
                       const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1&enablejsapi=0`;
                       
                       return (

@@ -7,7 +7,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.chess.com/play/computer\">Chess vs Computer</a>\n<a href=\"https://cardgames.io/checkers/\">Checkers vs Computer</a>\n<a href=\"https://playtictactoe.org/\">Tic Tac Toe vs Computer</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -34,7 +34,7 @@
       "label": "replication",
       "example": "<a href=\"https://games.aarp.org/games/atari-asteroids\">Asteroids</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -61,7 +61,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.battleshiponline.org/\">Battleship</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -88,7 +88,7 @@
       "label": "replication",
       "example": "<a href=\"https://games.washingtonpost.com/games/blackjack\">Blackjack</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -115,7 +115,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.lofiandgames.com/breakout\">Breakout</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -142,7 +142,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://poncle.itch.io/vampire-survivors\">Vampire Survivors</a>\n<a href=\"https://armorgames.com/play/13324/boss-slayer\">Boss Slayer</a>\n<a href=\"https://armorgames.com/towertide-game/19559?tag-referral=bullet-hell\">Tower Tide</a>\n",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -169,7 +169,7 @@
       "label": "replication",
       "example": "<a href=\"https://cardgames.io/checkers/\">Checkers</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -196,7 +196,7 @@
       "label": "replication",
       "example": "<a href=\"https://cardgames.io/chess/\">Chess</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -223,7 +223,7 @@
       "label": "replication",
       "example": "<a href=\"https://papergames.io/en/connect4\">Connect Four</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -250,7 +250,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://orteil.dashnet.org/cookieclicker/\">Cookie Clicker</a>\n<a href=\"https://www.decisionproblem.com/paperclips/index2.html\">Universal Paperclips</a>\n<a href=\"https://funflower.itch.io/nimbus\">Nimbus</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -277,7 +277,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.boatloadpuzzles.com/playcrossword\">Crosswords</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -304,7 +304,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://tcgmasters.net/\">Pokemon Trading Card Game</a>\n<a href=\"https://teamwood.itch.io/super-auto-pets\">Super Auto Pets</a>\n<a href=\"https://armorgames.com/play/2738/mytheria\">Mytheria</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -331,7 +331,7 @@
       "label": "replication",
       "example": "<a href=\"https://doodlejumponline.github.io/\">Doodle Jump</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -358,7 +358,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://flappybird.io/\">Flappy Bird</a>\n<a href=\"https://doodlejumponline.github.io/\">Doodle Jump</a>\n<a href=\"https://nbalepur.github.io/ai2-trex-runner/\">Chrome Dinosaur Game</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -385,7 +385,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.crazygames.com/game/street-fighter-2\">Street Fighter</a>\n<a href=\"https://pvpoke.com/battle/\">Pokemon</a>\n<a href=\"https://www.crazygames.com/game/mortal-kombat-karnage\">Mortal Kombat</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -412,7 +412,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.gwsmedia.com/games/froghopper/\">Frogger</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -439,7 +439,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://flori9.itch.io/circloo\">circloO</a>\n<a href=\"https://rob1221.itch.io/gravity-arrows\">Gravity Arrows</a>\n<a href=\"https://prox276.itch.io/the-right-turn\">The Right Turn</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -466,7 +466,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.coolmathgames.com/0-hangman\">Hangman</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -493,7 +493,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://aidungeon.com/\">Online Dungeons and Dragons</a>\n<a href=\"https://bitlifefree.io/\">BitLife</a>\n<a href=\"https://www.visitoregon.com/the-oregon-trail-game-online/\">Oregon Trail</a>\n",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -520,7 +520,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://stonet2000.github.io/Cut-Bread/\">Cut Bread</a>\n<a href=\"https://www.crazygames.com/game/parking-jam-dqq\">Parking Jam</a>\n<a href=\"https://rhythm-plus.com/menu/\">Rhythm+</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -547,7 +547,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.crazygames.com/game/mancala-classic\">Mancala</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -574,7 +574,7 @@
       "label": "replication",
       "example": "<a href=\"https://games.aarp.org/games/sweet-shuffle\">Sweet Shuffle</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -601,7 +601,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://cariboutests.com/games/mazes.php\">Standard Maze Game</a>\n<a href=\"https://www.mathsisfun.com/games/tilt-maze.html\">Tilt Maze</a>\n<a href=\"https://freepacman.org/\">Pac-Man</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -628,7 +628,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.memozor.com/simon-games/simon-gam\">Simon</a>\n<a href=\"https://memorymatching.com/\">Matching</a>\n<a href=\"https://humanbenchmark.com/tests/verbal-memory\">Verbal Memory Test</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -655,7 +655,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.helpfulgames.com/subjects/brain-training/memory.html\">Memory</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -682,7 +682,7 @@
       "label": "replication",
       "example": "<a href=\"https://minesweeperonline.com/\">Minesweeper</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -709,7 +709,7 @@
       "label": "replication",
       "example": "<a href=\"https://pacman.live/play.html\">Pac-Man</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -736,7 +736,7 @@
       "label": "replication",
       "example": "<a href=\"https://neal.fun/password-game/\">Password Game</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -763,7 +763,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.247pinball.com/\">Pinball</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -790,7 +790,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://supermario-game.com/\">Super Mario Bros</a>\n<a href=\"https://www.retrogames.cz/play_001-NES.php\">Donkey Kong</a>\n<a href=\"https://www.miniplay.com/game/sonic-the-hedgehog-pocket-platformer\">Sonic the Hedgehog</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -817,7 +817,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.ponggame.org/\">Pong</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -844,7 +844,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.jigsawexplorer.com/online-jigsaw-puzzle-player.html\">Jigsaw Puzzles</a>\n<a href=\"https://www.crazygames.com/game/link\">Link</a>\n<a href=\"https://www.nytimes.com/games/connections\">NYT Connections</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -871,7 +871,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://humanbenchmark.com/tests/reactiontime\">Reaction Time Test</a>\n<a href=\"https://play.tetris.com/\">Tetris</a>\n<a href=\"https://geometrydash-lite.io/\">Geometry Dash</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -898,7 +898,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.rpsgame.org/\">Rock Paper Scissors</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -925,7 +925,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://agargame.io/\">Agar IO</a>\n<a href=\"https://holeio.com/\">Hole IO</a>\n<a href=\"https://playsnake.org/\">Snake</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -952,7 +952,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.memozor.com/simon-games/simon-game\">Simon</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -979,7 +979,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.freeslots.com/\">Slots</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1006,7 +1006,7 @@
       "label": "replication",
       "example": "<a href=\"https://playsnake.org/\">Snake</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1033,7 +1033,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://games.aarp.org/games/atari-asteroids\">Asteroids</a>\n<a href=\"https://elgoog.im/space-invaders/\">Space Invaders</a>\n<a href=\"https://amongus-online.net/game/amongus\">Among Us</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1060,7 +1060,7 @@
       "label": "replication",
       "example": "<a href=\"https://elgoog.im/space-invaders/\">Space Invaders</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1087,7 +1087,7 @@
       "label": "replication",
       "example": "<a href=\"https://sudoku.com/\">Sudoku</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1114,7 +1114,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.chess.com/variants/atomic\">Atomic Chess</a>\n<a href=\"https://www.foddy.net/Athletics.html\">QWOP</a>\n<a href=\"https://www.crazygames.com/game/the-impossible-quiz\">The Impossible Quiz</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1141,7 +1141,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.google.com/logos/fnbx/solitaire/standalone.html\">Solitaire</a>\n<a href=\"https://playscrabble.com/\">Scrabble</a>\n<a href=\"https://games.aarp.org/games/texas-holdem-poker-sit-and-go\">Poker</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1168,7 +1168,7 @@
       "label": "replication",
       "example": "<a href=\"https://play.tetris.com/\">Tetris</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1195,7 +1195,7 @@
       "label": "replication",
       "example": "<a href=\"https://playtictactoe.org/\">Tic Tac Toe</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1222,7 +1222,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://armorgames.com/play/4309/this-is-the-only-level\">This is the Only Level</a>\n<a href=\"https://www.newgrounds.com/portal/view/612985\">Give Up</a>\n<a href=\"https://www.coolmathgames.com/0-learn-to-fly\">Learn to Fly</a>\n",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1249,7 +1249,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://play.tetris.com\">Tetris</a>\n<a href=\"https://papaspizzeria.io/\">Papa's Pizzeria</a>\n<a href=\"https://play.typeracer.com/\">Typeracer</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1276,7 +1276,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://www.crazygames.com/game/bloons-tower-defense\">Bloons Tower Defense</a>\n<a href=\"https://www.miniplay.com/game/plants-vs-zombies\">Plants vs Zombies</a>\n<a href=\"https://armorgames.com/play/347/storm-the-house\">Storm the House</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1303,7 +1303,7 @@
       "label": "replication",
       "example": "<a href=\"https://play2048.co/\">2048</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1330,7 +1330,7 @@
       "label": "replication",
       "example": "<a href=\"https://humanbenchmark.com/tests/typing\">Typing Test</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1357,7 +1357,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://kids.nationalgeographic.com/games/puzzles/article/maze-oceans\">Ocean Maze</a>\n<a href=\"https://www.miniplay.com/game/where-s-my-water\">Where's My Water</a>\n<a href=\"https://www.coolmathgames.com/0-tiny-fishing\">Tiny Fishing</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1384,7 +1384,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://autosam.github.io/Tamaweb/\">Tamaweb</a>\n<a href=\"https://freebie.games/games/tamagotchi/play/\">Tamagotchi</a>\n<a href=\"https://natnatart.itch.io/plantgotchi\">Plantgotchi</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1411,7 +1411,7 @@
       "label": "replication",
       "example": "<a href=\"https://plays.org/whack-a-mole/\">Whack-a-Mole</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1438,7 +1438,7 @@
       "label": "replication",
       "example": "<a href=\"https://www.nytimes.com/games/wordle/index.html\">Wordle</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
@@ -1465,7 +1465,7 @@
       "label": "open-ended",
       "example": "<a href=\"https://playplayfun.com/cats-and-soup-game-cute-cat-game/play/\">Cats and Soup</a>\n<a href=\"https://alfredncy.itch.io/serenitrove\">Serenitrove</a>\n<a href=\"https://cookiecrayon.itch.io/snug\">Snug</a>",
       "code_start_date": "2025-01-01",
-      "voting_start_date": "2026-02-08",
+      "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
