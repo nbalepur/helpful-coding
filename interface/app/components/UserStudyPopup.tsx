@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, createContext, useContext, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, createContext, useContext, useMemo, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -42,10 +42,18 @@ function UserStudyPopupInner() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [hasWatchedEnough, setHasWatchedEnough] = useState(false);
+  const [windowOrigin, setWindowOrigin] = useState<string>('');
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<any>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Set window origin after mount to avoid hydration mismatch
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setWindowOrigin(window.location.origin);
+    }
+  }, []);
 
   // Load markdown content for tutorial
   useEffect(() => {
@@ -199,16 +207,43 @@ function UserStudyPopupInner() {
         {children}
       </h4>
     ),
-    p: ({ children }: any) => (
-      <p
-        style={{
-          marginBottom: '12px',
-          color: '#e5e7eb',
-        }}
-      >
-        {children}
-      </p>
-    ),
+    p: ({ children }: any) => {
+      // Check if children contain block elements (div, img, video, etc.)
+      // If so, wrap in div instead of p to avoid hydration errors
+      const hasBlockElements = React.Children.toArray(children).some((child: any) => {
+        if (typeof child === 'object' && child !== null) {
+          const type = child.type;
+          if (typeof type === 'string') {
+            return ['div', 'img', 'video', 'iframe', 'table', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(type);
+          }
+        }
+        return false;
+      });
+      
+      if (hasBlockElements) {
+        return (
+          <div
+            style={{
+              marginBottom: '12px',
+              color: '#e5e7eb',
+            }}
+          >
+            {children}
+          </div>
+        );
+      }
+      
+      return (
+        <p
+          style={{
+            marginBottom: '12px',
+            color: '#e5e7eb',
+          }}
+        >
+          {children}
+        </p>
+      );
+    },
     ul: ({ children }: any) => (
       <ul
         style={{
@@ -276,8 +311,33 @@ function UserStudyPopupInner() {
 
       // Replace instructions.mp4 with YouTube iframe
       if (isInstructionsVideo) {
-        const youtubeVideoId = '_EjgKIJ5xBo';
-        const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?enablejsapi=1&origin=${window.location.origin}&modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1`;
+        const youtubeVideoId = 'cMGgMO6DttE';
+        // Use windowOrigin state to avoid hydration mismatch (Safari is stricter about this)
+        // Only render iframe after windowOrigin is set to prevent hydration errors
+        const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
+        
+        // Don't render iframe until we have a valid origin (prevents Safari hydration errors)
+        if (!origin) {
+          return (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                width: '100%',
+                margin: '16px 0',
+                minHeight: '200px',
+                backgroundColor: '#1f2937',
+                border: '1px solid #4b5563',
+                borderRadius: '8px',
+              }}
+            >
+              <p style={{ color: '#9ca3af' }}>Loading video...</p>
+            </div>
+          );
+        }
+        
+        const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?enablejsapi=1&origin=${origin}&modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1`;
         
         return (
           <div
@@ -382,7 +442,7 @@ function UserStudyPopupInner() {
         </div>
       );
     },
-  }), [initYoutubePlayer]);
+  }), [initYoutubePlayer, windowOrigin]);
 
   // Helper function to set tutorial cookie
   const setTutorialCookie = (state: TutorialCookieState) => {
@@ -446,20 +506,36 @@ function UserStudyPopupInner() {
     router.push('/skill-check');
   };
 
-  // Don't show pre-test/post-test on skill-check or landing page
+  // Track tutorial cookie state to avoid calling getCookie during render
+  const [tutorialCookieState, setTutorialCookieState] = useState<TutorialCookieState | null>(null);
+  
+  // Load tutorial cookie state after mount to avoid hydration mismatch
+  useEffect(() => {
+    if (popupState === 'tutorial') {
+      const state = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
+      setTutorialCookieState(state);
+    }
+  }, [popupState]);
+
+  // Don't show popup on landing page (where login happens) or skill-check page
   const shouldShowPopup = () => {
     if (popupState === 'none') return false;
+    // Never show popup on landing page - it blocks login
+    if (pathname === '/landing') {
+      return false;
+    }
     if (popupState === 'tutorial') {
-      // Check cookie to prevent showing if dismissed
-      const tutorialState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
+      // Use state instead of calling getCookie during render to avoid hydration mismatch
+      // Default to 'unseen' during SSR/initial render
+      const tutorialState = tutorialCookieState || 'unseen';
       if (tutorialState === 'dismissed') {
         return false;
       }
       return true;
     }
-    // For pre-test and post-test, don't show on skill-check or landing page
+    // For pre-test and post-test, don't show on skill-check page
     if ((popupState === 'pre-test' || popupState === 'post-test') && 
-        (pathname === '/skill-check' || pathname === '/landing')) {
+        pathname === '/skill-check') {
       return false;
     }
     return true;
@@ -711,9 +787,10 @@ function UserStudyPopupInner() {
             <button
               type="button"
               onClick={async () => {
-                const currentState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
+                const currentState = tutorialCookieState || 'unseen';
                 if (currentState !== 'dismissed') {
                   setTutorialCookie('seen');
+                  setTutorialCookieState('seen');
                 }
                 await handleClose();
               }}

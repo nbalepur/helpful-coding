@@ -53,7 +53,21 @@ export function setCookie(name: string, value: string, options: CookieOptions = 
 
   cookieString += `; samesite=${sameSite}`;
 
-  document.cookie = cookieString;
+  try {
+    document.cookie = cookieString;
+    
+    // Verify cookie was set (Safari compatibility check)
+    if (typeof window !== 'undefined' && window.navigator.userAgent.includes('Safari') && !window.navigator.userAgent.includes('Chrome')) {
+      // In Safari, verify the cookie was actually set
+      const verifyCookie = getCookie(name);
+      if (!verifyCookie && value) {
+        console.warn(`[Cookies] Safari: Failed to set cookie "${name}". This may be due to Safari's cookie restrictions.`);
+        console.warn(`[Cookies] Cookie string was: ${cookieString.substring(0, 100)}...`);
+      }
+    }
+  } catch (error) {
+    console.error(`[Cookies] Error setting cookie "${name}":`, error);
+  }
 }
 
 /**
@@ -129,10 +143,14 @@ export function setUserIdCookie(userId: string): void {
   const expires = new Date();
   expires.setDate(expires.getDate() + 30); // 30 days from now
   
+  // Safari blocks secure cookies on HTTP (localhost)
+  // Only use secure in production (HTTPS)
+  const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  
   setCookie(USER_ID_COOKIE, userId, {
     expires,
     maxAge: 30 * 24 * 60 * 60, // 30 days in seconds
-    secure: true,
+    secure: isProduction, // Only secure on HTTPS (Safari requirement)
     sameSite: 'lax'
   });
 }
@@ -151,10 +169,14 @@ export function setAuthTokenCookie(token: string): void {
   const expires = new Date();
   expires.setDate(expires.getDate() + 7); // 7 days from now
   
+  // Safari blocks secure cookies on HTTP (localhost)
+  // Only use secure in production (HTTPS)
+  const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  
   setCookie(USER_TOKEN_COOKIE, token, {
     expires,
     maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-    secure: true,
+    secure: isProduction, // Only secure on HTTPS (Safari requirement)
     sameSite: 'lax'
   });
 }

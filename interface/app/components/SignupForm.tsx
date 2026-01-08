@@ -59,6 +59,11 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Prevent duplicate submissions
+    if (isLoading) {
+      return;
+    }
+    
     if (!validateForm()) {
       return;
     }
@@ -227,14 +232,16 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full px-6 py-3 text-white text-base font-semibold rounded-md shadow transition-all duration-300 hover:animate-gradient-shift disabled:cursor-not-allowed"
+              className="w-full px-6 py-3 text-white text-base font-semibold rounded-md shadow transition-all duration-300 hover:animate-gradient-shift disabled:cursor-not-allowed disabled:opacity-60"
               style={{
-                background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                backgroundImage: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
                 backgroundSize: '400% 400%',
-                backgroundPosition: '0% 50%'
+                backgroundPosition: '0% 50%',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                if (!isLoading) {
+                  e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                }
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.animation = '';

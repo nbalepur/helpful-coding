@@ -96,8 +96,11 @@ export default function LandingPage() {
   const handleAuthSuccess = (user: any, token: string) => {
     // Use the auth context login method
     login(user, token);
-    // Redirect to vibe page
-    router.push('/vibe');
+    // Redirect to browse page - cookies are now set correctly for Safari
+    // Small delay ensures cookies are written before navigation
+    setTimeout(() => {
+      router.push('/browse');
+    }, 100);
   };
 
   const handleSwitchToSignup = () => {
