@@ -34,6 +34,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
   
   // Check for secret password bypass using hash comparison
   const [hasSecretPassword, setHasSecretPassword] = useState(false);
+  const [passwordCheckComplete, setPasswordCheckComplete] = useState(false);
   
   useEffect(() => {
     const checkPassword = async () => {
@@ -44,6 +45,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       } else {
         setHasSecretPassword(false);
       }
+      setPasswordCheckComplete(true);
     };
     checkPassword();
   }, [searchParams]);
@@ -212,17 +214,22 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     setIsCalculating(true);
     try {
       const newState = await calculatePopupState();
-      setPopupState(newState);
+      // Double-check hasSecretPassword before setting state (in case it changed during calculation)
+      if (hasSecretPassword) {
+        setPopupState('none');
+      } else {
+        setPopupState(newState);
+      }
     } finally {
       isCalculatingRef.current = false;
       setIsCalculating(false);
     }
-  }, [calculatePopupState]);
+  }, [calculatePopupState, hasSecretPassword]);
   
   // Initialize popup state on first page load (after auth loads)
   // This only runs once when auth is ready
   useEffect(() => {
-    if (isAuthLoading || !numericUserId || hasInitializedRef.current) {
+    if (isAuthLoading || !numericUserId || hasInitializedRef.current || !passwordCheckComplete) {
       return;
     }
     
@@ -236,7 +243,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     // Recalculate on first load only
     hasInitializedRef.current = true;
     recalculateState();
-  }, [isAuthLoading, numericUserId, hasSecretPassword, recalculateState]);
+  }, [isAuthLoading, numericUserId, hasSecretPassword, passwordCheckComplete, recalculateState]);
   
   // Handle password check completing after initialization
   // This ensures that if the password check completes after initialization,
