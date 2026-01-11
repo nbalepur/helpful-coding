@@ -45,6 +45,7 @@ function BrowseInner() {
   
   // Check for secret password bypass using hash comparison
   const [hasSecretPassword, setHasSecretPassword] = useState(false);
+  const [passwordCheckComplete, setPasswordCheckComplete] = useState(false);
   
   useEffect(() => {
     const checkPassword = async () => {
@@ -55,6 +56,7 @@ function BrowseInner() {
       } else {
         setHasSecretPassword(false);
       }
+      setPasswordCheckComplete(true);
     };
     checkPassword();
   }, [searchParams]);
@@ -452,8 +454,8 @@ function BrowseInner() {
     router.push(`/vibe?task=${taskId}`);
   };
 
-  // Show loading state while checking authentication
-  if (isLoading) {
+  // Show loading state while checking authentication or password
+  if (isLoading || (!isAuthenticated && !passwordCheckComplete)) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
@@ -464,8 +466,9 @@ function BrowseInner() {
     );
   }
 
-  // Don't render anything if not authenticated - will redirect via useRouteProtection
-  if (!isAuthenticated) {
+  // Don't render anything if not authenticated and no valid password
+  // Allow rendering if hasSecretPassword is true (password bypass)
+  if (!isAuthenticated && !hasSecretPassword) {
     return null;
   }
 

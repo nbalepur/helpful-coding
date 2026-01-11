@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server'
 import { ENV } from './app/config/env'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname, searchParams } = request.nextUrl
   
   // Skip middleware for static files (images, fonts, etc.)
   const staticFileExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.mp4', '.webm', '.woff', '.woff2', '.ttf', '.eot']
@@ -20,8 +20,17 @@ export async function middleware(request: NextRequest) {
   // We only check for the presence of auth cookies; API routes still validate tokens.
   const isAuthenticated = Boolean(userId && authToken);
   
+  // Check if password parameter is present (allows bypass for /browse page)
+  const hasPasswordParam = searchParams.has('password');
+  
   // If not authenticated and trying to access protected routes
+  // Exception: allow /browse if password parameter is present (client-side will validate)
   if (!isAuthenticated && pathname !== '/landing') {
+    // Allow access to /browse with password parameter
+    if (pathname === '/browse' && hasPasswordParam) {
+      return NextResponse.next()
+    }
+    
     const redirectResponse = NextResponse.redirect(new URL('/landing', request.url))
     redirectResponse.cookies.delete(`${prefix}user_id`)
     redirectResponse.cookies.delete(`${prefix}auth_token`)
