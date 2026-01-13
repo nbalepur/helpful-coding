@@ -19,6 +19,8 @@ analysis/.ipynb_checkpoints
 # testing
 /coverage
 
+*.csv
+
 # next.js
 /.next/
 /out/

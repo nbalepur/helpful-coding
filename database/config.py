@@ -31,13 +31,32 @@ is_supabase = "supabase" in DATABASE_URL.lower() or "supabase" in ASYNC_DATABASE
 # These settings prevent exceeding the connection limit
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))  # Number of connections to keep in pool
 MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))  # Additional connections beyond pool_size
-POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # Recycle connections after 1 hour (in seconds)
+# Supabase closes idle SSL connections after ~5-30 minutes, so recycle more frequently
+POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "900"))  # Recycle connections after 15 minutes (in seconds)
 POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"  # Test connections before using
+POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "15"))  # Seconds to wait for a connection before timing out
+
+# TCP keepalive settings to keep SSL sessions healthy
+KEEPALIVES_ENABLED = os.getenv("DB_KEEPALIVES", "true").lower() == "true"
+KEEPALIVES_IDLE = int(os.getenv("DB_KEEPALIVES_IDLE", "30"))
+KEEPALIVES_INTERVAL = int(os.getenv("DB_KEEPALIVES_INTERVAL", "15"))
+KEEPALIVES_COUNT = int(os.getenv("DB_KEEPALIVES_COUNT", "5"))
 
 # Configure engine with SSL for Supabase connections
 # Supabase requires SSL and doesn't support GSSAPI
 if is_supabase:
     # For psycopg2 (synchronous): add SSL parameters via connect_args
+    connect_args = {
+        "sslmode": "require",
+        "gssencmode": "disable",  # Disable GSSAPI encryption
+    }
+    if KEEPALIVES_ENABLED:
+        connect_args.update({
+            "keepalives": 1,
+            "keepalives_idle": KEEPALIVES_IDLE,
+            "keepalives_interval": KEEPALIVES_INTERVAL,
+            "keepalives_count": KEEPALIVES_COUNT,
+        })
     engine = create_engine(
         DATABASE_URL,
         echo=False,  # Disable SQL query logging
@@ -45,16 +64,22 @@ if is_supabase:
         max_overflow=MAX_OVERFLOW,
         pool_recycle=POOL_RECYCLE,
         pool_pre_ping=POOL_PRE_PING,
-        connect_args={
-            "sslmode": "require",
-            "gssencmode": "disable",  # Disable GSSAPI encryption
-        }
+        pool_timeout=POOL_TIMEOUT,
+        connect_args=connect_args,
     )
     # For asyncpg (asynchronous): SSL is handled via the connection string
-    # Add ?sslmode=require if not already present
+    # Add ?sslmode=require (and keepalives) if not already present
     if "?sslmode=" not in ASYNC_DATABASE_URL and "?ssl=" not in ASYNC_DATABASE_URL:
         separator = "&" if "?" in ASYNC_DATABASE_URL else "?"
         ASYNC_DATABASE_URL = f"{ASYNC_DATABASE_URL}{separator}sslmode=require"
+    if KEEPALIVES_ENABLED and "keepalives=" not in ASYNC_DATABASE_URL:
+        separator = "&" if "?" in ASYNC_DATABASE_URL else "?"
+        keepalive_query = (
+            f"keepalives=1&keepalives_idle={KEEPALIVES_IDLE}"
+            f"&keepalives_interval={KEEPALIVES_INTERVAL}"
+            f"&keepalives_count={KEEPALIVES_COUNT}"
+        )
+        ASYNC_DATABASE_URL = f"{ASYNC_DATABASE_URL}{separator}{keepalive_query}"
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
         echo=False,  # Disable SQL query logging
@@ -62,6 +87,7 @@ if is_supabase:
         max_overflow=MAX_OVERFLOW,
         pool_recycle=POOL_RECYCLE,
         pool_pre_ping=POOL_PRE_PING,
+        pool_timeout=POOL_TIMEOUT,
     )
 else:
     # Standard PostgreSQL connection (local or non-SSL)
@@ -75,6 +101,7 @@ else:
         max_overflow=local_max_overflow,
         pool_recycle=POOL_RECYCLE,
         pool_pre_ping=POOL_PRE_PING,
+        pool_timeout=POOL_TIMEOUT,
     )
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
@@ -83,6 +110,7 @@ else:
         max_overflow=local_max_overflow,
         pool_recycle=POOL_RECYCLE,
         pool_pre_ping=POOL_PRE_PING,
+        pool_timeout=POOL_TIMEOUT,
     )
 
 # Create session makers
