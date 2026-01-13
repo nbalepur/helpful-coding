@@ -14,6 +14,7 @@ import { useSnackbar } from './SnackbarProvider';
 import LoadingSpinner from './LoadingSpinner';
 import Link from 'next/link';
 import { useUserStudyPopup } from './UserStudyPopup';
+import { POST_TEST_REQUIRED_TASKS } from '../config/tasks';
 
 const flattenFileTree = (nodes: any[] = []): any[] => {
   const result: any[] = [];
@@ -1820,8 +1821,16 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     setProjectTitle(trimmedTitle);
     setProjectDescription(trimmedDescription);
 
-    // Instead of submitting immediately, show the comprehension check panel
-    setShowComprehensionCheck(true);
+    // Check if this task requires comprehension questions
+    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+    
+    if (requiresComprehensionQuestions) {
+      // Show the comprehension check panel for POST_TEST_REQUIRED_TASKS
+      setShowComprehensionCheck(true);
+    } else {
+      // For other tasks, submit directly without comprehension questions
+      await submitProject();
+    }
   };
 
   // Fetch comprehension questions when the panel is shown
@@ -1891,35 +1900,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     return text.trim().split(/\s+/).filter(word => word.length > 0).length;
   };
 
-  const handleComprehensionCheckSubmit = async () => {
-    // Validate that all questions are answered (multi-select can be empty)
-    const unansweredQuestions = comprehensionQuestions.filter(q => {
-      if (q.question_type === 'multi_select') {
-        // Multi-select questions are always valid, even if nothing is selected
-        return false;
-      }
-      return !comprehensionAnswers[q.id]?.trim();
-    });
-    if (unansweredQuestions.length > 0) {
-      setSubmissionError('Please answer all comprehension questions before submitting.');
-      return;
-    }
-
-    // Validate minimum word count for free response questions
-    const minWords = 10;
-    const invalidFreeResponseQuestions = comprehensionQuestions.filter(q => {
-      if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
-        const answer = comprehensionAnswers[q.id] || '';
-        const wordCount = countWords(answer);
-        return wordCount < minWords;
-      }
-      return false;
-    });
-    if (invalidFreeResponseQuestions.length > 0) {
-      setSubmissionError(`Free response answers must be at least ${minWords} words long.`);
-      return;
-    }
-
+  // Helper function to submit the project (used both with and without comprehension questions)
+  const submitProject = async (comprehensionAnswersData?: Record<string, any>) => {
     const codeSnapshot = collectSubmissionFiles();
     if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
       setSubmissionError('We could not capture your project files. Please ensure the editor has loaded and try again.');
@@ -1943,21 +1925,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           description: projectDescription.trim(),
           code: codeSnapshot,
           image: previewScreenshot,
-          comprehensionAnswers: Object.fromEntries(
-            comprehensionQuestions.map(q => {
-              const answer = comprehensionAnswers[q.id] || '';
-              // For multi_select questions, convert to binary array [1, 0, 1, 0]
-              if (q.question_type === 'multi_select' && q.choices) {
-                // Use ||| as delimiter to match what we use for storage
-                const delimiter = '|||';
-                const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
-                const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
-                return [q.question_name || q.id, binaryArray];
-              }
-              // For other question types, keep as string
-              return [q.question_name || q.id, answer];
-            })
-          ),
+          comprehensionAnswers: comprehensionAnswersData || {},
         }),
       });
 
@@ -2006,7 +1974,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         }
       }
       
-      // Call onProjectSubmitted callback if provided (e.g., for other callbacks) (run in background)
+      // Call the callback if provided
       if (onProjectSubmitted) {
         try {
           await onProjectSubmitted();
@@ -2015,11 +1983,61 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         }
       }
     } catch (error) {
-      console.error('Project submission failed:', error);
-      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again');
+      console.error('Error submitting project:', error);
+      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again.');
     } finally {
       setIsSubmittingProject(false);
     }
+  };
+
+  const handleComprehensionCheckSubmit = async () => {
+    // Validate that all questions are answered (multi-select can be empty)
+    const unansweredQuestions = comprehensionQuestions.filter(q => {
+      if (q.question_type === 'multi_select') {
+        // Multi-select questions are always valid, even if nothing is selected
+        return false;
+      }
+      return !comprehensionAnswers[q.id]?.trim();
+    });
+    if (unansweredQuestions.length > 0) {
+      setSubmissionError('Please answer all comprehension questions before submitting.');
+      return;
+    }
+
+    // Validate minimum word count for free response questions
+    const minWords = 10;
+    const invalidFreeResponseQuestions = comprehensionQuestions.filter(q => {
+      if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+        const answer = comprehensionAnswers[q.id] || '';
+        const wordCount = countWords(answer);
+        return wordCount < minWords;
+      }
+      return false;
+    });
+    if (invalidFreeResponseQuestions.length > 0) {
+      setSubmissionError(`Free response answers must be at least ${minWords} words long.`);
+      return;
+    }
+
+    // Prepare comprehension answers
+    const comprehensionAnswersData = Object.fromEntries(
+      comprehensionQuestions.map(q => {
+        const answer = comprehensionAnswers[q.id] || '';
+        // For multi_select questions, convert to binary array [1, 0, 1, 0]
+        if (q.question_type === 'multi_select' && q.choices) {
+          // Use ||| as delimiter to match what we use for storage
+          const delimiter = '|||';
+          const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
+          const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
+          return [q.question_name || q.id, binaryArray];
+        }
+        // For other question types, keep as string
+        return [q.question_name || q.id, answer];
+      })
+    );
+
+    // Submit with comprehension answers
+    await submitProject(comprehensionAnswersData);
   };
 
   const showAssistantSide = assistantPlacement === 'side' && showAIAssistantForBottom;
@@ -2776,30 +2794,49 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitDisabled}
+                  disabled={isSubmitDisabled || isSubmittingProject}
                   style={{
                     padding: '6px 16px',
-                    backgroundColor: '#2563eb',
+                    ...(taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) ? {
+                      background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                      backgroundSize: '400% 400%',
+                      backgroundPosition: '0% 50%',
+                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)',
+                    } : {
+                      backgroundColor: '#2563eb',
+                    }),
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
-                    cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
+                    cursor: (isSubmitDisabled || isSubmittingProject) ? 'not-allowed' : 'pointer',
                     fontSize: '13px',
                     fontWeight: 500,
-                    opacity: isSubmitDisabled ? 0.6 : 1,
-                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                    opacity: (isSubmitDisabled || isSubmittingProject) ? 0.6 : 1,
+                    transition: taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) 
+                      ? 'opacity 0.2s ease, transform 0.2s ease' 
+                      : 'background-color 0.2s ease, opacity 0.2s ease'
                   }}
                   onMouseEnter={(e) => {
-                    if (isSubmitDisabled) {
+                    if (isSubmitDisabled || isSubmittingProject) {
                       return;
                     }
-                    e.currentTarget.style.backgroundColor = '#1d4ed8';
+                    if (taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any)) {
+                      e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                    } else {
+                      e.currentTarget.style.backgroundColor = '#1d4ed8';
+                    }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#2563eb';
+                    if (taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any)) {
+                      e.currentTarget.style.animation = '';
+                    } else {
+                      e.currentTarget.style.backgroundColor = '#2563eb';
+                    }
                   }}
                 >
-                  Continue
+                  {taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) 
+                    ? (isSubmittingProject ? 'Submitting…' : 'Submit Project')
+                    : 'Continue'}
                 </button>
               </div>
             </form>
