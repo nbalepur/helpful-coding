@@ -49,6 +49,7 @@ import { useSnackbar } from "../components/SnackbarProvider";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { formatDateOnly } from "../utils/dateFormat";
 import { PASSWORD_HASH, hashString } from "../utils/password";
+import { ERROR_TRY_AGAIN } from "../utils/constants";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
 
@@ -268,6 +269,8 @@ function HomeInner() {
   
   // Agent changes state
   const [pendingAgentChanges, setPendingAgentChanges] = useState<any>(null);
+  // Track which files were modified in the most recent interaction
+  const filesModifiedInCurrentInteractionRef = useRef<Set<string>>(new Set());
   
   // Undo/Redo state for AI assistant - linear history
   interface CodeSnapshot {
@@ -840,64 +843,58 @@ function HomeInner() {
     return null;
   }, []);
 
-  // Auto-switch to first file with changes when summary is generated
+  // Auto-switch to file with changes by AI agent when summary is generated
   useEffect(() => {
     if (!summaryGenerated || !pendingAgentChanges || !actualEditorRef.current) return;
     
     const editorApi = actualEditorRef.current;
     if (!editorApi.selectFileByName || !editorApi.revealLocation || !editorApi.getActiveFileId) return;
     
-    // Get files with changes
-    const filesWithChanges = pendingAgentChanges.modified 
-      ? Object.keys(pendingAgentChanges.modified).filter(fileId => {
-          const original = pendingAgentChanges.original?.[fileId] || '';
-          const modified = pendingAgentChanges.modified[fileId] || '';
-          return original !== modified;
-        })
-      : [];
+    // Only consider files that were modified in the most recent interaction
+    const filesModifiedInCurrentInteraction = Array.from(filesModifiedInCurrentInteractionRef.current);
+    
+    // Filter to only files with actual changes
+    const filesWithChanges = filesModifiedInCurrentInteraction.filter(fileId => {
+      const original = pendingAgentChanges.original?.[fileId] || '';
+      const modified = pendingAgentChanges.modified?.[fileId] || '';
+      return original !== modified;
+    });
     
     if (filesWithChanges.length === 0) return;
     
     // Get current active file ID
     const activeFileId = editorApi.getActiveFileId();
     
-    // Check if current active file has changes
-    const currentFileHasChanges = activeFileId && filesWithChanges.includes(activeFileId);
+    // Determine which file to view: if current file is not in changed files, switch to a changed file
+    let targetFileId: string | null = null;
+    let targetFile: typeof currentFiles[0] | null = null;
+    let didSwitch = false;
     
-    // If current file doesn't have changes, switch to first file with changes
-    if (!currentFileHasChanges) {
-      const firstFileId = filesWithChanges[0];
-      const firstFile = currentFiles.find(f => f.id === firstFileId);
-      
-      if (firstFile) {
-        // Switch to the file
-        editorApi.selectFileByName(firstFile.name);
-        
-        // Find first difference and scroll to it
-        const original = pendingAgentChanges.original?.[firstFileId] || '';
-        const modified = pendingAgentChanges.modified[firstFileId] || '';
-        const firstDiffLine = findFirstDifferenceLine(original, modified);
-        
-        if (firstDiffLine !== null) {
-          setTimeout(() => {
-            editorApi.revealLocation(firstFile.name, firstDiffLine, 1, { scrollOnly: true });
-          }, 200);
-        }
+    if (!activeFileId || !filesWithChanges.includes(activeFileId)) {
+      // Current file is not in the changed files from the most recent interaction, switch to a changed file (use most recent)
+      targetFileId = filesWithChanges[filesWithChanges.length - 1];
+      targetFile = currentFiles.find(f => f.id === targetFileId);
+      if (targetFile) {
+        editorApi.selectFileByName(targetFile.name);
+        didSwitch = true;
       }
     } else {
-      // Current file has changes, scroll to first difference
-      const original = pendingAgentChanges.original?.[activeFileId] || '';
-      const modified = pendingAgentChanges.modified[activeFileId] || '';
-      const firstDiffLine = findFirstDifferenceLine(original, modified);
-      
-      if (firstDiffLine !== null) {
-        const currentFile = currentFiles.find(f => f.id === activeFileId);
-        if (currentFile) {
-          setTimeout(() => {
-            editorApi.revealLocation(currentFile.name, firstDiffLine, 1, { scrollOnly: true });
-          }, 200);
-        }
-      }
+      // Current file is in the changed files from the most recent interaction, stay on it
+      targetFileId = activeFileId;
+      targetFile = currentFiles.find(f => f.id === targetFileId);
+    }
+    
+    if (!targetFile || !targetFileId) return;
+    
+    // Scroll to first difference in the target file
+    const original = pendingAgentChanges.original?.[targetFileId] || '';
+    const modified = pendingAgentChanges.modified[targetFileId] || '';
+    const firstDiffLine = findFirstDifferenceLine(original, modified);
+    
+    if (firstDiffLine !== null) {
+      setTimeout(() => {
+        editorApi.revealLocation(targetFile.name, firstDiffLine, 1, { scrollOnly: true });
+      }, didSwitch ? 300 : 100); // Longer delay if we switched files
     }
   }, [summaryGenerated, pendingAgentChanges, currentFiles, findFirstDifferenceLine]);
 
@@ -1578,6 +1575,9 @@ function HomeInner() {
       js: fileNamesByType['js'] || 'script.js',
     };
 
+    // Reset tracking for files modified in this interaction
+    filesModifiedInCurrentInteractionRef.current = new Set();
+    
     const toolMessageIds = new Map<string, string>();
     const completedToolMessages = new Set<string>(); // Track which tool messages have been completed
     let finalPayload: any = null;
@@ -1749,6 +1749,8 @@ function HomeInner() {
                 if (fileId) {
                   // Track this modified file for snapshot saving
                   modifiedFilesDuringStream[fileId] = updatedContent;
+                  // Track that this file was modified in the current interaction
+                  filesModifiedInCurrentInteractionRef.current.add(fileId);
                   
                   const originalContent = (allContents && typeof allContents[fileId] === 'string')
                     ? allContents[fileId]
@@ -1881,7 +1883,7 @@ function HomeInner() {
           }
           case 'error': {
             const messageText = data.message || 'Unknown error';
-            appendMessage({ type: 'assistant', message: `Error: ${messageText} Please try again` });
+            appendMessage({ type: 'assistant', message: `Error: ${messageText} ${ERROR_TRY_AGAIN}` });
             break;
           }
           case 'complete': {
@@ -1935,7 +1937,7 @@ function HomeInner() {
           }, 0);
         } catch {}
       } else {
-        appendMessage({ type: 'assistant', message: `Error: ${(error as Error).message} Please try again` });
+        appendMessage({ type: 'assistant', message: `Error: ${(error as Error).message} ${ERROR_TRY_AGAIN}` });
       }
     } finally {
       setAwaitingResponse(false);
@@ -1966,6 +1968,9 @@ function HomeInner() {
         const fileId = fileIdsByType[type];
         const modifiedContent = finalPayload.final_files[type];
         if (fileId && typeof modifiedContent === 'string') {
+          // Track that this file was modified in the current interaction
+          filesModifiedInCurrentInteractionRef.current.add(fileId);
+          
           const originalContent =
             (allContents && typeof allContents[fileId] === 'string')
               ? allContents[fileId]
@@ -2656,18 +2661,6 @@ function HomeInner() {
       const handleWidth = 4;
       const leftWidth = (estimatedContainerWidth - handleWidth) * (1/3);
       setLeftColumnWidth(leftWidth);
-    }
-    
-    // Set playground completion in user settings when navigating to playground
-    if (taskId === 'playground' && numericUserId) {
-      setPlaygroundCompletedInSettings(numericUserId, user?.settings, token || undefined)
-        .then(() => {
-          // Refresh user data to get updated settings
-          refreshUser();
-        })
-        .catch((error) => {
-          console.error('Failed to update playground completion:', error);
-        });
     }
     
     // Batch critical state updates to prevent glitching using React transitions
@@ -3745,6 +3738,20 @@ function HomeInner() {
                         }}
                       >
                         Submit Project
+                      </button>
+                    </div>
+                    )}
+                    {rightTab === 'code' && isPlaygroundMode && selectedTask === 'playground' && (
+                    <div className="flex items-center space-x-2 ml-auto">
+                      <button
+                          className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                        onClick={() => {
+                          try {
+                            window.dispatchEvent(new Event('open-submit-modal'));
+                          } catch {}
+                        }}
+                      >
+                        Submit Tutorial
                       </button>
                     </div>
                     )}

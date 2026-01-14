@@ -5,6 +5,8 @@ import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { getCookie, setCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
+import { useIframeTheme } from "../utils/IframeThemeContext";
+import { Sun, Moon } from "lucide-react";
 
 export type PopupState = 'none' | 'pre-test' | 'post-test' | 'tutorial';
 
@@ -38,6 +40,7 @@ function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
   const { popupState, setPopupState, recalculateState, onTutorialClose } = useUserStudyPopup();
+  const { isLightMode, toggleLightMode } = useIframeTheme();
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
@@ -154,13 +157,21 @@ function UserStudyPopupInner() {
 
   // Memoize Markdown components to prevent iframe recreation on re-render
   // Must be before any conditional returns to follow Rules of Hooks
-  const markdownComponents = useMemo(() => ({
+  const markdownComponents = useMemo(() => {
+    const h1Color = isLightMode ? '#111827' : '#ffffff';
+    const h2Color = isLightMode ? '#2563eb' : '#60a5fa';
+    const h3Color = isLightMode ? '#3b82f6' : '#93c5fd';
+    const textColor = isLightMode ? '#1f2937' : '#e5e7eb';
+    const strongColor = isLightMode ? '#111827' : '#ffffff';
+    const linkColor = isLightMode ? '#1e40af' : '#9ca3af';
+    
+    return {
     h1: ({ children }: any) => (
       <h1
         style={{
           fontSize: '24px',
           fontWeight: 'bold',
-          color: '#ffffff',
+          color: h1Color,
           marginBottom: '16px',
           marginTop: 0,
         }}
@@ -173,7 +184,7 @@ function UserStudyPopupInner() {
         style={{
           fontSize: '20px',
           fontWeight: 'semibold',
-          color: '#60a5fa',
+          color: h2Color,
           marginBottom: '12px',
           marginTop: '24px',
         }}
@@ -186,7 +197,7 @@ function UserStudyPopupInner() {
         style={{
           fontSize: '18px',
           fontWeight: 'semibold',
-          color: '#93c5fd',
+          color: h3Color,
           marginBottom: '8px',
           marginTop: '16px',
         }}
@@ -199,7 +210,7 @@ function UserStudyPopupInner() {
         style={{
           fontSize: '17px',
           fontWeight: 'bold',
-          color: '#ffffff',
+          color: h1Color,
           marginBottom: '8px',
           marginTop: '16px',
         }}
@@ -225,7 +236,7 @@ function UserStudyPopupInner() {
           <div
             style={{
               marginBottom: '12px',
-              color: '#e5e7eb',
+              color: textColor,
             }}
           >
             {children}
@@ -237,7 +248,7 @@ function UserStudyPopupInner() {
         <p
           style={{
             marginBottom: '12px',
-            color: '#e5e7eb',
+            color: textColor,
           }}
         >
           {children}
@@ -270,7 +281,7 @@ function UserStudyPopupInner() {
       <li
         style={{
           marginBottom: '4px',
-          color: '#e5e7eb',
+          color: textColor,
         }}
       >
         {children}
@@ -280,7 +291,7 @@ function UserStudyPopupInner() {
       <strong
         style={{
           fontWeight: 'bold',
-          color: '#ffffff',
+          color: strongColor,
         }}
       >
         {children}
@@ -289,7 +300,7 @@ function UserStudyPopupInner() {
     a: ({ href, children }: any) => (
       <span
         style={{
-          color: '#9ca3af',
+          color: linkColor,
           textDecoration: 'none',
           cursor: 'default',
         }}
@@ -442,7 +453,8 @@ function UserStudyPopupInner() {
         </div>
       );
     },
-  }), [initYoutubePlayer, windowOrigin]);
+    };
+  }, [initYoutubePlayer, windowOrigin, isLightMode]);
 
   // Helper function to set tutorial cookie
   const setTutorialCookie = (state: TutorialCookieState) => {
@@ -727,6 +739,27 @@ function UserStudyPopupInner() {
             >
               Instructions
             </h2>
+            <button
+              onClick={toggleLightMode}
+              className="rounded transition-all"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '4px',
+                border: '1px solid rgba(107, 114, 128, 0.3)',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                background: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.9)',
+                color: isLightMode ? '#1f2937' : '#d1d5db',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              title={isLightMode ? "Switch to dark mode" : "Switch to light mode"}
+            >
+              {isLightMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
           </div>
 
           {/* Scrollable Content */}
@@ -757,10 +790,10 @@ function UserStudyPopupInner() {
               <div
                 ref={contentRef}
                 style={{
-                  backgroundColor: '#111827',
+                  backgroundColor: isLightMode ? '#ffffff' : '#111827',
                   padding: '24px',
                   borderRadius: '8px',
-                  color: '#e5e7eb',
+                  color: isLightMode ? '#1f2937' : '#e5e7eb',
                   lineHeight: '1.6',
                 }}
               >

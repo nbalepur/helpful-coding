@@ -259,7 +259,7 @@ export default function Sidebar({
                   const commonClasses = `w-full flex items-center ${isOpen ? 'space-x-3 px-3' : 'justify-center px-1'} h-10 py-0 rounded-lg transition-colors cursor-pointer ${
                     activeTab === item.id
                       ? 'bg-gray-800 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-900/20'
                   }`;
 
                   return (
@@ -300,34 +300,6 @@ export default function Sidebar({
 
           {/* Bottom Section */}
           <div className={`border-t border-gray-800 ${isOpen ? 'p-2' : 'p-1'}`}>
-            {/* Theme Selector */}
-            {/* <div className="mb-4">
-              <div className={`border-t border-gray-800 mb-4 ${isOpen ? 'mx-[-8px]' : 'mx-[-4px]'}`}></div>
-              <h3 className={`text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-2 transition-all duration-300 ${
-                isOpen ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'
-              }`}>
-                Theme
-              </h3>
-              <div className={`flex ${isOpen ? 'space-x-1' : 'flex-col space-y-1'}`}>
-                {themeOptions.map((option) => (
-                  <Tooltip key={option.id} text={option.label} always={isOpen} placement={isOpen ? 'bottom' : 'right'}>
-                    <button
-                      onClick={() => onThemeChange(option.id as 'native' | 'light' | 'dark')}
-                      className={`${isOpen ? 'p-2' : 'w-full flex justify-center p-2'} rounded-lg transition-colors ${
-                        theme === option.id
-                          ? 'bg-gray-900 text-white'
-                          : 'text-gray-400 hover:text-white hover:bg-gray-900/50'
-                      }`}
-                      aria-pressed={theme === option.id}
-                    >
-                      <option.icon size={16} />
-                    </button>
-                  </Tooltip>
-                ))}
-              </div>
-            </div> */}
-
-
             {/* User Profile / Logout */}
             <div>
               <div className="pt-4 mb-2">

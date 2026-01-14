@@ -4,6 +4,7 @@ import './globals.css'
 import { AuthProvider } from './utils/auth'
 import { SnackbarProvider } from './components/SnackbarProvider'
 import UserStudyPopupProvider from './components/UserStudyPopupProvider'
+import { IframeThemeProvider } from './utils/IframeThemeContext'
 import AppLayout from './components/AppLayout'
 import { Suspense } from 'react'
 
@@ -24,13 +25,15 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <SnackbarProvider>
-            <Suspense fallback={null}>
-              <UserStudyPopupProvider>
-                <AppLayout>
-                  {children}
-                </AppLayout>
-              </UserStudyPopupProvider>
-            </Suspense>
+            <IframeThemeProvider>
+              <Suspense fallback={null}>
+                <UserStudyPopupProvider>
+                  <AppLayout>
+                    {children}
+                  </AppLayout>
+                </UserStudyPopupProvider>
+              </Suspense>
+            </IframeThemeProvider>
           </SnackbarProvider>
         </AuthProvider>
       </body>

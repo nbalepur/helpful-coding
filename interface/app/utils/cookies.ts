@@ -245,6 +245,7 @@ export interface UserSettings {
   debugConsolePlacement: 'side' | 'bottom';
   leftPaneWidthPercent: number; // Percentage width of left pane (0-100)
   sidebarOpen: boolean; // true = sidebar is open, false = sidebar is closed
+  iframeLightMode: boolean; // true = light mode for iframes (white bg, black text), false = dark mode
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -254,6 +255,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   debugConsolePlacement: 'bottom',
   leftPaneWidthPercent: 33.33, // Default to 1/3 of container width
   sidebarOpen: false, // Default to closed
+  iframeLightMode: false, // Default to dark mode
 };
 
 /**
@@ -314,29 +316,3 @@ export function clearUserSettingsCookie(): void {
   removeCookie(SETTINGS_COOKIE);
 }
 
-/**
- * Playground completion cookie functions
- */
-export const PLAYGROUND_COMPLETED_COOKIE = `${ENV.COOKIE_PREFIX}playground_completed`;
-
-/**
- * Set playground completion cookie (expires in 1 year)
- */
-export function setPlaygroundCompletedCookie(): void {
-  const expires = new Date();
-  expires.setFullYear(expires.getFullYear() + 1); // 1 year from now
-  
-  setCookie(PLAYGROUND_COMPLETED_COOKIE, 'true', {
-    expires,
-    maxAge: 365 * 24 * 60 * 60, // 1 year in seconds
-    sameSite: 'lax'
-  });
-}
-
-/**
- * Check if playground is completed (cookie exists and is set to 'true')
- */
-export function isPlaygroundCompleted(): boolean {
-  const cookieValue = getCookie(PLAYGROUND_COMPLETED_COOKIE);
-  return cookieValue === 'true';
-}

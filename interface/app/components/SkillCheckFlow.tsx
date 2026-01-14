@@ -635,7 +635,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       }
     } catch (error) {
       console.error('Failed to submit report:', error);
-      alert('Failed to submit report. Please try again.');
+      alert('Failed to submit report. Please try again! If the problem persists, please contact <a href="mailto:nbalepur@umd.edu">us</a>!');
     } finally {
       setIsSubmittingReport(false);
     }

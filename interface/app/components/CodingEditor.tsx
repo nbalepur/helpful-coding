@@ -15,6 +15,9 @@ import LoadingSpinner from './LoadingSpinner';
 import Link from 'next/link';
 import { useUserStudyPopup } from './UserStudyPopup';
 import { POST_TEST_REQUIRED_TASKS } from '../config/tasks';
+import { ERROR_TRY_AGAIN } from '../utils/constants';
+import { useAuth } from '../utils/auth';
+import { setPlaygroundCompletedInSettings } from '../utils/userSettings';
 
 const flattenFileTree = (nodes: any[] = []): any[] => {
   const result: any[] = [];
@@ -295,6 +298,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 }: CodingEditorProps) => {
   const { showSnackbar } = useSnackbar();
   const { recalculateState } = useUserStudyPopup();
+  const { user, token, refreshUser } = useAuth();
   const [output, setOutput] = useState(
     "Output will be shown here when Run is pressed."
   );
@@ -1142,7 +1146,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               ${code}
               resultDiv.innerHTML = '<div class="success">✓ Code executed successfully!</div>';
             } catch (error) {
-              resultDiv.innerHTML = '<div class="error">❌ Error: ' + error.message + ' Please try again</div>';
+              resultDiv.innerHTML = '<div class="error">❌ Error: ' + error.message + ' ' + ERROR_TRY_AGAIN + '</div>';
             }
           `
         };
@@ -1429,7 +1433,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         localStorage.setItem("objectToPass", JSON.stringify(myData));
       }
     } else {
-      alertMessage = "Code is incorrect. Please try again.";
+      alertMessage = "Code is incorrect. " + ERROR_TRY_AGAIN;
       trackSubmitCode(setTelemetry, taskIndex, log, false, editor);
       alert(alertMessage);
     }
@@ -1610,7 +1614,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         console.error('Failed to capture preview screenshot', error);
         if (!cancelled) {
           setPreviewScreenshot(null);
-          setScreenshotError('Unable to capture preview. Please try again.');
+          setScreenshotError('Unable to capture preview. ' + ERROR_TRY_AGAIN);
         }
       } finally {
         if (!cancelled) {
@@ -1803,14 +1807,21 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       hasError = true;
     }
 
-    if (!userId || Number.isNaN(userId)) {
-      setSubmissionError('Missing user information. Please sign in again and retry.');
-      hasError = true;
-    }
+    // Check if this task requires comprehension questions
+    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For tutorial tasks, skip projectId and userId checks since we're not storing anything
+    if (!isTutorialTask) {
+      if (!userId || Number.isNaN(userId)) {
+        setSubmissionError('Missing user information. Please sign in again and retry.');
+        hasError = true;
+      }
 
-    if (!projectId || Number.isNaN(projectId)) {
-      setSubmissionError('Unable to determine project for this submission. Please reopen the task and try again.');
-      hasError = true;
+      if (!projectId || Number.isNaN(projectId)) {
+        setSubmissionError('Unable to determine project for this submission. Please reopen the task and try again.');
+        hasError = true;
+      }
     }
 
     if (hasError) {
@@ -1820,12 +1831,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     // Store the validated title and description
     setProjectTitle(trimmedTitle);
     setProjectDescription(trimmedDescription);
-
-    // Check if this task requires comprehension questions
-    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
     
-    if (requiresComprehensionQuestions) {
-      // Show the comprehension check panel for POST_TEST_REQUIRED_TASKS
+    if (requiresComprehensionQuestions || isTutorialTask) {
+      // Show the comprehension check panel for POST_TEST_REQUIRED_TASKS or tutorial
       setShowComprehensionCheck(true);
     } else {
       // For other tasks, submit directly without comprehension questions
@@ -1835,7 +1843,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
   // Fetch comprehension questions when the panel is shown
   useEffect(() => {
-    if (!showComprehensionCheck || !userId || !projectId) {
+    if (!showComprehensionCheck) {
+      return;
+    }
+
+    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For tutorial tasks, skip userId/projectId checks since we're using seeded questions
+    if (!isTutorialTask && (!userId || !projectId)) {
       return;
     }
 
@@ -1844,6 +1859,31 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       setComprehensionQuestionsError(null);
       
       try {
+        // For tutorial task, use seeded questions instead of generating them
+        if (isTutorialTask) {
+          // Fun, lighthearted mock questions for tutorial (not stored in database)
+          const seededQuestions = [
+            {
+              id: 'tutorial-1',
+              question_name: 'tutorial_question_1',
+              question: 'How much do you agree with this statement: "Coding with AI feels like having a superpower!"',
+              question_type: 'mcqa',
+              choices: ["1 - Strongly disagree", "2 - Disagree", "3 - Neither agree nor disagree", "4 - Agree", "5 - Strongly agree"],
+            },
+            {
+              id: 'tutorial-2',
+              question_name: 'tutorial_question_2',
+              question: 'Which of these foods do you like to eat?',
+              question_type: 'multi_select',
+              choices: ['Dim Sum', 'Shakshuka', 'Birria Tacos', 'Dubai Chocolate'],
+            },
+          ];
+          
+          setComprehensionQuestions(seededQuestions);
+          setIsLoadingComprehensionQuestions(false);
+          return;
+        }
+
         const codeSnapshot = collectSubmissionFiles();
         if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
           throw new Error('No code files found');
@@ -1893,7 +1933,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     };
 
     fetchComprehensionQuestions();
-  }, [showComprehensionCheck, userId, projectId, projectTitle, projectDescription]);
+  }, [showComprehensionCheck, userId, projectId, projectTitle, projectDescription, taskName]);
 
   // Helper function to count words in a string
   const countWords = (text: string): number => {
@@ -1902,6 +1942,60 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
   // Helper function to submit the project (used both with and without comprehension questions)
   const submitProject = async (comprehensionAnswersData?: Record<string, any>) => {
+    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For tutorial, skip database submission - just show success message
+    if (isTutorialTask) {
+      setIsSubmittingProject(true);
+      setSubmissionError(null);
+      
+      // Simulate a brief delay for UX
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Close both modals
+      setShowComprehensionCheck(false);
+      setShowSubmitModal(false);
+      
+      // Update user settings in database to mark playground as completed
+      if (userId) {
+        try {
+          await setPlaygroundCompletedInSettings(
+            userId,
+            user?.settings,
+            token || undefined
+          );
+          // Refresh user object to get updated settings
+          await refreshUser();
+        } catch (error) {
+          console.error('Failed to update playground completion in database:', error);
+          // Don't block the user flow if this fails
+        }
+      }
+      
+      handleProjectSubmit();
+      // Reset consent state after successful submission
+      setHasConsentedToOverride(false);
+      setExistingSubmission(null);
+      // Reset comprehension answers
+      setComprehensionAnswers({});
+      
+      // Show success snackbar immediately after submission
+      showSnackbar(
+        <>
+          Thanks for completing the tutorial! Navigate to the{' '}
+          <Link href="/vibe" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+            tasks page
+          </Link>{' '}
+          to start working on real projects
+        </>,
+        12000 // 12 seconds
+      );
+      
+      setIsSubmittingProject(false);
+      return;
+    }
+    
+    // Regular submission flow for non-tutorial tasks
     const codeSnapshot = collectSubmissionFiles();
     if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
       setSubmissionError('We could not capture your project files. Please ensure the editor has loaded and try again.');
@@ -1984,13 +2078,31 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       }
     } catch (error) {
       console.error('Error submitting project:', error);
-      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. Please try again.');
+      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit project. ' + ERROR_TRY_AGAIN);
     } finally {
       setIsSubmittingProject(false);
     }
   };
 
   const handleComprehensionCheckSubmit = async () => {
+    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For tutorial, just validate that questions are answered (no word count requirement)
+    if (isTutorialTask) {
+      const unansweredQuestions = comprehensionQuestions.filter(q => {
+        return !comprehensionAnswers[q.id]?.trim();
+      });
+      if (unansweredQuestions.length > 0) {
+        setSubmissionError('Please answer all questions before submitting.');
+        return;
+      }
+      
+      // Submit without storing answers (comprehensionAnswersData will be empty/ignored)
+      await submitProject({});
+      return;
+    }
+    
+    // Regular validation for non-tutorial tasks
     // Validate that all questions are answered (multi-select can be empty)
     const unansweredQuestions = comprehensionQuestions.filter(q => {
       if (q.question_type === 'multi_select') {
@@ -2258,7 +2370,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   paddingLeft: showComprehensionCheck ? '10px' : '0px',
                 }}
               >
-                {showComprehensionCheck ? 'Project-Specific Questions' : 'Submit Project'}
+                {showComprehensionCheck 
+                  ? 'Project-Specific Questions' 
+                  : (taskName === 'Playground' || taskName === 'playground' ? 'Submit Tutorial' : 'Submit Project')}
               </h2>
               <button
                 type="button"
@@ -2290,6 +2404,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 ✕
               </button>
             </div>
+
+            {/* Helper text for tutorial */}
+            {!showComprehensionCheck && (taskName === 'Playground' || taskName === 'playground') && (
+              <p
+                style={{
+                  color: '#9ca3af',
+                  fontSize: '13px',
+                  marginTop: '-8px',
+                  marginBottom: '16px',
+                }}
+              >
+                Normally, you will need to add a title and description for your project. But this does not matter for the tutorial.
+              </p>
+            )}
 
             {!showComprehensionCheck ? (
               <form
@@ -2834,9 +2962,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     }
                   }}
                 >
-                  {taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) 
-                    ? (isSubmittingProject ? 'Submitting…' : 'Submit Project')
-                    : 'Continue'}
+                  {(() => {
+                    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+                    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+                    
+                    if (isSubmittingProject) {
+                      return 'Submitting…';
+                    }
+                    
+                    if (isTutorialTask || requiresComprehensionQuestions) {
+                      return 'Continue';
+                    }
+                    
+                    return 'Submit Project';
+                  })()}
                 </button>
               </div>
             </form>
@@ -2854,7 +2993,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 }}
               >
                 <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
-                  Please answer the following questions about your project before you submit! If questions do not generate after 60 seconds, please refresh the page and try again.
+                  {taskName === 'Playground' || taskName === 'playground' 
+                    ? 'Please answer the following questions before you submit! Normally, these will be questions tailored to the task you just completed.'
+                    : 'Please answer the following questions about your project before you submit! If questions do not generate after 60 seconds, please refresh the page and try again.'}
                 </p>
                 
                 {isLoadingComprehensionQuestions && (

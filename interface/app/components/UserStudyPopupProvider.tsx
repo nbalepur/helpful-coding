@@ -11,6 +11,9 @@ import { PASSWORD_HASH, hashString } from "../utils/password";
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
 
+// Set to true to disable the user study popup
+const DISABLE_USER_STUDY_POPUP = false;
+
 interface UserStudyPopupProviderProps {
   children: ReactNode;
 }
@@ -52,6 +55,11 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
   
   // Calculate the appropriate popup state based on user progress
   const calculatePopupState = useCallback(async (): Promise<PopupState> => {
+    // If disabled via flag, bypass all popup logic
+    if (DISABLE_USER_STUDY_POPUP) {
+      return 'none';
+    }
+    
     // If secret password is present, bypass all popup logic
     if (hasSecretPassword) {
       return 'none';
@@ -233,6 +241,13 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       return;
     }
     
+    // Disable flag bypass
+    if (DISABLE_USER_STUDY_POPUP) {
+      setPopupState('none');
+      hasInitializedRef.current = true;
+      return;
+    }
+    
     // Secret password bypass
     if (hasSecretPassword) {
       setPopupState('none');
@@ -249,7 +264,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
   // This ensures that if the password check completes after initialization,
   // we still bypass the popup immediately
   useEffect(() => {
-    if (hasSecretPassword) {
+    if (DISABLE_USER_STUDY_POPUP || hasSecretPassword) {
       setPopupState('none');
     }
   }, [hasSecretPassword]);
