@@ -5,10 +5,11 @@ import IRBIframe from "../components/IRBIframe";
 import { irbConsentContent } from '../data/irbContent';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download } from 'lucide-react';
+import { Download, Sun, Moon } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
+import { useIframeTheme } from '../utils/IframeThemeContext';
 
 export default function AboutPage() {
   const [markdownContent, setMarkdownContent] = useState<string>('');
@@ -17,6 +18,7 @@ export default function AboutPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
+  const { isLightMode, toggleLightMode } = useIframeTheme();
 
   useEffect(() => {
     // Fetch the markdown file from the public folder
@@ -193,8 +195,31 @@ export default function AboutPage() {
       </p>
       <div className="flex flex-col gap-8 w-full">
         {/* User Study Instructions */}
-        <div id="instructions" className="bg-gray-800 rounded-lg border border-gray-700 p-8 scroll-mt-8">
-          <h2 className="text-2xl font-semibold text-white mb-4">Instructions</h2>
+        <div id="instructions" className="bg-gray-800 rounded-lg border border-gray-700 p-8 scroll-mt-8 relative">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-semibold text-white">Instructions</h2>
+            <button
+              onClick={toggleLightMode}
+              className="rounded transition-all"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '4px',
+                border: '1px solid rgba(107, 114, 128, 0.3)',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                background: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.9)',
+                color: isLightMode ? '#1f2937' : '#d1d5db',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              title={isLightMode ? "Switch to dark mode" : "Switch to light mode"}
+            >
+              {isLightMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+          </div>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <LoadingSpinner size="md" color="blue" />
@@ -207,25 +232,98 @@ export default function AboutPage() {
             </div>
           ) : (
             <div className="w-full" style={{ height: '600px' }}>
+              <style>{`
+                .instructions-scrollable::-webkit-scrollbar { width: 4px; }
+                .instructions-scrollable::-webkit-scrollbar-track { background: transparent; }
+                .instructions-scrollable::-webkit-scrollbar-thumb { background: ${isLightMode ? 'rgba(107, 114, 128, 0.4)' : 'rgba(107, 114, 128, 0.5)'}; border-radius: 2px; }
+                .instructions-scrollable::-webkit-scrollbar-thumb:hover { background: ${isLightMode ? 'rgba(107, 114, 128, 0.6)' : 'rgba(107, 114, 128, 0.7)'}; }
+                .instructions-scrollable { scrollbar-width: thin; scrollbar-color: ${isLightMode ? 'rgba(107, 114, 128, 0.4)' : 'rgba(107, 114, 128, 0.5)'} transparent; }
+              `}</style>
               <div 
                 ref={markdownRef}
-                className="text-gray-300 leading-relaxed h-full overflow-y-auto" 
-                style={{ backgroundColor: '#111827', padding: '24px', borderRadius: '8px' }}
+                className="leading-relaxed h-full overflow-y-auto instructions-scrollable" 
+                style={{ 
+                  backgroundColor: isLightMode ? '#ffffff' : '#111827', 
+                  color: isLightMode ? '#1f2937' : '#d1d5db',
+                  padding: '24px', 
+                  borderRadius: '8px' 
+                }}
               >
                 <Markdown
                 rehypePlugins={[rehypeRaw]}
                 components={{
-                  h1: ({ children }) => <h1 className="text-2xl font-bold text-white mb-4 mt-0">{children}</h1>,
-                  h2: ({ children }) => <h2 className="text-xl font-semibold text-blue-400 mb-3 mt-6">{children}</h2>,
-                  h3: ({ children }) => <h3 className="text-lg font-semibold text-blue-300 mb-2 mt-4">{children}</h3>,
-                  h4: ({ children }) => <h4 className="text-base font-semibold text-white mb-2 mt-4">{children}</h4>,
-                  p: ({ children }) => <p className="text-gray-300 mb-3">{children}</p>,
+                  h1: ({ children }) => (
+                    <h1 
+                      className="text-2xl font-bold mb-4 mt-0"
+                      style={{ color: isLightMode ? '#111827' : '#ffffff' }}
+                    >
+                      {children}
+                    </h1>
+                  ),
+                  h2: ({ children }) => (
+                    <h2 
+                      className="text-xl font-semibold mb-3 mt-6"
+                      style={{ color: isLightMode ? '#2563eb' : '#60a5fa' }}
+                    >
+                      {children}
+                    </h2>
+                  ),
+                  h3: ({ children }) => (
+                    <h3 
+                      className="text-lg font-semibold mb-2 mt-4"
+                      style={{ color: isLightMode ? '#3b82f6' : '#93c5fd' }}
+                    >
+                      {children}
+                    </h3>
+                  ),
+                  h4: ({ children }) => (
+                    <h4 
+                      className="text-base font-semibold mb-2 mt-4"
+                      style={{ color: isLightMode ? '#111827' : '#ffffff' }}
+                    >
+                      {children}
+                    </h4>
+                  ),
+                  p: ({ children }) => (
+                    <p 
+                      className="mb-3"
+                      style={{ color: isLightMode ? '#1f2937' : '#d1d5db' }}
+                    >
+                      {children}
+                    </p>
+                  ),
                   ul: ({ children }) => <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>,
-                  li: ({ children }) => <li className="text-gray-300 mb-1">{children}</li>,
-                  strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                  li: ({ children }) => (
+                    <li 
+                      className="mb-1"
+                      style={{ color: isLightMode ? '#1f2937' : '#d1d5db' }}
+                    >
+                      {children}
+                    </li>
+                  ),
+                  strong: ({ children }) => (
+                    <strong 
+                      className="font-semibold"
+                      style={{ color: isLightMode ? '#111827' : '#ffffff' }}
+                    >
+                      {children}
+                    </strong>
+                  ),
                   a: ({ href, children }) => (
-                    <a href={href} className="text-blue-400 hover:text-blue-300 underline">
+                    <a 
+                      href={href} 
+                      className="underline"
+                      style={{ 
+                        color: isLightMode ? '#1e40af' : '#60a5fa',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = isLightMode ? '#2563eb' : '#93c5fd';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = isLightMode ? '#1e40af' : '#60a5fa';
+                      }}
+                    >
                       {children}
                     </a>
                   ),
@@ -259,8 +357,8 @@ export default function AboutPage() {
                               width: '90%',
                               maxWidth: '800px',
                               paddingBottom: '56.25%', // 16:9 aspect ratio (9/16 = 0.5625)
-                              backgroundColor: '#1f2937',
-                              border: '1px solid #4b5563',
+                              backgroundColor: isLightMode ? '#f3f4f6' : '#1f2937',
+                              border: isLightMode ? '1px solid #d1d5db' : '1px solid #4b5563',
                               borderRadius: '4px',
                               overflow: 'hidden',
                               position: 'relative'
@@ -292,8 +390,8 @@ export default function AboutPage() {
                               width: '90%',
                               maxWidth: '800px',
                               paddingBottom: '56.25%', // 16:9 aspect ratio (9/16 = 0.5625)
-                              backgroundColor: '#1f2937',
-                              border: '1px solid #4b5563',
+                              backgroundColor: isLightMode ? '#f3f4f6' : '#1f2937',
+                              border: isLightMode ? '1px solid #d1d5db' : '1px solid #4b5563',
                               borderRadius: '4px',
                               overflow: 'hidden',
                               position: 'relative'
@@ -380,19 +478,66 @@ export default function AboutPage() {
 
         {/* IRB Consent Form in iframe */}
         <div id="irb-consent" className="bg-gray-800 rounded-lg border border-gray-700 p-8 relative scroll-mt-8">
-          {/* Download Button - Top Right Corner */}
-          <button
-            onClick={handleDownloadPDF}
-            disabled={isDownloading}
-            className="absolute top-4 right-4 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Download as PDF"
-          >
-            {isDownloading ? (
-              <LoadingSpinner size="sm" color="blue" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-          </button>
+          {/* Action Buttons - Top Right Corner */}
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button
+              onClick={toggleLightMode}
+              className="rounded transition-all"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '4px',
+                border: '1px solid rgba(107, 114, 128, 0.3)',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                background: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.9)',
+                color: isLightMode ? '#1f2937' : '#d1d5db',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              title={isLightMode ? "Switch to dark mode" : "Switch to light mode"}
+            >
+              {isLightMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isDownloading}
+              className="rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '4px',
+                border: '1px solid rgba(107, 114, 128, 0.3)',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                background: '#2563eb',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (!isDownloading) {
+                  e.currentTarget.style.background = '#1d4ed8';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isDownloading) {
+                  e.currentTarget.style.background = '#2563eb';
+                }
+              }}
+              title="Download as PDF"
+            >
+              {isDownloading ? (
+                <LoadingSpinner size="sm" color="blue" />
+              ) : (
+                <Download size={16} />
+              )}
+            </button>
+          </div>
           <h2 className="text-2xl font-semibold text-white mb-4">Research Consent Form (IRB)</h2>
           <div className="w-full" style={{ height: '600px' }}>
             <IRBIframe className="w-full h-full" />
