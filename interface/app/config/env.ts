@@ -7,8 +7,27 @@ export const ENV = {
   // Backend API URL
   // In production, use relative URL to proxy through Next.js API routes
   // In development, use direct connection to backend
-  BACKEND_URL: ((): string => {
-    // If NEXT_PUBLIC_BACKEND_URL is explicitly set, use it (highest priority)
+  get BACKEND_URL(): string {
+    // Check if we're in browser and not on localhost (runtime check)
+    // This takes precedence over build-time env vars for production hosts
+    const isProductionHost = typeof window !== 'undefined' && 
+                             window.location.hostname !== 'localhost' && 
+                             window.location.hostname !== '127.0.0.1';
+    
+    // Check if we should use proxy mode
+    const useProxy = process.env.NEXT_PUBLIC_USE_PROXY === 'true' || 
+                     process.env.NODE_ENV === 'production';
+    
+    // Use proxy if explicitly enabled, or in production build, or on production host
+    if (useProxy || isProductionHost) {
+      // Use relative URL to proxy through Next.js
+      // Code uses ${BACKEND_URL}/login or ${BACKEND_URL}/api/...
+      // So: /api/backend-proxy + /login = /api/backend-proxy/login (proxy forwards to /login)
+      // And: /api/backend-proxy + /api/execute-endpoint = /api/backend-proxy/api/execute-endpoint (proxy forwards to /api/execute-endpoint)
+      return '/api/backend-proxy';
+    }
+    
+    // If NEXT_PUBLIC_BACKEND_URL is explicitly set, use it (for development/localhost)
     if (process.env.NEXT_PUBLIC_BACKEND_URL) {
       const raw = process.env.NEXT_PUBLIC_BACKEND_URL;
       try {
@@ -21,24 +40,6 @@ export const ENV = {
       }
     }
     
-    // Check if we should use proxy mode
-    const useProxy = process.env.NEXT_PUBLIC_USE_PROXY === 'true' || 
-                     process.env.NODE_ENV === 'production';
-    
-    // Check if we're in browser and not on localhost (runtime check)
-    const isProductionHost = typeof window !== 'undefined' && 
-                             window.location.hostname !== 'localhost' && 
-                             window.location.hostname !== '127.0.0.1';
-    
-    // Use proxy if explicitly enabled, or in production build, or on production host
-    if (useProxy || isProductionHost) {
-      // Use relative URL to proxy through Next.js
-      // Code uses ${BACKEND_URL}/login or ${BACKEND_URL}/api/...
-      // So: /api/backend-proxy + /login = /api/backend-proxy/login (proxy forwards to /login)
-      // And: /api/backend-proxy + /api/execute-endpoint = /api/backend-proxy/api/execute-endpoint (proxy forwards to /api/execute-endpoint)
-      return '/api/backend-proxy';
-    }
-    
     // In development, use direct connection
     const raw = 'http://127.0.0.1:4828';
     try {
@@ -48,7 +49,7 @@ export const ENV = {
     } catch {
       return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
     }
-  })(),
+  },
   
   // Backend WebSocket URL
   // Note: WebSockets cannot be proxied through Next.js API routes
