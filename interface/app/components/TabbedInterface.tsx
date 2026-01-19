@@ -25,8 +25,6 @@ const TabbedInterface: React.FC<TabbedInterfaceProps> = ({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('code');
 
-  console.log('TabbedInterface rendered with taskName:', taskName);
-
   const tabs = [
     { id: 'code' as TabType, label: 'Code' },
     { id: 'preview' as TabType, label: 'Preview' },

@@ -6,6 +6,7 @@ import MultiFileEditor from './MultiFileEditor';
 import { MessageData } from './Message';
 import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_logic';
 import { BsExclamationTriangle, BsInfoCircle } from 'react-icons/bs';
+import { Check, X, Download } from 'lucide-react';
 import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
 import html2canvas from 'html2canvas';
@@ -18,6 +19,7 @@ import { POST_TEST_REQUIRED_TASKS } from '../config/tasks';
 import { ERROR_TRY_AGAIN } from '../utils/constants';
 import { useAuth } from '../utils/auth';
 import { setPlaygroundCompletedInSettings } from '../utils/userSettings';
+import { downloadProjectAsRepository } from '../utils/downloadProject';
 
 const flattenFileTree = (nodes: any[] = []): any[] => {
   const result: any[] = [];
@@ -229,6 +231,8 @@ interface CodingEditorProps {
   onProjectSubmitted?: () => void | Promise<void>;
   // Loading state for files
   isLoadingFiles?: boolean;
+  // Callback to expose project title and description to parent
+  onProjectInfoChange?: (title: string, description: string) => void;
 }
 
 const CodingEditor: React.FC<CodingEditorProps> = ({
@@ -295,6 +299,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   sidebarOpen = false,
   onProjectSubmitted,
   isLoadingFiles = false,
+  onProjectInfoChange,
 }: CodingEditorProps) => {
   const { showSnackbar } = useSnackbar();
   const { recalculateState } = useUserStudyPopup();
@@ -431,7 +436,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [allTestsPassed, setAllTestsPassed] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const PROJECT_TITLE_LIMIT = 80;
-  const PROJECT_DESCRIPTION_LIMIT = 300;
+  const PROJECT_DESCRIPTION_LIMIT = 500;
   const [projectTitle, setProjectTitle] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
   const [projectTitleError, setProjectTitleError] = useState<string | null>(null);
@@ -451,9 +456,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     question: string;
     question_type: string;
     choices?: string[];
+    answer?: string | number | number[];
   }>>([]);
   const [isLoadingComprehensionQuestions, setIsLoadingComprehensionQuestions] = useState(false);
   const [comprehensionQuestionsError, setComprehensionQuestionsError] = useState<string | null>(null);
+  const [answersChecked, setAnswersChecked] = useState(false);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const [tooltipText, setTooltipText] = useState("");
   const [tooltipLeft, setTooltipLeft] = useState(0);
@@ -1237,6 +1244,79 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     return files;
   }, [enableMultiFile, initialFiles, actualEditorRef, code]);
 
+  // Helper to normalize code files to html/css/js format for download
+  const normalizeCodeForDownload = useCallback((files: Record<string, string>) => {
+    const directHtml = files.html ?? files.HTML ?? '';
+    const directCss = files.css ?? files.CSS ?? '';
+    const directJs = files.js ?? files.JS ?? '';
+
+    const entries = Object.entries(files);
+    const htmlFiles = entries.filter(([name]) => /\.html?$/i.test(name));
+    const cssFiles = entries.filter(([name]) => /\.s?css$/i.test(name));
+    const jsFiles = entries.filter(([name]) => /\.(tsx|jsx|ts|js|mjs|cjs)$/i.test(name));
+
+    const html = directHtml || (htmlFiles.length ? String(htmlFiles[0][1]) : '');
+    const css = directCss || (cssFiles.length ? cssFiles.map(([, value]) => String(value)).join('\n\n') : '');
+    const js = directJs || (jsFiles.length ? jsFiles.map(([, value]) => String(value)).join('\n\n') : '');
+
+    return { html, css, js };
+  }, []);
+
+  const handleDownloadProject = useCallback(async () => {
+    try {
+      const files = collectSubmissionFiles();
+      const normalized = normalizeCodeForDownload(files);
+      
+      const projectName = taskName || 'VibeJam Project';
+      const customTitle = projectTitle.trim() || undefined;
+      const customDescription = projectDescription.trim() || undefined;
+
+      await downloadProjectAsRepository(
+        normalized,
+        projectName,
+        taskName,
+        undefined, // taskDescription - not available in CodingEditor
+        customTitle,
+        customDescription
+      );
+
+      // Log download event if userId and projectId are available
+      if (userId && projectId) {
+        try {
+          await fetch(`${ENV.BACKEND_URL}/api/code-logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId,
+              projectId,
+              taskId: task_id || undefined,
+              mode: 'download',
+              event: 'download',
+              code: normalized,
+              metadata: {
+                event: 'download',
+                taskId: task_id || null,
+                projectId,
+                taskName: taskName || null,
+                triggeredAt: new Date().toISOString(),
+                codeLengths: Object.fromEntries(
+                  Object.entries(normalized).map(([key, value]) => [key, value?.length || 0])
+                ),
+              },
+            }),
+          });
+        } catch (error) {
+          console.warn('Failed to log download event', error);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to download project:', error);
+      showSnackbar('Failed to download project', 'error');
+    }
+  }, [collectSubmissionFiles, normalizeCodeForDownload, taskName, projectTitle, projectDescription, showSnackbar, userId, projectId, task_id]);
+
 
   useEffect(() => {
     if (taskIndex != -1) {
@@ -1548,6 +1628,13 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
   }, [generatePreviewContent]);
 
+  // Notify parent when project title/description changes
+  useEffect(() => {
+    if (onProjectInfoChange) {
+      onProjectInfoChange(projectTitle, projectDescription);
+    }
+  }, [projectTitle, projectDescription, onProjectInfoChange]);
+
   useEffect(() => {
     if (!showSubmitModal) {
       setProjectTitle('');
@@ -1565,6 +1652,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       setComprehensionAnswers({});
       setComprehensionQuestions([]);
       setComprehensionQuestionsError(null);
+      setAnswersChecked(false);
       return;
     }
 
@@ -1807,8 +1895,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       hasError = true;
     }
 
-    // Check if this task requires comprehension questions
-    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+    // Always show comprehension questions for all tasks
     const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
     
     // For tutorial tasks, skip projectId and userId checks since we're not storing anything
@@ -1832,13 +1919,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     setProjectTitle(trimmedTitle);
     setProjectDescription(trimmedDescription);
     
-    if (requiresComprehensionQuestions || isTutorialTask) {
-      // Show the comprehension check panel for POST_TEST_REQUIRED_TASKS or tutorial
-      setShowComprehensionCheck(true);
-    } else {
-      // For other tasks, submit directly without comprehension questions
-      await submitProject();
-    }
+    // Always show the comprehension check panel for all tasks
+    setShowComprehensionCheck(true);
   };
 
   // Fetch comprehension questions when the panel is shown
@@ -1866,7 +1948,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
             {
               id: 'tutorial-1',
               question_name: 'tutorial_question_1',
-              question: 'How much do you agree with this statement: "Coding with AI feels like having a superpower!"',
+              question: 'How much do you agree with this statement: "Coding with AI tools like Cursor and Copilot makes you a better programmer"',
               question_type: 'mcqa',
               choices: ["1 - Strongly disagree", "2 - Disagree", "3 - Neither agree nor disagree", "4 - Agree", "5 - Strongly agree"],
             },
@@ -1875,7 +1957,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               question_name: 'tutorial_question_2',
               question: 'Which of these foods do you like to eat?',
               question_type: 'multi_select',
-              choices: ['Dim Sum', 'Shakshuka', 'Birria Tacos', 'Dubai Chocolate'],
+              choices: ['Dim Sum', 'Shakshuka', 'Birria Tacos', 'Dubai Chocolate', 'Pizza', 'Hummus'],
             },
           ];
           
@@ -1911,13 +1993,17 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         const data = await response.json();
         if (data.success && data.questions) {
           // Map the API response to the format expected by the UI
-          const mappedQuestions = data.questions.map((q: any, index: number) => ({
-            id: q.id?.toString() || `comp-${index}`,
-            question_name: q.question_name || '',
-            question: q.question || '',
-            question_type: q.question_type || 'free_response',
-            choices: q.choices || undefined,
-          }));
+          const mappedQuestions = data.questions.map((q: any, index: number) => {
+            const mapped = {
+              id: q.id?.toString() || `comp-${index}`,
+              question_name: q.question_name || '',
+              question: q.question || '',
+              question_type: q.question_type || 'free_response',
+              choices: q.choices || undefined,
+              answer: q.answer,
+            };
+            return mapped;
+          });
           setComprehensionQuestions(mappedQuestions);
         } else {
           throw new Error('Invalid response format');
@@ -2084,17 +2170,91 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
   };
 
+  const isRequiredTask = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+  
+  const handleCheckAnswers = () => {
+    setAnswersChecked(true);
+    setSubmissionError(null);
+  };
+
   const handleComprehensionCheckSubmit = async () => {
     const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For non-required tasks, require answers to be checked first
+    if (!isRequiredTask && !isTutorialTask && !answersChecked) {
+      setSubmissionError('Please check your answers before submitting.');
+      return;
+    }
     
     // For tutorial, just validate that questions are answered (no word count requirement)
     if (isTutorialTask) {
       const unansweredQuestions = comprehensionQuestions.filter(q => {
+        // Multi-select questions are always valid, even if nothing is selected
+        if (q.question_type === 'multi_select') {
+          return false;
+        }
         return !comprehensionAnswers[q.id]?.trim();
       });
       if (unansweredQuestions.length > 0) {
         setSubmissionError('Please answer all questions before submitting.');
         return;
+      }
+      
+      // Save tutorial questions and answers
+      if (userId) {
+        try {
+          // Prepare comprehension answers
+          const comprehensionAnswersData = Object.fromEntries(
+            comprehensionQuestions.map(q => {
+              const answer = comprehensionAnswers[q.id] || '';
+              // For multi_select questions, convert to binary array [1, 0, 1, 0]
+              if (q.question_type === 'multi_select' && q.choices) {
+                // Use ||| as delimiter to match what we use for storage
+                const delimiter = '|||';
+                const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
+                const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
+                return [q.question_name || q.id, binaryArray];
+              }
+              // For other question types, keep as string
+              return [q.question_name || q.id, answer];
+            })
+          );
+          
+          const requestBody = {
+            user_id: userId,
+            questions: comprehensionQuestions.map(q => ({
+              id: q.id,
+              question_name: q.question_name || q.id,
+              question: q.question,
+              question_type: q.question_type,
+              choices: q.choices,
+              answer: q.answer,
+            })),
+            answers: comprehensionAnswersData,
+          };
+          
+          console.log('Saving tutorial questions:', requestBody);
+          
+          const response = await fetch(`${ENV.BACKEND_URL}/api/comprehension-questions/save-tutorial`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Failed to save tutorial questions:', response.status, errorData);
+            // Don't block submission if saving questions fails
+          } else {
+            const responseData = await response.json().catch(() => ({}));
+            console.log('Successfully saved tutorial questions:', responseData);
+          }
+        } catch (error) {
+          console.error('Error saving tutorial questions:', error);
+          // Don't block submission if saving questions fails
+        }
       }
       
       // Submit without storing answers (comprehensionAnswersData will be empty/ignored)
@@ -2573,7 +2733,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         const spaceBelow = vh - rect.bottom;
                         const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
                         const top = placeAbove ? rect.top : rect.bottom;
-                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. We sugget using a screenshot of your site, but you can use any appropriate image that is relevant to your project.");
+                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. We suggest using a screenshot of your site, but you can use any appropriate image.");
                         setTooltipLeft(left);
                         setTooltipTop(top);
                         setTooltipPlaceAbove(placeAbove);
@@ -2894,11 +3054,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               >
                 <button
                   type="button"
-                  onClick={() => setShowSubmitModal(false)}
+                  onClick={handleDownloadProject}
                   disabled={isSubmittingProject}
                   style={{
                     padding: '6px 14px',
-                    backgroundColor: '#4b5563',
+                    backgroundColor: '#374151',
                     color: '#f9fafb',
                     border: '1px solid rgba(148, 163, 184, 0.2)',
                     borderRadius: '6px',
@@ -2906,33 +3066,30 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     fontSize: '13px',
                     fontWeight: 500,
                     opacity: isSubmittingProject ? 0.6 : 1,
-                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                    transition: 'background-color 0.2s ease, opacity 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                   }}
                   onMouseEnter={(e) => {
                     if (isSubmittingProject) {
                       return;
                     }
-                    e.currentTarget.style.backgroundColor = '#374151';
-                  }}
-                  onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#4b5563';
                   }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#374151';
+                  }}
                 >
-                  Cancel
+                  <Download className="w-4 h-4" />
+                  Download
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitDisabled || isSubmittingProject}
                   style={{
                     padding: '6px 16px',
-                    ...(taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) ? {
-                      background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
-                      backgroundSize: '400% 400%',
-                      backgroundPosition: '0% 50%',
-                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)',
-                    } : {
-                      backgroundColor: '#2563eb',
-                    }),
+                    backgroundColor: '#2563eb',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -2940,41 +3097,25 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     fontSize: '13px',
                     fontWeight: 500,
                     opacity: (isSubmitDisabled || isSubmittingProject) ? 0.6 : 1,
-                    transition: taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any) 
-                      ? 'opacity 0.2s ease, transform 0.2s ease' 
-                      : 'background-color 0.2s ease, opacity 0.2s ease'
+                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
                   }}
                   onMouseEnter={(e) => {
                     if (isSubmitDisabled || isSubmittingProject) {
                       return;
                     }
-                    if (taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any)) {
-                      e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
-                    } else {
-                      e.currentTarget.style.backgroundColor = '#1d4ed8';
-                    }
+                    e.currentTarget.style.backgroundColor = '#1d4ed8';
                   }}
                   onMouseLeave={(e) => {
-                    if (taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any)) {
-                      e.currentTarget.style.animation = '';
-                    } else {
-                      e.currentTarget.style.backgroundColor = '#2563eb';
-                    }
+                    e.currentTarget.style.backgroundColor = '#2563eb';
                   }}
                 >
                   {(() => {
-                    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-                    const requiresComprehensionQuestions = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
-                    
                     if (isSubmittingProject) {
                       return 'Submitting…';
                     }
                     
-                    if (isTutorialTask || requiresComprehensionQuestions) {
-                      return 'Continue';
-                    }
-                    
-                    return 'Submit Project';
+                    // Always show "Continue" since comprehension questions always show now
+                    return 'Continue';
                   })()}
                 </button>
               </div>
@@ -3017,10 +3158,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   </p>
                 )}
                 
-                {!isLoadingComprehensionQuestions && comprehensionQuestions.map((q, index) => {
-                  const currentAnswer = comprehensionAnswers[q.id] || '';
-                  
-                  return (
+                {!isLoadingComprehensionQuestions && (
+                  <>
+                    {comprehensionQuestions.map((q, index) => {
+                      const currentAnswer = comprehensionAnswers[q.id] || '';
+                      // Check if this is a self-report question (should not reveal answers)
+                      const isSelfReportQuestion = q.question_name && q.question_name.startsWith('self_report_');
+                      // Check if this is a report question (should be disabled during check answer)
+                      const isReportQuestion = q.question_name && (q.question_name.toLowerCase().includes('report') || q.question_name.startsWith('report_'));
+                      // Only apply answer checking to non-self-report MCQA questions
+                      const shouldShowAnswers = answersChecked && !isSelfReportQuestion;
+                      // Disable report questions during check answer phase
+                      const shouldDisableQuestion = answersChecked && isReportQuestion;
+                      
+                      return (
                     <div 
                       key={q.id || index} 
                       style={{ 
@@ -3043,172 +3194,414 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       </div>
                       
                       {q.question_type === 'mcqa' && q.choices && q.choices.length > 0 ? (
-                        <div 
-                          style={{ 
-                            display: 'flex', 
-                            flexDirection: 'row',
-                            flexWrap: 'wrap',
-                            gap: '8px',
-                            marginTop: '0px'
-                          }}
-                        >
-                          {q.choices.map((choice, choiceIndex) => {
-                            const isSelected = currentAnswer === choice;
-                            const inputId = `comp-${q.id}-${choiceIndex}`;
-                            return (
-                              <label
-                                key={choiceIndex}
-                                htmlFor={inputId}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  cursor: 'pointer',
-                                  padding: '8px 12px',
-                                  borderRadius: '6px',
-                                  backgroundColor: isSelected ? '#1e3a8a' : '#1f2937',
-                                  border: isSelected ? '1px solid #3b82f6' : '1px solid #4b5563',
-                                  transition: 'background-color 0.2s, border-color 0.2s',
-                                  flex: '0 1 auto',
-                                  minWidth: 'fit-content'
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!isSelected) {
-                                    e.currentTarget.style.backgroundColor = '#374151';
-                                    e.currentTarget.style.borderColor = '#6b7280';
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!isSelected) {
-                                    e.currentTarget.style.backgroundColor = '#1f2937';
-                                    e.currentTarget.style.borderColor = '#4b5563';
-                                  }
-                                }}
-                              >
-                                <input
-                                  id={inputId}
-                                  type="radio"
-                                  name={`comp-${q.id}`}
-                                  value={choice}
-                                  checked={isSelected}
-                                  onChange={(e) => {
-                                    setComprehensionAnswers(prev => ({
-                                      ...prev,
-                                      [q.id]: e.target.value
-                                    }));
-                                    if (submissionError) {
-                                      setSubmissionError(null);
+                        <>
+                          <div 
+                            style={{ 
+                              display: 'flex', 
+                              flexDirection: 'row',
+                              flexWrap: 'wrap',
+                              gap: '8px',
+                              marginTop: '0px'
+                            }}
+                          >
+                            {q.choices.map((choice, choiceIndex) => {
+                              const isSelected = currentAnswer === choice;
+                              const inputId = `comp-${q.id}-${choiceIndex}`;
+                              // Determine if this is the correct answer (for showing after check)
+                              // Answer is 1-based index (1, 2, 3, 4, 5), convert to 0-based for comparison
+                              let correctAnswerIndex: number | null = null;
+                              if (q.answer !== null && q.answer !== undefined && q.answer !== '') {
+                                if (typeof q.answer === 'number') {
+                                  correctAnswerIndex = q.answer - 1; // Convert 1-based to 0-based
+                                } else if (typeof q.answer === 'string' && !isNaN(Number(q.answer)) && q.answer.trim() !== '') {
+                                  correctAnswerIndex = Number(q.answer) - 1;
+                                }
+                              }
+                              
+                              const isCorrect = shouldShowAnswers && correctAnswerIndex !== null && choiceIndex === correctAnswerIndex;
+                              const isDisabled = shouldShowAnswers || shouldDisableQuestion;
+                              // Show checkmark for correct answer, X for incorrect answer (regardless of user selection)
+                              // This makes it clearer: check = "this is the right answer", not "you picked this correctly"
+                              
+                              return (
+                                <label
+                                  key={choiceIndex}
+                                  htmlFor={inputId}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    backgroundColor: isSelected ? '#1e3a8a' : '#1f2937',
+                                    border: isSelected 
+                                      ? '1px solid #3b82f6' 
+                                      : '1px solid #4b5563',
+                                    transition: 'background-color 0.2s, border-color 0.2s',
+                                    flex: '0 1 auto',
+                                    minWidth: 'fit-content',
+                                    position: 'relative'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isDisabled && !isSelected) {
+                                      e.currentTarget.style.backgroundColor = '#374151';
+                                      e.currentTarget.style.borderColor = '#6b7280';
                                     }
                                   }}
-                                  style={{
-                                    cursor: 'pointer',
-                                    accentColor: '#3b82f6'
+                                  onMouseLeave={(e) => {
+                                    if (!isSelected) {
+                                      e.currentTarget.style.backgroundColor = '#1f2937';
+                                      e.currentTarget.style.borderColor = '#4b5563';
+                                    }
                                   }}
-                                />
-                                <span 
-                                  className="markdown-content" 
-                                  style={{ 
-                                    color: isSelected ? '#e5e7eb' : '#d1d5db', 
-                                    fontSize: '14px',
-                                    fontWeight: isSelected ? 500 : 'normal',
-                                    pointerEvents: 'none'
-                                  }}
-                                  dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
+                                >
+                                  <input
+                                    id={inputId}
+                                    type="radio"
+                                    name={`comp-${q.id}`}
+                                    value={choice}
+                                    checked={isSelected}
+                                    disabled={isDisabled}
+                                    onChange={(e) => {
+                                      if (!isDisabled) {
+                                        setComprehensionAnswers(prev => ({
+                                          ...prev,
+                                          [q.id]: e.target.value
+                                        }));
+                                        if (submissionError) {
+                                          setSubmissionError(null);
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                      accentColor: '#3b82f6'
+                                    }}
+                                  />
+                                  <span 
+                                    className="markdown-content" 
+                                    style={{ 
+                                      color: '#e5e7eb',
+                                      fontSize: '14px',
+                                      fontWeight: isSelected ? 500 : 'normal',
+                                      pointerEvents: 'none'
+                                    }}
+                                    dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
+                                  />
+                                  {/* Check/X icon right after text to show if this is the correct answer (not user accuracy) */}
+                                  {shouldShowAnswers && (
+                                    <span style={{ 
+                                      marginLeft: '8px',
+                                      display: 'flex',
+                                      alignItems: 'center'
+                                    }}>
+                                      {isCorrect ? (
+                                        <Check size={18} color="#10b981" />
+                                      ) : (
+                                        <X size={18} color="#ef4444" />
+                                      )}
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {/* Show summary of what user got wrong for non-self-report MCQA questions after checking */}
+                          {shouldShowAnswers && q.answer !== null && q.answer !== undefined && q.answer !== '' && (typeof q.answer === 'number' || (typeof q.answer === 'string' && q.answer.trim() !== '' && !isNaN(Number(q.answer)))) && (
+                            <div style={{
+                              marginTop: '8px',
+                              padding: '8px 12px',
+                              backgroundColor: 'transparent',
+                              border: '1px solid #3b82f6',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              color: '#e5e7eb'
+                            }}>
+                              {(() => {
+                                const correctAnswerIndex = typeof q.answer === 'number' ? q.answer - 1 : (typeof q.answer === 'string' && !isNaN(Number(q.answer))) ? Number(q.answer) - 1 : null;
+                                const correctAnswerText = correctAnswerIndex !== null && q.choices && correctAnswerIndex >= 0 && correctAnswerIndex < q.choices.length
+                                  ? q.choices[correctAnswerIndex]
+                                  : q.answer;
+                                const userSelectedText = currentAnswer || 'nothing';
+                                const isUserCorrect = currentAnswer === correctAnswerText;
+                                
+                                if (isUserCorrect) {
+                                  return (
+                                    <span>
+                                      <strong style={{ color: '#10b981' }}>✓ Correct! </strong>
+                                      You selected the right answer.
+                                    </span>
+                                  );
+                                } else {
+                                  return (
+                                    <span>
+                                      <strong style={{ color: '#ef4444' }}>✗ Incorrect. </strong>
+                                      You selected <strong>"{userSelectedText}"</strong>, but the correct answer is <strong style={{ color: '#60a5fa' }}>"{correctAnswerText}"</strong>.
+                                    </span>
+                                  );
+                                }
+                              })()}
+                            </div>
+                          )}
+                        </>
                       ) : q.question_type === 'multi_select' && q.choices && q.choices.length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {q.choices.map((choice, choiceIndex) => {
-                            // Use ||| as delimiter to avoid conflicts with commas in choice text
-                            const delimiter = '|||';
-                            const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
-                            const isChecked = selectedAnswers.includes(choice);
-                            const checkboxId = `comp-${q.id}-${choiceIndex}`;
-                            
-                            return (
-                              <label
-                                key={choiceIndex}
-                                htmlFor={checkboxId}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  cursor: 'pointer',
-                                  padding: '8px 12px',
-                                  borderRadius: '6px',
-                                  backgroundColor: '#1f2937',
-                                  border: '1px solid #4b5563',
-                                  transition: 'background-color 0.2s, border-color 0.2s'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor = '#374151';
-                                  e.currentTarget.style.borderColor = '#6b7280';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor = '#1f2937';
-                                  e.currentTarget.style.borderColor = '#4b5563';
-                                }}
-                              >
-                                <input
-                                  id={checkboxId}
-                                  type="checkbox"
-                                  value={choice}
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    // Use ||| as delimiter to avoid conflicts with commas in choice text
-                                    const delimiter = '|||';
-                                    const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
-                                    let newAnswers: string[];
-                                    
-                                    if (e.target.checked) {
-                                      newAnswers = [...selectedAnswers, choice];
-                                    } else {
-                                      newAnswers = selectedAnswers.filter(a => a !== choice);
+                        <>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {q.choices.map((choice, choiceIndex) => {
+                              // Use ||| as delimiter to avoid conflicts with commas in choice text
+                              const delimiter = '|||';
+                              const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
+                              const isChecked = selectedAnswers.includes(choice);
+                              const checkboxId = `comp-${q.id}-${choiceIndex}`;
+                              
+                              // Parse the correct answer (binary array like [1, 0, 1, 0])
+                              let correctAnswers: number[] = [];
+                              if (shouldShowAnswers && q.answer) {
+                                if (Array.isArray(q.answer)) {
+                                  correctAnswers = q.answer;
+                                } else if (typeof q.answer === 'string') {
+                                  try {
+                                    // Try parsing as JSON array
+                                    const parsed = JSON.parse(q.answer);
+                                    if (Array.isArray(parsed)) {
+                                      correctAnswers = parsed;
                                     }
-                                    
-                                    const newAnswerString = newAnswers.join(delimiter);
-                                    
-                                    setComprehensionAnswers(prev => ({
-                                      ...prev,
-                                      [q.id]: newAnswerString
-                                    }));
-                                    if (submissionError) {
-                                      setSubmissionError(null);
-                                    }
-                                  }}
+                                  } catch (e) {
+                                    // If not JSON, might be a comma-separated string
+                                    correctAnswers = q.answer.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+                                  }
+                                }
+                              }
+                              
+                              // Determine if this choice is correct (1 in the answer array)
+                              const isCorrect = shouldShowAnswers && correctAnswers.length > choiceIndex && correctAnswers[choiceIndex] === 1;
+                              // Determine if user selected this choice
+                              const userSelected = isChecked;
+                              // Determine if user selected incorrectly (selected when should not, or didn't select when should)
+                              const isIncorrect = shouldShowAnswers && (
+                                (userSelected && !isCorrect) || (!userSelected && isCorrect)
+                              );
+                              // Disable if answers are checked or if this is a report question during check answer
+                              const shouldDisableInput = shouldShowAnswers || shouldDisableQuestion;
+                              
+                              // Show checkmark for correct answer, X for incorrect answer (regardless of user selection)
+                              // This makes it clearer: check = "this is the right answer", not "you picked this correctly"
+                              
+                              return (
+                                <label
+                                  key={choiceIndex}
+                                  htmlFor={checkboxId}
                                   style={{
-                                    cursor: 'pointer',
-                                    accentColor: '#3b82f6'
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    cursor: shouldDisableInput ? 'not-allowed' : 'pointer',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#1f2937',
+                                    border: '1px solid #4b5563',
+                                    transition: shouldDisableInput ? 'none' : 'background-color 0.2s, border-color 0.2s',
+                                    position: 'relative',
+                                    width: '100%',
+                                    pointerEvents: shouldDisableInput ? 'none' : 'auto'
                                   }}
-                                />
-                                <span 
-                                className="markdown-content" 
-                                style={{ 
-                                  color: '#e5e7eb', 
-                                  fontSize: '14px',
-                                  pointerEvents: 'none'
-                                }}
-                                dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
-                              />
-                              </label>
-                            );
-                          })}
-                        </div>
+                                  onMouseEnter={(e) => {
+                                    if (!shouldDisableInput) {
+                                      e.currentTarget.style.backgroundColor = '#374151';
+                                      e.currentTarget.style.borderColor = '#6b7280';
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!shouldDisableInput) {
+                                      e.currentTarget.style.backgroundColor = '#1f2937';
+                                      e.currentTarget.style.borderColor = '#4b5563';
+                                    }
+                                  }}
+                                >
+                                  <input
+                                    id={checkboxId}
+                                    type="checkbox"
+                                    value={choice}
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (!shouldDisableInput) {
+                                        // Use ||| as delimiter to avoid conflicts with commas in choice text
+                                        const delimiter = '|||';
+                                        const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
+                                        let newAnswers: string[];
+                                        
+                                        if (e.target.checked) {
+                                          newAnswers = [...selectedAnswers, choice];
+                                        } else {
+                                          newAnswers = selectedAnswers.filter(a => a !== choice);
+                                        }
+                                        
+                                        const newAnswerString = newAnswers.join(delimiter);
+                                        
+                                        setComprehensionAnswers(prev => ({
+                                          ...prev,
+                                          [q.id]: newAnswerString
+                                        }));
+                                        if (submissionError) {
+                                          setSubmissionError(null);
+                                        }
+                                      }
+                                    }}
+                                    onClick={(e) => {
+                                      if (shouldDisableInput) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }
+                                    }}
+                                    style={{
+                                      cursor: shouldDisableInput ? 'not-allowed' : 'pointer',
+                                      accentColor: '#3b82f6',
+                                      pointerEvents: shouldDisableInput ? 'none' : 'auto'
+                                    }}
+                                  />
+                                  <span 
+                                    className="markdown-content" 
+                                    style={{ 
+                                      color: '#e5e7eb',
+                                      fontSize: '14px',
+                                      fontWeight: 'normal',
+                                      pointerEvents: 'none'
+                                    }}
+                                    dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
+                                  />
+                                  {/* Check/X icon right after text to show if this is the correct answer (not user accuracy) */}
+                                  {shouldShowAnswers && (
+                                    <span style={{ 
+                                      marginLeft: '8px',
+                                      display: 'flex',
+                                      alignItems: 'center'
+                                    }}>
+                                      {isCorrect ? (
+                                        <Check size={18} color="#10b981" />
+                                      ) : (
+                                        <X size={18} color="#ef4444" />
+                                      )}
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {/* Show summary of what user got wrong for multi_select questions after checking */}
+                          {shouldShowAnswers && q.answer && (
+                            <div style={{
+                              marginTop: '8px',
+                              padding: '8px 12px',
+                              backgroundColor: 'transparent',
+                              border: '1px solid #3b82f6',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              color: '#e5e7eb'
+                            }}>
+                              {(() => {
+                                // Parse correct answers
+                                let correctAnswers: number[] = [];
+                                if (Array.isArray(q.answer)) {
+                                  correctAnswers = q.answer;
+                                } else if (typeof q.answer === 'string') {
+                                  try {
+                                    const parsed = JSON.parse(q.answer);
+                                    if (Array.isArray(parsed)) {
+                                      correctAnswers = parsed;
+                                    }
+                                  } catch (e) {
+                                    correctAnswers = q.answer.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+                                  }
+                                }
+                                
+                                // Get user selections
+                                const delimiter = '|||';
+                                const userSelected = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
+                                
+                                // Categorize choices
+                                const correctlySelected: string[] = [];
+                                const missed: string[] = [];
+                                const incorrectlySelected: string[] = [];
+                                
+                                q.choices?.forEach((choice, idx) => {
+                                  const shouldBeSelected = correctAnswers.length > idx && correctAnswers[idx] === 1;
+                                  const wasSelected = userSelected.includes(choice);
+                                  
+                                  if (shouldBeSelected && wasSelected) {
+                                    correctlySelected.push(choice);
+                                  } else if (shouldBeSelected && !wasSelected) {
+                                    missed.push(choice);
+                                  } else if (!shouldBeSelected && wasSelected) {
+                                    incorrectlySelected.push(choice);
+                                  }
+                                });
+                                
+                                // Build summary message
+                                const parts: string[] = [];
+                                
+                                if (correctlySelected.length > 0) {
+                                  parts.push(
+                                    <span key="correct">
+                                      <strong style={{ color: '#10b981' }}>✓ Correctly selected: </strong>
+                                      {correctlySelected.join(', ')}
+                                    </span>
+                                  );
+                                }
+                                
+                                if (missed.length > 0) {
+                                  parts.push(
+                                    <span key="missed">
+                                      <strong style={{ color: '#f59e0b' }}>✗ Missed: </strong>
+                                      {missed.join(', ')}
+                                    </span>
+                                  );
+                                }
+                                
+                                if (incorrectlySelected.length > 0) {
+                                  parts.push(
+                                    <span key="incorrect">
+                                      <strong style={{ color: '#ef4444' }}>✗ Incorrectly selected: </strong>
+                                      {incorrectlySelected.join(', ')}
+                                    </span>
+                                  );
+                                }
+                                
+                                if (parts.length === 0) {
+                                  return (
+                                    <span>
+                                      <strong style={{ color: '#10b981' }}>✓ Perfect! </strong>
+                                      You selected all the correct answers.
+                                    </span>
+                                  );
+                                }
+                                
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {parts.map((part, idx) => (
+                                      <div key={idx}>{part}</div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           <textarea
                             id={`comp-${q.id}`}
                             value={currentAnswer}
+                            disabled={shouldDisableQuestion || shouldShowAnswers}
                             onChange={(e) => {
-                              setComprehensionAnswers(prev => ({
-                                ...prev,
-                                [q.id]: e.target.value
-                              }));
-                              if (submissionError) {
-                                setSubmissionError(null);
+                              if (!shouldDisableQuestion && !shouldShowAnswers) {
+                                setComprehensionAnswers(prev => ({
+                                  ...prev,
+                                  [q.id]: e.target.value
+                                }));
+                                if (submissionError) {
+                                  setSubmissionError(null);
+                                }
                               }
                             }}
                             placeholder="Your answer..."
@@ -3222,7 +3615,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                               color: '#e5e7eb',
                               fontSize: '14px',
                               resize: 'vertical',
-                              fontFamily: 'inherit'
+                              fontFamily: 'inherit',
+                              cursor: shouldShowAnswers ? 'not-allowed' : 'text',
+                              opacity: shouldShowAnswers ? 0.7 : 1
                             }}
                           />
                           <div style={{ fontSize: '12px', color: '#9ca3af' }}>
@@ -3241,7 +3636,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       )}
                     </div>
                   );
-                })}
+                    })}
+                  </>
+                )}
 
                 {submissionError && (
                   <div style={{ color: '#f87171', fontSize: '12px' }}>
@@ -3249,33 +3646,121 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   </div>
                 )}
 
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '10px',
-                    justifyContent: 'flex-end',
-                    marginTop: 'auto',
-                    paddingTop: '16px'
-                  }}
-                >
+                {/* Calculate overall score for multi_select questions */}
+                {(() => {
+                  let scoreInfo: { scorePercent: number; questionCount: number } | null = null;
+                  
+                  if (answersChecked && !isRequiredTask) {
+                    const multiSelectQuestions = comprehensionQuestions.filter(q => 
+                      q.question_type === 'multi_select' && 
+                      !q.question_name?.startsWith('self_report_')
+                    );
+                    
+                    if (multiSelectQuestions.length > 0) {
+                      const scores = multiSelectQuestions.map(q => {
+                        const currentAnswer = comprehensionAnswers[q.id] || '';
+                        const delimiter = '|||';
+                        const selectedAnswers = currentAnswer ? currentAnswer.split(delimiter).filter(Boolean) : [];
+                        
+                        // Parse correct answer
+                        let correctAnswers: number[] = [];
+                        if (q.answer) {
+                          if (Array.isArray(q.answer)) {
+                            correctAnswers = q.answer;
+                          } else if (typeof q.answer === 'string') {
+                            try {
+                              const parsed = JSON.parse(q.answer);
+                              if (Array.isArray(parsed)) {
+                                correctAnswers = parsed;
+                              }
+                            } catch (e) {
+                              correctAnswers = q.answer.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+                            }
+                          }
+                        }
+                        
+                        if (correctAnswers.length === 0 || q.choices === undefined) return null;
+                        
+                        // Calculate score: compare user selections with correct answers
+                        let correctCount = 0;
+                        let totalCount = correctAnswers.length;
+                        
+                        for (let i = 0; i < q.choices.length; i++) {
+                          const shouldBeSelected = correctAnswers[i] === 1;
+                          const isSelected = selectedAnswers.includes(q.choices[i]);
+                          if (shouldBeSelected === isSelected) {
+                            correctCount++;
+                          }
+                        }
+                        
+                        return totalCount > 0 ? correctCount / totalCount : 0;
+                      }).filter((score): score is number => score !== null);
+                      
+                      if (scores.length > 0) {
+                        const overallScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+                        const scorePercent = Math.round(overallScore * 100);
+                        scoreInfo = {
+                          scorePercent,
+                          questionCount: scores.length
+                        };
+                      }
+                    }
+                  }
+                  
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '10px',
+                        justifyContent: scoreInfo ? 'space-between' : 'flex-end',
+                        alignItems: 'center',
+                        marginTop: 'auto',
+                        paddingTop: '16px'
+                      }}
+                    >
+                      {/* Display overall score if available */}
+                      {scoreInfo && (
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: 500,
+                          color: '#e5e7eb',
+                          display: 'flex',
+                          alignItems: 'center',
+                          lineHeight: '1.5'
+                        }}>
+                          <span style={{ color: '#e5e7eb' }}>Overall Score: </span>
+                          <span style={{ 
+                            color: scoreInfo.scorePercent >= 70 ? '#10b981' : scoreInfo.scorePercent >= 50 ? '#f59e0b' : '#ef4444',
+                            fontWeight: 600,
+                            marginLeft: '6px'
+                          }}>
+                            {scoreInfo.scorePercent}%
+                          </span>
+                          <span style={{ color: '#9ca3af', marginLeft: '8px' }}>
+                            ({scoreInfo.questionCount} question{scoreInfo.questionCount > 1 ? 's' : ''})
+                          </span>
+                        </div>
+                      )}
+                      
+                      <div style={{ display: 'flex', gap: '10px' }}>
                   <button
                     type="button"
                     onClick={() => setShowComprehensionCheck(false)}
-                    disabled={isSubmittingProject}
+                    disabled={isSubmittingProject || (!isRequiredTask && answersChecked)}
                     style={{
                       padding: '6px 14px',
                       backgroundColor: '#4b5563',
                       color: '#f9fafb',
                       border: '1px solid rgba(148, 163, 184, 0.2)',
                       borderRadius: '6px',
-                      cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
+                      cursor: (isSubmittingProject || (!isRequiredTask && answersChecked)) ? 'not-allowed' : 'pointer',
                       fontSize: '13px',
                       fontWeight: 500,
-                      opacity: isSubmittingProject ? 0.6 : 1,
+                      opacity: (isSubmittingProject || (!isRequiredTask && answersChecked)) ? 0.6 : 1,
                       transition: 'background-color 0.2s ease, opacity 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (isSubmittingProject) {
+                      if (isSubmittingProject || (!isRequiredTask && answersChecked)) {
                         return;
                       }
                       e.currentTarget.style.backgroundColor = '#6b7280';
@@ -3286,29 +3771,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   >
                     Back
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleComprehensionCheckSubmit}
-                    disabled={isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
-                      // Multi-select questions are always valid, even if nothing is selected
-                      if (q.question_type === 'multi_select') {
-                        return false;
-                      }
-                      if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
-                        const answer = comprehensionAnswers[q.id] || '';
-                        return !answer.trim() || countWords(answer) < 10;
-                      }
-                      return !comprehensionAnswers[q.id]?.trim();
-                    }))}
-                    style={{
-                      padding: '6px 16px',
-                      background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
-                      backgroundSize: '400% 400%',
-                      backgroundPosition: '0% 50%',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                  {!isRequiredTask && taskName !== 'Playground' && taskName !== 'playground' && (
+                    <button
+                      type="button"
+                      onClick={answersChecked ? handleComprehensionCheckSubmit : handleCheckAnswers}
+                      disabled={isSubmittingProject || isLoadingComprehensionQuestions || (answersChecked ? (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
                         // Multi-select questions are always valid, even if nothing is selected
                         if (q.question_type === 'multi_select') {
                           return false;
@@ -3318,47 +3785,207 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           return !answer.trim() || countWords(answer) < 10;
                         }
                         return !comprehensionAnswers[q.id]?.trim();
-                      }))) ? 'not-allowed' : 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                      })) : (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                        // Multi-select questions are always valid
+                        if (q.question_type === 'multi_select') {
+                          return false;
+                        }
+                        // Check if all questions are answered
+                        return !comprehensionAnswers[q.id]?.trim();
+                      })))}
+                      style={answersChecked ? {
+                        padding: '6px 16px',
+                        background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                        backgroundSize: '400% 400%',
+                        backgroundPosition: '0% 50%',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          // Multi-select questions are always valid, even if nothing is selected
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                            const answer = comprehensionAnswers[q.id] || '';
+                            return !answer.trim() || countWords(answer) < 10;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          // Multi-select questions are always valid, even if nothing is selected
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                            const answer = comprehensionAnswers[q.id] || '';
+                            return !answer.trim() || countWords(answer) < 10;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 0.6 : 1,
+                        transition: 'opacity 0.2s ease, transform 0.2s ease',
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)'
+                      } : {
+                        padding: '6px 16px',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 0.6 : 1,
+                        transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (answersChecked) {
+                          if (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                            // Multi-select questions are always valid, even if nothing is selected
+                            if (q.question_type === 'multi_select') {
+                              return false;
+                            }
+                            if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                              const answer = comprehensionAnswers[q.id] || '';
+                              return !answer.trim() || countWords(answer) < 10;
+                            }
+                            return !comprehensionAnswers[q.id]?.trim();
+                          }))) {
+                            e.currentTarget.style.animation = '';
+                            return;
+                          }
+                          e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                        } else {
+                          if (!(isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                            if (q.question_type === 'multi_select') {
+                              return false;
+                            }
+                            return !comprehensionAnswers[q.id]?.trim();
+                          })))) {
+                            e.currentTarget.style.backgroundColor = '#1d4ed8';
+                          }
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (answersChecked) {
+                          e.currentTarget.style.animation = '';
+                        } else {
+                          e.currentTarget.style.backgroundColor = '#2563eb';
+                        }
+                      }}
+                    >
+                      {answersChecked ? (isSubmittingProject ? 'Submitting…' : 'Submit Project') : 'Check Answers'}
+                    </button>
+                  )}
+                  {(isRequiredTask || (taskName === 'Playground' || taskName === 'playground')) && (
+                    <button
+                      type="button"
+                      onClick={handleComprehensionCheckSubmit}
+                      disabled={isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
                         // Multi-select questions are always valid, even if nothing is selected
                         if (q.question_type === 'multi_select') {
                           return false;
                         }
+                        const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+                        // For tutorial tasks, no word count requirement
                         if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
                           const answer = comprehensionAnswers[q.id] || '';
+                          if (isTutorialTask) {
+                            return !answer.trim();
+                          }
                           return !answer.trim() || countWords(answer) < 10;
                         }
                         return !comprehensionAnswers[q.id]?.trim();
-                      }))) ? 0.6 : 1,
-                      transition: 'opacity 0.2s ease, transform 0.2s ease',
-                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
-                        // Multi-select questions are always valid, even if nothing is selected
-                        if (q.question_type === 'multi_select') {
-                          return false;
+                      }))}
+                      style={{
+                        padding: '6px 16px',
+                        background: 'linear-gradient(-45deg, #3b82f6, #06b6d4, #8b5cf6, #ec4899, #f59e0b)',
+                        backgroundSize: '400% 400%',
+                        backgroundPosition: '0% 50%',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          // Multi-select questions are always valid, even if nothing is selected
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+                          // For tutorial tasks, no word count requirement
+                          if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                            const answer = comprehensionAnswers[q.id] || '';
+                            if (isTutorialTask) {
+                              return !answer.trim();
+                            }
+                            return !answer.trim() || countWords(answer) < 10;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          // Multi-select questions are always valid, even if nothing is selected
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+                          // For tutorial tasks, no word count requirement
+                          if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                            const answer = comprehensionAnswers[q.id] || '';
+                            if (isTutorialTask) {
+                              return !answer.trim();
+                            }
+                            return !answer.trim() || countWords(answer) < 10;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) ? 0.6 : 1,
+                        transition: 'opacity 0.2s ease, transform 0.2s ease',
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.25)'
+                      }}
+                      onMouseEnter={(e) => {
+                        const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+                        if (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionQuestions.length > 0 && comprehensionQuestions.some(q => {
+                          // Multi-select questions are always valid, even if nothing is selected
+                          if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          // For tutorial tasks, no word count requirement
+                          if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
+                            const answer = comprehensionAnswers[q.id] || '';
+                            if (isTutorialTask) {
+                              return !answer.trim();
+                            }
+                            return !answer.trim() || countWords(answer) < 10;
+                          }
+                          return !comprehensionAnswers[q.id]?.trim();
+                        }))) {
+                          e.currentTarget.style.animation = '';
+                          return;
                         }
-                        if (q.question_type === 'free_response' || (!q.question_type || (q.question_type !== 'mcqa' && q.question_type !== 'multi_select'))) {
-                          const answer = comprehensionAnswers[q.id] || '';
-                          return !answer.trim() || countWords(answer) < 10;
-                        }
-                        return !comprehensionAnswers[q.id]?.trim();
-                      }))) {
+                        e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
+                      }}
+                      onMouseLeave={(e) => {
                         e.currentTarget.style.animation = '';
-                        return;
-                      }
-                      e.currentTarget.style.animation = 'gradient-shift 3s ease infinite';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.animation = '';
-                    }}
-                  >
-                    {isSubmittingProject ? 'Submitting…' : 'Submit Project'}
-                  </button>
-                </div>
+                      }}
+                    >
+                      {isSubmittingProject ? 'Submitting…' : (taskName === 'Playground' || taskName === 'playground' ? 'Submit Tutorial' : 'Submit Project')}
+                    </button>
+                  )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>

@@ -6,21 +6,18 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const mode = searchParams.get('mode');
-    const userId = searchParams.get('user_id');
 
-    if (!mode || (mode !== 'pre-test' && mode !== 'post-test')) {
+    if (!mode || (mode !== 'pre-test' && mode !== 'post-test' && mode !== 'retake')) {
       return NextResponse.json(
-        { error: 'Mode must be "pre-test" or "post-test"' },
+        { error: 'Mode must be "pre-test", "post-test", or "retake"' },
         { status: 400 }
       );
     }
 
     // API routes run server-side, so use internal backend URL directly
     const backendBaseUrl = process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4828';
-    const backendUrl = `${backendBaseUrl}/api/skill-check/questions?mode=${mode}${
-      userId ? `&user_id=${encodeURIComponent(userId)}` : ''
-    }`;
-    console.log('📋 Proxying questions request:', { mode, userId, backendUrl });
+    // Forward all query params (including retake counts) to the backend
+    const backendUrl = `${backendBaseUrl}/api/skill-check/questions?${searchParams.toString()}`;
     const response = await fetch(backendUrl, {
       cache: 'no-store', // Prevent Next.js from caching this request
       headers: {

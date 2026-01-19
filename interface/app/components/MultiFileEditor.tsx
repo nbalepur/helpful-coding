@@ -576,11 +576,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     if (hasPendingChanges && !editedModifiedContent[activeFileId]) {
       // Initialize with the modified content from pendingAgentChanges
       const modifiedContent = pendingAgentChanges.modified[activeFileId] || '';
-      console.log('🔧 Initializing editedModifiedContent for file:', {
-        fileId: activeFileId,
-        contentLength: modifiedContent.length,
-        hasExistingEdit: !!editedModifiedContent[activeFileId]
-      });
       setEditedModifiedContent(prev => ({
         ...prev,
         [activeFileId]: modifiedContent
@@ -592,7 +587,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   useEffect(() => {
     const activeFile = files.find(f => f.id === activeFileId);
     if (activeFile && activeFile.content !== code) {
-      console.log('Updating code for active file:', activeFileId, 'new content length:', (activeFile.content || '').length);
       setCode(activeFile.content || '');
     } else if (!activeFileId || activeFileId === '') {
       // If no active file, set code to empty
@@ -703,7 +697,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
         const modifiedEditorInstance = diffEditorInstance.getModifiedEditor();
         if (modifiedEditorInstance) {
           const diffEditorContent = modifiedEditorInstance.getValue();
-          console.log('📄 getCurrentFileContent: active file in diff view, returning content from diff editor for', fileId, 'length:', diffEditorContent.length);
           return diffEditorContent;
         }
       }
@@ -711,13 +704,11 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       // Fallback: If in diff view but editor not mounted yet, use edited content
       const editedContent = editedModifiedContent[fileId];
       if (editedContent) {
-        console.log('📄 getCurrentFileContent: active file in diff view, returning editedModifiedContent for', fileId, 'length:', editedContent.length);
         return editedContent;
       }
       
       // Last fallback: return the modified content from pendingAgentChanges
       const pendingContent = pendingAgentChanges.modified[fileId] || '';
-      console.log('📄 getCurrentFileContent: active file in diff view, returning pendingAgentChanges for', fileId, 'length:', pendingContent.length);
       return pendingContent;
     }
     
@@ -725,20 +716,17 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     if (hasPendingChanges) {
       const editedContent = editedModifiedContent[fileId];
       if (editedContent) {
-        console.log('📄 getCurrentFileContent: non-active file with pending changes, returning editedModifiedContent for', fileId, 'length:', editedContent.length);
         return editedContent;
       }
       
       // Fallback to modified content from pendingAgentChanges
       const pendingContent = pendingAgentChanges.modified[fileId] || '';
-      console.log('📄 getCurrentFileContent: non-active file with pending changes, returning pendingAgentChanges for', fileId, 'length:', pendingContent.length);
       return pendingContent;
     }
 
     // When NOT in diff view, file.content is the source of truth (it's updated by updateFileContent)
     // This ensures we read what's actually stored, which matches what's visible on screen
     if (typeof fileContent === 'string') {
-      console.log('📄 getCurrentFileContent: returning file.content (source of truth) for', fileId, 'length:', fileContent.length);
       return fileContent;
     }
 
@@ -747,19 +735,16 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       if (liveMonacoEditorRef.current && typeof liveMonacoEditorRef.current.getValue === 'function') {
         const editorValue = liveMonacoEditorRef.current.getValue();
         if (typeof editorValue === 'string') {
-          console.log('📄 getCurrentFileContent: active file fallback to liveMonacoEditorRef value', fileId, 'length:', editorValue.length);
           return editorValue;
         }
       }
 
       const editorValue = typeof code === 'string' ? code : '';
       if (editorValue) {
-        console.log('📄 getCurrentFileContent: active file fallback to code state', fileId, 'length:', editorValue.length);
         return editorValue;
       }
     }
 
-    console.log('📄 getCurrentFileContent: no content found for', fileId, 'defaulting to empty string');
     return '';
   };
 
@@ -770,13 +755,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       if (file.type === 'file') {
         contents[file.id] = getCurrentFileContent(file.id);
       }
-    });
-    console.log('📄 getAllFileContents:', {
-      fileIds: Object.keys(contents),
-      hasEditedContent: Object.keys(editedModifiedContent),
-      hasPendingChanges: pendingAgentChanges ? Object.keys(pendingAgentChanges.modified || {}) : [],
-      activeFileId,
-      contentsLengths: Object.fromEntries(Object.entries(contents).map(([k, v]) => [k, v.length]))
     });
     return contents;
   };
@@ -1148,7 +1126,6 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
           if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
             e.preventDefault();
             e.stopPropagation();
-            try { console.log('⌘N pressed: navigating to next file with diffs'); } catch(_) {}
             navigateToNextFileWithDiffs();
             return;
           }

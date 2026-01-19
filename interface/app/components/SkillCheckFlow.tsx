@@ -29,17 +29,26 @@ interface Question {
   docstring_py?: string;
   docstring_js?: string;
   code_type?: string;
+  arguments?: string[]; // Function arguments from code_data_full.jsonl (for retake mode)
+  solution?: string; // Solution code from code_data_full.jsonl (for retake mode)
 }
 
 interface SkillCheckFlowProps {
-  mode: 'pre-test' | 'post-test';
+  mode: 'pre-test' | 'post-test' | 'retake';
+  retakeSessionId?: string | null;
+  retakeQuestionCounts?: {
+    frontendMcqa: number;
+    uxMcqa: number;
+    coding: number;
+    debugging: number;
+  } | null;
   initialIndex?: number;
   onComplete: () => void;
   onCancel: () => void;
   onQuestionChange?: (questionType: string, codeType?: string) => void;
 }
 
-export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onCancel, onQuestionChange }: SkillCheckFlowProps) {
+export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQuestionCounts = null, initialIndex = 0, onComplete, onCancel, onQuestionChange }: SkillCheckFlowProps) {
   const { user } = useAuth();
   const { showSnackbar } = useSnackbar();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
@@ -71,17 +80,43 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   const navigationAwayTimeRef = useRef<number | null>(null); // Track when user navigated away
   const isNavigatedAwayRef = useRef<boolean>(false); // Track if user is currently away
   const [showReportButton, setShowReportButton] = useState(false); // Track if 30 seconds have passed for current question
+  const [checkedAnswers, setCheckedAnswers] = useState<Set<string>>(new Set()); // Track which MCQA questions have been checked in retake mode
+  const [viewedSolutions, setViewedSolutions] = useState<Set<string>>(new Set()); // Track which coding questions have had solution viewed in retake mode
 
   useEffect(() => {
+    // Clear all state when mode changes (especially important for retake mode)
+    // This prevents old questions/answers from briefly showing
+    setQuestions([]);
+    setAnswers({});
+    setOtherText({});
+    setTestResults({ allPassed: null, errorMessage: null, stdout: '', stderr: '', loading: false });
+    setCurrentIndex(0);
+    setError(null);
+    setCheckedAnswers(new Set());
+    setViewedSolutions(new Set());
+    codeQuestionStartedRef.current.clear();
+    
+    // For retake mode, force Python only
+    if (mode === 'retake') {
+      setCodingLanguage('python');
+    }
+    
+    // For retake mode, wait for retakeQuestionCounts to be set before loading
+    if (mode === 'retake' && !retakeQuestionCounts) {
+      console.log('[SkillCheckFlow] Waiting for retakeQuestionCounts to be set...');
+      return;
+    }
+    
     loadQuestions();
-  }, [mode]);
+  }, [mode, retakeQuestionCounts]);
 
   // Update currentIndex when initialIndex changes (for resuming)
+  // Skip this for retake mode to avoid race conditions - retake always starts at 0
   useEffect(() => {
-    if (initialIndex >= 0 && questions.length > 0 && initialIndex < questions.length) {
+    if (mode !== 'retake' && initialIndex >= 0 && questions.length > 0 && initialIndex < questions.length) {
       setCurrentIndex(initialIndex);
     }
-  }, [initialIndex, questions.length]);
+  }, [initialIndex, questions.length, mode]);
 
   // Initialize otherText when question changes and has existing answer
   // Also log "started" state for code questions when they first load
@@ -143,12 +178,39 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     setTestResults({ allPassed: null, errorMessage: null, stdout: '', stderr: '', loading: false });
   }, [codingLanguage]);
 
+  // Ensure Python is used in retake mode for coding questions
+  useEffect(() => {
+    if (mode === 'retake' && questions.length > 0 && currentIndex < questions.length) {
+      const currentQuestion = questions[currentIndex];
+      if (currentQuestion && currentQuestion.type === 'coding' && codingLanguage !== 'python') {
+        setCodingLanguage('python');
+      }
+    }
+  }, [mode, currentIndex, questions, codingLanguage]);
+
   const loadQuestions = async () => {
     try {
       setLoading(true);
-      const userParam = userId ? `&user_id=${encodeURIComponent(String(userId))}` : '';
-      const url = `/api/skill-check/questions?mode=${mode}${userParam}`;
-      console.log('📋 Loading questions:', { mode, userId, url });
+      // Ensure old state is cleared before loading (double-check)
+      setQuestions([]);
+      setCurrentIndex(0);
+      
+      // For retake mode, don't pass user_id (random sampling, no assignment)
+      // But pass question counts - REQUIRED for retake mode
+      let url = `/api/skill-check/questions?mode=${mode}`;
+      if (mode === 'retake') {
+        if (!retakeQuestionCounts) {
+          setError('Retake mode requires question counts to be provided. Please try again.');
+          setLoading(false);
+          return;
+        }
+        url += `&frontend_count=${retakeQuestionCounts.frontendMcqa}`;
+        url += `&ux_count=${retakeQuestionCounts.uxMcqa}`;
+        url += `&coding_count=${retakeQuestionCounts.coding}`;
+        url += `&debugging_count=${retakeQuestionCounts.debugging}`;
+      } else if (userId) {
+        url += `&user_id=${encodeURIComponent(String(userId))}`;
+      }
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to load questions');
@@ -156,21 +218,24 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const data = await response.json();
       
       // Use all questions (no filtering)
+      // For retake mode, ensure all questions are loaded before showing any
       const filteredQuestions: Question[] = data.questions || [];
       
+      // Verify we have questions (especially important for retake mode)
+      if (mode === 'retake' && filteredQuestions.length === 0) {
+        throw new Error('No questions available for retake');
+      }
       
+      // For retake mode, always start at index 0 (ignore initialIndex to avoid flickering)
+      // For other modes, use initialIndex for resuming
+      const startIndex = mode === 'retake' ? 0 : ((initialIndex >= 0 && initialIndex < filteredQuestions.length) ? initialIndex : 0);
+      
+      // Set all questions and state in one batch to prevent flickering
+      // Use a single state update cycle to ensure everything updates together
       setQuestions(filteredQuestions);
-      setLoading(false);
-      // Set initial index if provided and valid
-      const startIndex = (initialIndex >= 0 && initialIndex < filteredQuestions.length) ? initialIndex : 0;
-      console.log(`[SkillCheckFlow] Setting initial index:`, {
-        initialIndex,
-        filteredQuestionsLength: filteredQuestions.length,
-        startIndex,
-        question_number: startIndex + 1,
-        question_id: filteredQuestions[startIndex]?.id
-      });
       setCurrentIndex(startIndex);
+      setLoading(false);
+      
       // Notify parent of initial question type
       if (onQuestionChange && filteredQuestions.length > 0) {
         const question = filteredQuestions[startIndex];
@@ -191,7 +256,6 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
   const handleComplete = useCallback(() => {
     // TODO: Submit answers to backend
-    console.log('Answers:', answers);
     onComplete();
   }, [answers, onComplete]);
 
@@ -318,19 +382,62 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       // Determine question type for logging
       const questionType = question.type; // 'experience', 'nasa_tli', 'ux', 'frontend'
       
+      // Compute gold (correct) answer for MCQA questions (ux, frontend)
+      const goldAnswerLetter: string[] = [];
+      const goldAnswerText: string[] = [];
+      if (questionType === 'ux' || questionType === 'frontend') {
+        if (question.answer) {
+          // Answer is stored as a string like "B" or array like ["B"]
+          let answerStr: string = '';
+          if (typeof question.answer === 'string') {
+            answerStr = question.answer.trim().toUpperCase();
+          } else if (Array.isArray(question.answer) && (question.answer as any[]).length > 0) {
+            answerStr = String((question.answer as any[])[0]).trim().toUpperCase();
+          }
+          
+          if (answerStr && answerStr.length > 0) {
+            // Handle comma-separated answers like "B,C"
+            const answerLetters = answerStr.split(',').map(a => a.trim()).filter(a => a.length > 0);
+            goldAnswerLetter.push(...answerLetters);
+            
+            // Map letters to answer texts using choices
+            if (choices.length > 0) {
+              answerLetters.forEach(letter => {
+                const charCode = letter.charCodeAt(0);
+                const aCode = 'A'.charCodeAt(0);
+                if (charCode >= aCode && charCode <= aCode + 25) {
+                  const idx = charCode - aCode;
+                  if (idx >= 0 && idx < choices.length) {
+                    goldAnswerText.push(choices[idx]);
+                  }
+                }
+              });
+            }
+          }
+        }
+      }
+      
+      const requestBody: any = {
+        user_id: userId,
+        question_id: question.id,
+        question_type: questionType,
+        phase: mode === 'retake' && retakeSessionId ? `retake_${retakeSessionId}` : mode, // Log retake as 'retake_{uuid}'
+        answer_text: answerText,
+        answer_letter: answerLetter,
+      };
+      
+      // Only include gold answers if we have them (for MCQA questions)
+      if (goldAnswerText.length > 0 || goldAnswerLetter.length > 0) {
+        requestBody.gold_answer_text = goldAnswerText;
+        requestBody.gold_answer_letter = goldAnswerLetter;
+      }
+      
       await fetch(`${ENV.BACKEND_URL}/api/skill-check/log-mcqa-response`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          user_id: userId,
-          question_id: question.id,
-          question_type: questionType,
-          phase: mode,
-          answer_text: answerText,
-          answer_letter: answerLetter,
-        }),
+        body: JSON.stringify(requestBody),
       });
     } catch (error) {
       console.error('Failed to log MCQA response:', error);
@@ -346,7 +453,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     // Works for all question types - MCQA, coding, experience, NASA TLI, etc.
     const logNavigationEvent = async (timeAwayMs: number | null = null, showNotification: boolean = false) => {
       const currentQuestion = questions[currentIndex];
-      if (!currentQuestion) return; // Safety check
+      if (!currentQuestion) return;
       
       try {
         await fetch(`${ENV.BACKEND_URL}/api/skill-check/log-navigation-event`, {
@@ -354,16 +461,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            user_id: userId,
-            question_id: currentQuestion.id || null, // Works for all question types
-            test_type: mode, // 'pre-test' or 'post-test'
-            time_away_ms: timeAwayMs,
-          }),
+        body: JSON.stringify({
+          user_id: userId,
+          question_id: currentQuestion.id || null, // Works for all question types
+          test_type: mode === 'retake' && retakeSessionId ? `retake_${retakeSessionId}` : mode, // Log retake as 'retake_{uuid}'
+          time_away_ms: timeAwayMs,
+        }),
         });
         
         // Show snackbar notification when navigation is detected and exceeds threshold
-        if (showNotification && timeAwayMs !== null && timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS) {
+        // Don't show in retake mode
+        if (showNotification && timeAwayMs !== null && timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS && mode !== 'retake') {
           showSnackbar('We noticed that you navigated away from the page. Do not leave the page to look up answers.', 5000);
         }
       } catch (error) {
@@ -428,6 +536,17 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     };
   }, [questions, currentIndex, userId, mode, showSnackbar, NAVIGATION_WARNING_THRESHOLD_MS]);
 
+  const handleCheckAnswer = useCallback(() => {
+    // Mark current MCQA question as checked
+    if (currentIndex < questions.length) {
+      const currentQuestion = questions[currentIndex];
+      if (currentQuestion && currentQuestion.question_type === 'mcqa' && mode === 'retake') {
+        setCheckedAnswers(prev => new Set(prev).add(currentQuestion.id));
+        // iframeContent will regenerate automatically due to checkedAnswers dependency
+      }
+    }
+  }, [currentIndex, questions, mode]);
+
   const handleNext = useCallback(() => {
     // Log current question's answer before moving to next
     if (currentIndex < questions.length) {
@@ -479,7 +598,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           user_id: userId,
           question_id: data.question_id,
           question_type: data.question_type,
-          phase: mode,
+          phase: mode === 'retake' && retakeSessionId ? `retake_${retakeSessionId}` : mode, // Log retake as 'retake_{uuid}'
           py_code: data.py_code || '',
           js_code: data.js_code || '',
           submitted_language: data.submitted_language,
@@ -489,7 +608,83 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     } catch (error) {
       console.error('Failed to log code response:', error);
     }
-  }, [userId]);
+  }, [userId, mode, retakeSessionId]);
+
+  const handleViewSolution = useCallback(async () => {
+    const currentQuestion = questions[currentIndex];
+    if (!currentQuestion || currentQuestion.type !== 'coding' || mode !== 'retake') {
+      return;
+    }
+
+    let solution = currentQuestion.solution || '';
+    if (!solution) {
+      console.warn('No solution available for this question');
+      return;
+    }
+
+    // Normalize newlines: replace multiple consecutive newlines (2 or more) with a single newline
+    // First normalize line endings, then collapse multiple newlines, then trim trailing newlines
+    solution = solution.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').replace(/\n+$/, '');
+
+    // Mark solution as viewed
+    setViewedSolutions(prev => new Set(prev).add(currentQuestion.id));
+
+    // Update the answer with the solution
+    const currentAnswer = answers[currentQuestion.id] || {};
+    handleAnswer(currentQuestion.id, {
+      ...currentAnswer,
+      pythonCode: codingLanguage === 'python' ? solution : (currentAnswer.pythonCode || ''),
+      jsCode: codingLanguage === 'javascript' ? solution : (currentAnswer.jsCode || ''),
+    });
+
+    // Log to database
+    if (userId) {
+      try {
+        await fetch(`${ENV.BACKEND_URL}/api/skill-check/log-code-response`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            question_id: currentQuestion.id,
+            question_type: currentQuestion.code_type || 'normal',
+            phase: mode === 'retake' && retakeSessionId ? `retake_${retakeSessionId}` : mode,
+            py_code: codingLanguage === 'python' ? solution : '',
+            js_code: codingLanguage === 'javascript' ? solution : '',
+            submitted_language: codingLanguage,
+            state: 'view_solution',
+          }),
+        });
+      } catch (error) {
+        console.error('Failed to log view solution:', error);
+      }
+    }
+
+    // Update the editor content via iframe message
+    // Use a retry mechanism to ensure the iframe is ready
+    const sendSolutionToEditor = (retries = 5) => {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        try {
+          iframeRef.current.contentWindow.postMessage({
+            type: 'setCode',
+            code: solution,
+            language: codingLanguage,
+          }, '*');
+        } catch (error) {
+          console.error('Failed to send solution to editor:', error);
+          if (retries > 0) {
+            setTimeout(() => sendSolutionToEditor(retries - 1), 100);
+          }
+        }
+      } else if (retries > 0) {
+        setTimeout(() => sendSolutionToEditor(retries - 1), 100);
+      }
+    };
+    
+    // Send immediately, and retry if needed
+    sendSolutionToEditor();
+  }, [currentIndex, questions, answers, mode, retakeSessionId, userId, codingLanguage]);
 
   const runTestCases = useCallback(async () => {
     const currentQuestion = questions[currentIndex];
@@ -599,7 +794,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           user_id: userId,
           question_id: currentQuestion.id,
           question_type: currentQuestion.type,
-          phase: mode,
+          phase: mode === 'retake' && retakeSessionId ? `retake_${retakeSessionId}` : mode, // Log retake as 'retake_{uuid}'
           code_type: currentQuestion.code_type || 'normal',  // For coding questions
           report_type: reportType,
           rationale: rationale,
@@ -678,6 +873,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const taskId = currentQuestion.task_id || '';
       const docstringPy = currentQuestion.docstring_py || '';
       const docstringJs = currentQuestion.docstring_js || '';
+      const questionArguments = currentQuestion.arguments || null; // Arguments from JSONL file (retake mode)
+      const isRetakeMode = mode === 'retake';
+      const isSolutionViewed = viewedSolutions.has(currentQuestion.id);
       
       return `<!DOCTYPE html>
 <html>
@@ -1020,10 +1218,10 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       <div class="editor-container" id="editor-container"></div>
         <div class="resize-handle" id="resize-handle"></div>
         <div class="test-results-panel" id="test-results-panel">
-          <div class="test-your-code-section" id="test-your-code-section">
+          <div class="test-your-code-section" id="test-your-code-section" ${isSolutionViewed ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
             <div class="test-your-code-header">Custom Inputs</div>
             <div class="test-inputs-container" id="test-inputs-container"></div>
-            <button class="test-run-button" id="test-run-button">Run</button>
+            <button class="test-run-button" id="test-run-button" ${isSolutionViewed ? 'disabled' : ''}>Run</button>
           </div>
           <div class="test-cases-section" id="test-cases-section">
             <div class="test-results-header" id="test-results-header">Output</div>
@@ -1047,6 +1245,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const taskId = '${taskId}';
       const docstringPy = ${JSON.stringify(docstringPy)};
       const docstringJs = ${JSON.stringify(docstringJs)};
+      const questionArguments = ${JSON.stringify(questionArguments)};
+      const isRetakeMode = ${isRetakeMode};
+      const isSolutionViewed = ${isSolutionViewed};
       
       // Track docstring height for resizing
       let minDocstringHeight = 100; // Will be calculated based on one line
@@ -1238,7 +1439,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             lineNumbers: 'on',
           wordWrap: 'on',
           automaticLayout: true,
-            readOnly: false,
+            readOnly: isSolutionViewed,
             cursorBlinking: 'blink',
             cursorSmoothCaretAnimation: 'off',
             smoothScrolling: true,
@@ -1273,6 +1474,12 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         // Store reference to editor for focus checking
         window.monacoEditorRef = editor;
         
+        // Process any pending setCode message now that editor is ready
+        if (pendingSetCodeMessage) {
+          processSetCodeMessage(pendingSetCodeMessage);
+          pendingSetCodeMessage = null;
+        }
+        
         // Function to check if paste is happening in the editor
         function isPasteInEditor(e) {
           const target = e.target;
@@ -1295,13 +1502,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             const clipboardData = e.clipboardData || window.clipboardData;
             if (clipboardData) {
               const pastedText = clipboardData.getData('text/plain');
-              console.log('User is about to paste:', pastedText);
               
               // Block paste if content is over character limit
               if (pastedText && pastedText.length > pasteCharLimit) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('Paste blocked: content exceeds ' + pasteCharLimit + ' characters (' + pastedText.length + ' characters)');
                 // Notify parent to show snackbar
                 window.parent.postMessage({
                   type: 'skillCheckPasteBlocked',
@@ -1332,13 +1537,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                 const clipboardData = e.clipboardData || window.clipboardData;
                 if (clipboardData) {
                   const pastedText = clipboardData.getData('text/plain');
-                  console.log('User is about to paste:', pastedText);
                   
                   // Block paste if content is over character limit
                   if (pastedText && pastedText.length > pasteCharLimit) {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('Paste blocked: content exceeds ' + pasteCharLimit + ' characters (' + pastedText.length + ' characters)');
                     // Notify parent to show snackbar
                     window.parent.postMessage({
                       type: 'skillCheckPasteBlocked',
@@ -1349,7 +1552,6 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   }
                 }
               }, true);
-              console.log('Paste listener attached to Monaco textarea');
             } else {
               // Retry if textarea not found yet (up to 10 times)
               if (!window.monacoTextareaRetries) window.monacoTextareaRetries = 0;
@@ -1535,9 +1737,11 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           });
         }
         
-        // First, try to get parameters from the custom map
+        // First, try to get parameters from question arguments (retake mode)
         let params = [];
-        if (taskId && FUNCTION_PARAMS_MAP[taskId]) {
+        if (isRetakeMode && questionArguments && Array.isArray(questionArguments) && questionArguments.length > 0) {
+          params = questionArguments;
+        } else if (taskId && FUNCTION_PARAMS_MAP[taskId]) {
           params = FUNCTION_PARAMS_MAP[taskId];
         } else {
           // Fallback: try to parse from blank code
@@ -1610,8 +1814,13 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
           let functionName = '';
           let params = [];
           
-          // First, try to get parameters from the custom map
-          if (taskId && FUNCTION_PARAMS_MAP[taskId]) {
+          // First, try to get parameters from question arguments (retake mode)
+          if (isRetakeMode && questionArguments && Array.isArray(questionArguments) && questionArguments.length > 0) {
+            params = questionArguments;
+            // Try to get function name from blank code
+            const parsed = parseFunctionSignature('', currentLanguage, true);
+            functionName = parsed.functionName;
+          } else if (taskId && FUNCTION_PARAMS_MAP[taskId]) {
             params = FUNCTION_PARAMS_MAP[taskId];
             // Try to get function name from blank code
             const parsed = parseFunctionSignature('', currentLanguage, true);
@@ -1711,6 +1920,61 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         updateInputFields();
       }, 500);
       
+      
+      // Store pending setCode message in case editor isn't ready yet
+      let pendingSetCodeMessage = null;
+      
+      // Function to process setCode message
+      function processSetCodeMessage(messageData) {
+        if (!editor) {
+          // Editor not ready yet, store the message
+          pendingSetCodeMessage = messageData;
+          return;
+        }
+        
+        const { code, language } = messageData;
+        if (code !== undefined) {
+          if (language === 'python') {
+            window.pythonCode = code;
+            if (currentLanguage === 'python') {
+              editor.setValue(code);
+            }
+          } else if (language === 'javascript') {
+            window.jsCode = code;
+            if (currentLanguage === 'javascript') {
+              editor.setValue(code);
+            }
+          }
+        }
+        
+        // Always make editor read-only after solution is viewed (regardless of language match)
+        editor.updateOptions({ readOnly: true });
+        
+        // Disable test inputs and run button
+        const testSection = document.getElementById('test-your-code-section');
+        const runButton = document.getElementById('test-run-button');
+        const inputsContainer = document.getElementById('test-inputs-container');
+        if (testSection) {
+          testSection.style.opacity = '0.5';
+          testSection.style.pointerEvents = 'none';
+        }
+        if (runButton) {
+          runButton.disabled = true;
+        }
+        if (inputsContainer) {
+          const inputs = inputsContainer.querySelectorAll('input');
+          inputs.forEach(input => {
+            input.disabled = true;
+          });
+        }
+      }
+      
+      // Listen for code updates from parent (for View Solution)
+      window.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'setCode') {
+          processSetCodeMessage(event.data);
+        }
+      });
       
       // Listen for test results updates from parent
       window.addEventListener('message', function(event) {
@@ -1891,6 +2155,36 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     // Get initial answer state, but don't regenerate when it changes
     const initialAnswer = answers[currentQuestion.id];
     const initialOtherText = otherText[currentQuestion.id] || '';
+    
+    // Check if this question has been checked (ONLY for retake mode MCQA)
+    // Pre-test and post-test should NEVER show checkmarks/X or require "Check Answer"
+    const isAnswerChecked = mode === 'retake' && currentQuestion.question_type === 'mcqa' && checkedAnswers.has(currentQuestion.id);
+    
+    // Get correct answer index for MCQA questions (only used in retake mode when checked)
+    // Answer is stored as a string like "B" in the database, not an array
+    let correctAnswerIndex: number | null = null;
+    if (currentQuestion.question_type === 'mcqa' && currentQuestion.answer) {
+      let answerLetter: string | null = null;
+      
+      // Handle both string format ("B") and array format (["B"]) for backward compatibility
+      if (typeof currentQuestion.answer === 'string' && currentQuestion.answer.trim().length > 0) {
+        answerLetter = currentQuestion.answer.trim().toUpperCase();
+      } else if (Array.isArray(currentQuestion.answer) && currentQuestion.answer.length > 0) {
+        const firstItem = currentQuestion.answer[0];
+        if (typeof firstItem === 'string' && firstItem.trim().length > 0) {
+          answerLetter = firstItem.trim().toUpperCase();
+        }
+      }
+      
+      // Convert letter to 0-based index (A=0, B=1, C=2, D=3, etc.)
+      if (answerLetter && answerLetter.length > 0) {
+        const charCode = answerLetter.charCodeAt(0);
+        const aCode = 'A'.charCodeAt(0);
+        if (charCode >= aCode && charCode <= aCode + 25) {
+          correctAnswerIndex = charCode - aCode;
+        }
+      }
+    }
 
     // Normalize choices to a simple array
     let choicesArray: string[] = [];
@@ -2028,7 +2322,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       cursor: pointer;
       transition: all 0.2s;
     }
-    .choice-label:hover {
+    .choice-label:hover:not(.checked) {
       border-color: #4b5563;
       background: #1f2937;
     }
@@ -2036,6 +2330,31 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       background: rgba(37, 99, 235, 0.2);
       border-color: #3b82f6;
       color: #fff;
+    }
+    .choice-label.selected.checked {
+      background: rgba(37, 99, 235, 0.2);
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .choice-label.checked {
+      cursor: not-allowed;
+      opacity: 0.8;
+    }
+    .choice-label.checked:hover {
+      /* Maintain the same styles as non-hover state when checked - no border change */
+      border-color: inherit !important;
+      background: inherit !important;
+    }
+    .choice-label.selected.checked:hover {
+      /* Keep selected styling even on hover when checked - no border change */
+      background: rgba(37, 99, 235, 0.2) !important;
+      border-color: #3b82f6 !important;
+      color: #fff !important;
+    }
+    .choice-label:not(.selected).checked:hover {
+      /* Keep non-selected checked styling on hover - no border change */
+      border-color: #374151 !important;
+      background: rgba(31, 41, 55, 0.5) !important;
     }
     .choice-label input[type="radio"],
     .choice-label input[type="checkbox"] {
@@ -2046,8 +2365,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       flex-shrink: 0;
     }
     .choice-markdown {
-      flex: 1;
-      display: block;
+      display: inline-block;
       min-width: 0;
     }
     .choice-markdown code:not(pre code) {
@@ -2322,6 +2640,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       width: 100%;
       height: 60px;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .tli-scale-space:hover {
       background-color: rgba(59, 130, 246, 0.15);
@@ -2333,6 +2654,14 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       pointer-events: none;
       z-index: 1;
     }
+    .tli-scale-number {
+      position: relative;
+      z-index: 5;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      pointer-events: none;
+    }
     .tli-scale-labels {
       display: flex;
       justify-content: space-between;
@@ -2343,6 +2672,12 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     }
     .tli-scale-label {
       font-weight: 500;
+    }
+    .tli-scale-note {
+      text-align: center;
+      margin-top: 12px;
+      font-size: 20px;
+      color: #d1d5db;
     }
   </style>
 </head>
@@ -2356,7 +2691,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   </div>
   <script>
     (function() {
-      function renderChoices(choices, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText) {
+      function renderChoices(choices, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText, isAnswerChecked, correctAnswerIndex) {
         if (questionType === 'mcqa') {
           if (!choices || !Array.isArray(choices)) {
             return '';
@@ -2440,13 +2775,30 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               ticksHtml += '<div class="tli-scale-tick ' + tickClass + '" data-tick-index="' + i + '"></div>';
             }
             
+            // Check if this is the Performance question (nasa_4) for note text
+            const isPerformance = questionId === 'nasa_4';
+            
+            // Create note text explaining the scale
+            const noteText = isPerformance 
+              ? 'Note: Lower numbers indicate better performance'
+              : 'Note: Lower numbers indicate lower burden';
+            const escapedNote = noteText
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+            
             // Create 20 spaces, each positioned between consecutive ticks
+            // Always show numbers for consistency
             for (let i = 0; i < numSpaces; i++) {
               const isSelected = selectedIndex === i;
               const selectionHtml = isSelected ? '<div class="tli-scale-selection"></div>' : '';
+              const number = i + 1; // 1-indexed for display
               spacesHtml += '<div class="tli-scale-space-wrapper">' +
                 '<div class="tli-scale-space" data-space-index="' + i + '">' +
                   selectionHtml +
+                  '<span class="tli-scale-number">' + number + '</span>' +
                 '</div>' +
               '</div>';
             }
@@ -2464,6 +2816,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                   '<span class="tli-scale-label">' + escapedLeftLabel + '</span>' +
                   '<span class="tli-scale-label">' + escapedRightLabel + '</span>' +
                 '</div>' +
+                '<div class="tli-scale-note">' + escapedNote + '</div>' +
               '</div>' +
             '</div>';
           }
@@ -2473,8 +2826,19 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
             // Use index for value to avoid backtick issues in HTML attributes
             const inputValue = idx.toString();
             // Check if initial answer matches the choice
+            // For MCQA, answer is stored as {index: number, text: string} object
             // For experience and NASA TLI questions, don't set default checked state
-            const isChecked = (!isExperience && !isNasaTli && initialAnswer === choice) ? 'checked' : '';
+            let isChecked = false;
+            if (!isExperience && !isNasaTli) {
+              if (typeof initialAnswer === 'object' && initialAnswer !== null && initialAnswer.text) {
+                // MCQA format: {index: number, text: string}
+                isChecked = initialAnswer.text === choice;
+              } else if (typeof initialAnswer === 'string') {
+                // Fallback: direct string comparison
+                isChecked = initialAnswer === choice;
+              }
+            }
+            const checkedAttr = isChecked ? 'checked' : '';
             const otherValue = isOther ? initialOtherText : '';
             const choiceWithoutBackticks = choice.split(String.fromCharCode(96)).join('');
             const escapedChoiceText = choiceWithoutBackticks
@@ -2483,6 +2847,24 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               .replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;')
               .replace(/'/g, '&#39;');
+            
+            // Determine if this choice is correct or if user selected it (for showing check/X)
+            // Show checkmark on correct answer, X on user's incorrect selection
+            let checkmarkHtml = '';
+            if (isAnswerChecked && !isOther) {
+              const isCorrectAnswer = correctAnswerIndex !== null && idx === correctAnswerIndex;
+              // Check if user selected this choice (handle both object and string formats)
+              const isUserSelected = (typeof initialAnswer === 'object' && initialAnswer !== null && initialAnswer.text === choice) || 
+                                     (typeof initialAnswer === 'string' && initialAnswer === choice);
+              
+              if (isCorrectAnswer) {
+                // Show green checkmark for correct answer (always show on correct answer) - inline after text
+                checkmarkHtml = '<span style="margin-left: 8px; display: inline-flex; align-items: center; flex-shrink: 0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>';
+              } else if (isUserSelected) {
+                // Show red X for user's incorrect selection - inline after text
+                checkmarkHtml = '<span style="margin-left: 8px; display: inline-flex; align-items: center; flex-shrink: 0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></span>';
+              }
+            }
             
             let spanContent = '';
             let spanAttributes = '';
@@ -2496,17 +2878,64 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               spanContent = escapedForDisplay;
             }
             
-            const html = '<label class="choice-label ' + (isChecked ? 'selected' : '') + '">' +
-              '<input type="radio" name="question-' + questionId + '" value="' + inputValue + '" data-choice-index="' + idx + '" data-choice-text="' + escapedChoiceText + '" ' + isChecked + ' />' +
+            // Always place checkmark after the span (outside) so it's not affected by markdown processing
+            const html = '<label class="choice-label ' + (isChecked ? 'selected' : '') + (isAnswerChecked ? ' checked' : '') + '">' +
+              '<input type="radio" name="question-' + questionId + '" value="' + inputValue + '" data-choice-index="' + idx + '" data-choice-text="' + escapedChoiceText + '" ' + checkedAttr + (isAnswerChecked ? ' disabled' : '') + ' />' +
               (isOther 
-                ? '<span>Other</span><input type="text" class="other-input" value="' + (otherValue.replace(/"/g, '&quot;')) + '" placeholder="Please specify..." />'
-                : '<span' + spanAttributes + '>' + spanContent + '</span>'
+                ? '<span>Other</span><input type="text" class="other-input" value="' + (otherValue.replace(/"/g, '&quot;')) + '" placeholder="Please specify..." ' + (isAnswerChecked ? 'disabled' : '') + ' />'
+                : '<span' + spanAttributes + '>' + spanContent + '</span>' + checkmarkHtml
               ) +
               '</label>';
             return html;
           }).join('');
           
-          return result;
+          // Add feedback message when answer is checked
+          // Note: choices is already validated at the top of the function
+          let feedbackHtml = '';
+          if (isAnswerChecked && correctAnswerIndex !== null && choices.length > 0) {
+            // Determine if user's answer was correct
+            let userSelectedIndex = null;
+            if (typeof initialAnswer === 'object' && initialAnswer !== null && initialAnswer.index !== null && initialAnswer.index !== undefined) {
+              userSelectedIndex = initialAnswer.index;
+            } else if (typeof initialAnswer === 'string' && initialAnswer.trim() !== '') {
+              // Try to find the index of the user's selected choice
+              const userChoiceText = initialAnswer;
+              const idx = choices.indexOf(userChoiceText);
+              if (idx !== -1) {
+                userSelectedIndex = idx;
+              }
+            } else if (typeof initialAnswer === 'object' && initialAnswer !== null && initialAnswer.text) {
+              // MCQA format: {index: number, text: string}
+              const userChoiceText = initialAnswer.text;
+              const idx = choices.indexOf(userChoiceText);
+              if (idx !== -1) {
+                userSelectedIndex = idx;
+              }
+            }
+            
+            const isCorrect = userSelectedIndex !== null && userSelectedIndex === correctAnswerIndex;
+            
+            if (isCorrect) {
+              feedbackHtml = '<div style="margin-top: 16px; padding: 12px 16px; color: #10b981; font-size: 15px; font-weight: 500; line-height: 1.5;">Great job! That is correct.</div>';
+            } else {
+              // Get the correct answer text
+              let correctAnswerText = '';
+              if (correctAnswerIndex !== null && correctAnswerIndex >= 0 && choices.length > 0 && correctAnswerIndex < choices.length) {
+                correctAnswerText = choices[correctAnswerIndex];
+                // Escape HTML special characters
+                correctAnswerText = correctAnswerText
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;')
+                  .replace(/'/g, '&#39;');
+              }
+              const correctAnswerDisplay = correctAnswerText ? ' The correct answer is: ' + correctAnswerText : '';
+              feedbackHtml = '<div style="margin-top: 16px; padding: 12px 16px; color: #ef4444; font-size: 15px; font-weight: 500; line-height: 1.5;">Not quite right.' + correctAnswerDisplay + '</div>';
+            }
+          }
+          
+          return result + feedbackHtml;
         } else if (questionType === 'multi_select' || questionType === 'multi_select_with_time') {
           // Special handling for experience background multi_select questions
           const isProgrammingExperience = isExperience && questionText && questionText.indexOf('What programming / scripting languages are you proficient in?') === 0;
@@ -2739,11 +3168,29 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       const isFrontend = '${currentQuestion.type}' === 'frontend';
       const isExperience = '${currentQuestion.type}' === 'experience';
       const isNasaTli = '${currentQuestion.type}' === 'nasa_tli';
+      const isAnswerChecked = ${isAnswerChecked ? 'true' : 'false'};
+      const correctAnswerIndex = ${correctAnswerIndex !== null ? correctAnswerIndex : 'null'};
+      
+      // Render markdown in question text using marked library (do this first)
+      const questionTextEl = document.getElementById('question-text');
+      if (questionTextEl && questionText) {
+        if (typeof marked !== 'undefined') {
+          questionTextEl.innerHTML = marked.parse(questionText);
+        } else {
+          // Fallback if marked doesn't load
+          questionTextEl.textContent = questionText;
+        }
+      }
       
       const container = document.getElementById('choices-container');
       if (container) {
-        const html = renderChoices(choicesArray, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText);
-        container.innerHTML = html;
+        try {
+          const html = renderChoices(choicesArray, questionId, questionType, initialAnswer, initialOtherText, isFrontend, isExperience, isNasaTli, questionText, isAnswerChecked, correctAnswerIndex);
+          container.innerHTML = html;
+        } catch (e) {
+          console.error('Error rendering choices:', e);
+          container.innerHTML = '<div style="color: #ef4444; padding: 12px;">Error loading choices. Please refresh the page.</div>';
+        }
         
         container.querySelectorAll('.choice-markdown[data-choice-content]').forEach((span) => {
           const originalContent = span.getAttribute('data-choice-content');
@@ -2809,17 +3256,6 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         });
       }
       
-      // Render markdown in question text using marked library
-      const questionTextEl = document.getElementById('question-text');
-      if (questionTextEl && questionText) {
-        if (typeof marked !== 'undefined') {
-          questionTextEl.innerHTML = marked.parse(questionText);
-        } else {
-          // Fallback if marked doesn't load
-          questionTextEl.textContent = questionText;
-        }
-      }
-      
       // Render markdown in frontend question choices
       if (isFrontend && typeof marked !== 'undefined') {
         requestAnimationFrame(() => {
@@ -2842,12 +3278,20 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       }
       
       // Prevent label clicks from causing scroll
+      // Also prevent clicks when inputs are disabled (after checking answer)
       document.querySelectorAll('.choice-label').forEach(label => {
         label.addEventListener('click', function(e) {
           e.preventDefault();
           e.stopPropagation();
           const radio = this.querySelector('input[type="radio"]');
           const checkbox = this.querySelector('input[type="checkbox"]');
+          // Don't allow changing answer if input is disabled (answer has been checked)
+          if (radio && radio.disabled) {
+            return false;
+          }
+          if (checkbox && checkbox.disabled) {
+            return false;
+          }
           if (radio) {
             radio.checked = true;
             radio.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2861,12 +3305,24 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       });
       
       // Prevent input clicks from causing scroll
+      // Also prevent clicks when inputs are disabled (after checking answer)
       document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(input => {
         input.addEventListener('click', function(e) {
+          // Don't allow changing answer if input is disabled (answer has been checked)
+          if (this.disabled) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
           e.stopPropagation();
         });
         // Prevent scroll when input receives focus
         input.addEventListener('focus', function(e) {
+          // Don't allow focus if disabled
+          if (this.disabled) {
+            this.blur();
+            return;
+          }
           // Blur immediately to prevent scroll, but allow the change event to fire first
           setTimeout(() => this.blur(), 0);
         });
@@ -2903,6 +3359,10 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       // Handle radio buttons (non-matrix)
       document.querySelectorAll('input[type="radio"]').forEach(radio => {
         radio.addEventListener('change', function() {
+          // Don't allow changing answer if input is disabled (answer has been checked)
+          if (this.disabled) {
+            return;
+          }
           const isMatrix = this.getAttribute('data-matrix') === '1';
           if (isMatrix) {
             return;
@@ -3265,7 +3725,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
   </script>
 </body>
 </html>`;
-  }, [currentIndex, questions]); // Regenerate only when question changes, NOT when answers change (handled via messages) or language changes
+  }, [currentIndex, questions, checkedAnswers]); // Regenerate when question changes or when answer is checked
 
   // Listen for messages from iframe (must be before conditional returns)
   useEffect(() => {
@@ -3289,7 +3749,12 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
         });
       } else if (event.data.type === 'skillCheckLanguageChange') {
         const { language } = event.data;
-        setCodingLanguage(language as 'python' | 'javascript');
+        // In retake mode, force Python only - ignore language change attempts
+        if (mode === 'retake') {
+          setCodingLanguage('python');
+        } else {
+          setCodingLanguage(language as 'python' | 'javascript');
+        }
         // Reset test results when switching languages
         setTestResults({ allPassed: null, errorMessage: null, stdout: '', stderr: '', loading: false });
       } else if (event.data.type === 'skillCheckPasteBlocked') {
@@ -3362,12 +3827,41 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
     );
   }
 
+  // Safety check: ensure we have a valid question before rendering
+  if (!questions.length || currentIndex >= questions.length) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <LoadingSpinner size="lg" color="blue" className="mx-auto mb-4" />
+          <p className="text-gray-400">Loading questions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Safety check: ensure we have a valid question before rendering
+  // This prevents accessing currentQuestion when questions array is empty or index is invalid
+  if (!questions.length || currentIndex >= questions.length) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <LoadingSpinner size="lg" color="blue" className="mx-auto mb-4" />
+          <p className="text-gray-400">Loading questions...</p>
+        </div>
+      </div>
+    );
+  }
+
   const currentQuestion = questions[currentIndex];
   const progress = ((currentIndex + 1) / questions.length) * 100;
   const currentAnswer = answers[currentQuestion.id];
 
+  // Use a key that changes when mode changes to force React to destroy/recreate the component
+  // This prevents old question state from briefly showing
+  const questionKey = `${mode}_${retakeSessionId || 'none'}_${currentQuestion.id}`;
+  
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0" key={questionKey}>
       <div ref={topRef} />
       {/* Progress Bar */}
       <div className="mb-4 flex-shrink-0">
@@ -3442,7 +3936,9 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {currentQuestion.type === 'coding' && (
+              {currentQuestion.type === 'coding' && mode !== 'retake' && (
+                // In pre-test/post-test mode, show both language options
+                // In retake mode, hide language selection (Python only, no choice to make)
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
@@ -3497,7 +3993,7 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
       {/* Question Content - Iframe for all questions */}
       <div className="flex-1 min-h-0 flex flex-col mt-2 mb-2 border-t border-b border-white border-opacity-20 py-4">
         <iframe
-          key={currentQuestion.id}
+          key={`${mode}_${retakeSessionId || 'none'}_${currentQuestion.id}_${checkedAnswers.has(currentQuestion.id) ? 'checked' : 'unchecked'}`}
           ref={iframeRef}
           srcDoc={iframeContent}
           className="w-full flex-1 border-0 min-h-0"
@@ -3508,21 +4004,70 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
 
       {/* Navigation Buttons - Sticky Footer */}
       <div className="sticky bottom-0 bg-gray-900 flex-shrink-0 z-10">
-        <div className="flex items-center justify-end gap-2 pt-2 px-0">
-          {currentQuestion.type === 'coding' && (
-            <button
-              onClick={runTestCases}
-              disabled={testResults.loading}
-              className="flex items-center px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {testResults.loading ? 'Running Tests...' : 'Run All Test Cases'}
-            </button>
-          )}
-          <button
-            onClick={handleNext}
-            disabled={
-              currentQuestion.type === 'coding' 
-                 ? !(codingLanguage === 'python' ? currentAnswer?.pythonCode : currentAnswer?.jsCode) || testResults.allPassed !== true
+        <div className="flex items-center justify-between gap-2 pt-2 px-0">
+          {/* Left side - Exit Survey button (ONLY in retake mode, NOT in pre-test/post-test) */}
+          <div className="flex items-center">
+            {mode === 'retake' && (
+              <button
+                onClick={onCancel}
+                className="flex items-center px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+              >
+                Exit Skill Check
+              </button>
+            )}
+          </div>
+          {/* Right side - Existing buttons */}
+          <div className="flex items-center gap-2">
+            {currentQuestion.type === 'coding' && mode === 'retake' && !viewedSolutions.has(currentQuestion.id) && (
+              <button
+                onClick={handleViewSolution}
+                disabled={viewedSolutions.has(currentQuestion.id)}
+                className="flex items-center px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                View Solution (Give Up)
+              </button>
+            )}
+            {currentQuestion.type === 'coding' && (
+              <button
+                onClick={runTestCases}
+                disabled={testResults.loading || viewedSolutions.has(currentQuestion.id)}
+                className="flex items-center px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testResults.loading ? 'Running Tests...' : 'Run All Test Cases'}
+              </button>
+            )}
+            {/* For MCQA in retake mode: Show "Check Answer" first, then replace with "Next" after checking */}
+            {mode === 'retake' && currentQuestion.question_type === 'mcqa' ? (
+              !checkedAnswers.has(currentQuestion.id) ? (
+                // Show "Check Answer" button before checking
+                <button
+                  onClick={handleCheckAnswer}
+                  disabled={
+                    !currentAnswer || 
+                    currentAnswer === '' || 
+                    (typeof currentAnswer === 'object' && (!currentAnswer.text || currentAnswer.text === ''))
+                  }
+                  className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Check Answer
+                </button>
+              ) : (
+                // Show "Next" button after checking (replace "Check Answer")
+                <button
+                  onClick={handleNext}
+                  disabled={false}
+                  className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Skill Check'}
+                </button>
+              )
+            ) : (
+              // For all other cases (pre-test, post-test, non-MCQA), show normal "Next" button
+              <button
+                onClick={handleNext}
+                disabled={
+                  currentQuestion.type === 'coding' 
+                 ? !viewedSolutions.has(currentQuestion.id) && (!(codingLanguage === 'python' ? currentAnswer?.pythonCode : currentAnswer?.jsCode) || testResults.allPassed !== true)
                 : currentQuestion.question_type === 'multi_select'
                   ? (() => {
                       // Get all available choices for this question
@@ -3790,10 +4335,13 @@ export default function SkillCheckFlow({ mode, initialIndex = 0, onComplete, onC
                     ? !currentAnswer || currentAnswer === '' || isNaN(parseInt(String(currentAnswer), 10))
                   : !currentAnswer
             }
-            className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Skill Check'}
-          </button>
+                className="flex items-center px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Skill Check'}
+              </button>
+            )
+          }
+          </div>
         </div>
       </div>
       

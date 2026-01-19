@@ -82,7 +82,6 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     // If no user ID (not authenticated), don't show any popup
     if (!numericUserId) {
       debugInfo.finalDecision = 'none';
-      console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
       return 'none';
     }
     
@@ -165,40 +164,34 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // 1. If user hasn't seen tutorial, show tutorial
       if (tutorialState === 'unseen') {
         debugInfo.finalDecision = 'tutorial';
-        console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
         return 'tutorial';
       }
       
       // 2. Otherwise, if user has not done the pre-test, show pre-test
       if (!preTestCompleted) {
         debugInfo.finalDecision = 'pre-test';
-        console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
         return 'pre-test';
       }
       
       // 3. Otherwise, if user has not completed all required tasks, show nothing
       if (!debugInfo.allRequiredTasksCompleted) {
         debugInfo.finalDecision = 'none';
-        console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
         return 'none';
       }
       
       // 4. Otherwise, if user has not done the post-test, show post-test
       if (!postTestCompleted) {
         debugInfo.finalDecision = 'post-test';
-        console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
         return 'post-test';
       }
       
       // 5. Otherwise, show nothing
       debugInfo.finalDecision = 'none';
-      console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
       return 'none';
     } catch (error) {
       debugInfo.error = error;
       debugInfo.finalDecision = 'none';
       console.error('[UserStudyPopupProvider] Error calculating popup state:', error);
-      console.log('[UserStudyPopupProvider] Decision details:', debugInfo);
       // On error, default to none to avoid blocking the user
       return 'none';
     }

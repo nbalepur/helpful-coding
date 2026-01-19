@@ -53,6 +53,7 @@ def run_post_creation_migrations():
         migrations = [
             "add_question_to_comprehension_questions.py",
             "add_docstring_to_code_data.py",
+            "increase_phase_column_size.py",
         ]
         
         logger.info("Running post-creation migrations...")

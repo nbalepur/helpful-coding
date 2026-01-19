@@ -475,7 +475,7 @@ class UserMCQASkillResponseBase(BaseModel):
     user_id: int = Field(..., description="User ID who answered")
     question_id: str = Field(..., description="ID of the question")
     question_type: str = Field(..., description="Type of question: 'experience', 'nasa_tli', 'ux', 'frontend'")
-    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test' or 'post-test'")
+    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test', 'post-test', or 'retake_{uuid}'")
     answer_text: List[str] = Field(..., description="List of answer texts")
     answer_letter: List[str] = Field(..., description="List of answer letters (e.g., ['A', 'B'])")
     gold_answer_text: Optional[List[str]] = Field(None, description="List of correct answer texts (for MCQA questions)")
@@ -521,7 +521,7 @@ class UserCodeSkillResponseBase(BaseModel):
     user_id: int = Field(..., description="User ID who answered")
     question_id: str = Field(..., description="ID of the code question")
     question_type: str = Field(..., description="Type of question: 'normal' or 'debug'")
-    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test' or 'post-test'")
+    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test', 'post-test', or 'retake_{uuid}'")
     py_code: Optional[str] = Field(None, description="User's Python code")
     js_code: Optional[str] = Field(None, description="User's JavaScript code")
     submitted_language: str = Field(..., description="Language used: 'python' or 'javascript'")
@@ -565,7 +565,7 @@ class ReportSkillCheckQuestionBase(BaseModel):
     user_id: int = Field(..., description="User ID who reported the question")
     question_id: str = Field(..., description="ID of the reported question")
     question_type: str = Field(..., description="Type of question: 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'")
-    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test' or 'post-test'")
+    phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test', 'post-test', or 'retake_{uuid}'")
     report_type: str = Field(..., description="Type of report: 'issue_stops_solving' or 'frustrated_unable_to_solve'")
     rationale: str = Field(..., min_length=1, description="Required rationale explaining the report")
 
@@ -652,12 +652,19 @@ class GenerateComprehensionQuestionsRequest(BaseModel):
     submission_code: Dict[str, str] = Field(..., description="Submission code as key-value pairs")
 
 
+class SaveTutorialQuestionsRequest(BaseModel):
+    """Request model for saving tutorial comprehension questions and answers"""
+    user_id: int = Field(..., description="User ID")
+    questions: List[Dict[str, Any]] = Field(..., description="List of question objects with id, question_name, question, question_type, choices, answer")
+    answers: Dict[str, Any] = Field(..., description="Dictionary mapping question_name to user answer")
+
+
 # Navigation Event Models
 class NavigationEventBase(BaseModel):
     """Base model for navigation events"""
     user_id: int = Field(..., description="User ID")
     question_id: Optional[str] = Field(None, description="Question ID or name")
-    test_type: str = Field(..., description="Test type: 'pre-test' or 'post-test'")
+    test_type: str = Field(..., description="Test type: 'pre-test', 'post-test', or 'retake_{uuid}'")
     time_away_ms: Optional[int] = Field(None, description="Time away in milliseconds")
 
 

@@ -223,7 +223,7 @@ class UserMCQASkillResponse(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(String(255), nullable=False, index=True)  # Can be "experience_1", "nasa_1", or MCQA id
     question_type = Column(String(50), nullable=False, index=True)  # 'experience', 'nasa_tli', 'ux', 'frontend'
-    phase = Column(String(20), nullable=True, index=True)  # 'pre-test' or 'post-test'
+    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
     answer_text = Column(JSON, nullable=False)  # List of answer texts
     answer_letter = Column(JSON, nullable=False)  # List of answer letters (e.g., ['A', 'B'])
     gold_answer_text = Column(JSON, nullable=True)  # List of correct answer texts (for MCQA questions)
@@ -243,7 +243,7 @@ class UserCodeSkillResponse(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(String(255), nullable=False, index=True)  # ID of the code question
     question_type = Column(String(50), nullable=False, index=True)  # 'normal' or 'debug'
-    phase = Column(String(20), nullable=True, index=True)  # 'pre-test' or 'post-test'
+    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
     py_code = Column(Text, nullable=True)  # User's Python code
     js_code = Column(Text, nullable=True)  # User's JavaScript code
     submitted_language = Column(String(20), nullable=False)  # 'python' or 'javascript'
@@ -292,7 +292,7 @@ class ReportSkillCheckQuestion(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(String(255), nullable=False, index=True)  # ID of the reported question
     question_type = Column(String(50), nullable=False, index=True)  # 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'
-    phase = Column(String(20), nullable=True, index=True)  # 'pre-test' or 'post-test'
+    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
     report_type = Column(String(100), nullable=False)  # 'issue_stops_solving' or 'frustrated_unable_to_solve'
     rationale = Column(Text, nullable=False)  # Required rationale from user
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -330,7 +330,7 @@ class NavigationEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(String(255), nullable=True, index=True)
-    test_type = Column(String(50), nullable=False, index=True)  # 'pre-test' or 'post-test'
+    test_type = Column(String(100), nullable=False, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
     time_away_ms = Column(Integer, nullable=True)  # Time away in milliseconds
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

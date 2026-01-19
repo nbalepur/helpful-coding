@@ -5,7 +5,7 @@ import IRBIframe from "../components/IRBIframe";
 import { irbConsentContent } from '../data/irbContent';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download, Sun, Moon } from 'lucide-react';
+import { Download, Sun, Moon, Trophy, Award, Sparkles } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -437,12 +437,69 @@ export default function AboutPage() {
         </div>
 
         {/* Compensation */}
-        <div id="compensation" className="bg-gray-800 rounded-lg border border-gray-700 p-8 scroll-mt-8">
-          <h2 className="text-2xl font-semibold text-white mb-4">Compensation</h2>
-          <div className="text-gray-300 space-y-4 leading-relaxed">
-            <p>
-              To be announced! This will be filled in when you are actually participating in the study.
-            </p>
+        <div id="compensation" className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700 p-8 scroll-mt-8 shadow-lg">
+          <h2 className="text-3xl font-bold text-white mb-6">Compensation</h2>
+          
+          <div className="space-y-6">
+            {/* Core Study Compensation */}
+            <div className="bg-gray-700/30 rounded-lg border border-gray-700/50 p-6 hover:border-gray-600/50 transition-colors">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="p-2 bg-green-600/20 rounded-lg flex-shrink-0">
+                  <Award className="w-5 h-5 text-green-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-white mb-3">Main Study Compensation</h3>
+                  <div className="space-y-3 text-gray-300 leading-relaxed">
+                    <p>
+                      All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor. 
+                      
+                      Users who participate in the study for monetary compensation will receive{' '}
+                      <span className="text-blue-400 font-bold">
+                        $75
+                      </span>
+                      .
+                    </p>
+                    <p>
+                       The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive <span className="text-blue-400 font-bold">$10</span> each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Public Tasks Compensation */}
+            <div className="bg-gray-700/30 rounded-lg border border-gray-700/50 p-6 hover:border-gray-600/50 transition-colors">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="p-2 bg-purple-600/20 rounded-lg flex-shrink-0">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-white mb-3">Public VibeJam Tasks Compensation</h3>
+                  <div className="space-y-3 text-gray-300 leading-relaxed">
+                    <p>
+                      We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive <span className="text-blue-400 font-bold">$10</span>. The three users with the highest website scores per projects will each receive <span className="text-blue-400 font-bold">$5</span>. The same user can win multiple bonus rewards across projects.
+                    </p>
+                    <p>
+                      We also plan to award bonus compensation for particularly creative, popular, or well-designed websites. Further details about any other rewards will be announced on this page and over email.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Multiple Rewards Available */}
+            <div className="bg-blue-600/10 border-l-4 border-blue-500 rounded-r p-4">
+              <p className="text-white font-medium mb-2">
+                <Trophy className="w-4 h-4 inline mr-2 text-yellow-400" />
+                Multiple Rewards Available!
+              </p>
+              <p className="text-gray-300">
+                You can win <strong className="text-white">multiple rewards</strong> across tasks. Each high-performing submission qualifies for its own reward, allowing you to accumulate earnings across all projects.
+              </p>
+              <p className="text-gray-300 mt-3">
+                At the end of the study, all monetary rewards will be distributed via email (online gift cards with Tango). We will intermittently send user study progress updates to your registered email. If you have any questions, please email <a href="mailto:nbalepur@umd.edu" className="text-blue-400 hover:text-blue-300 underline">nbalepur@umd.edu</a>.
+              </p>
+            </div>
           </div>
         </div>
 
