@@ -158,7 +158,6 @@ function BrowseInner() {
           return;
         }
       } catch (error) {
-        console.debug('Error reading tasks cache:', error);
       }
     }
     
@@ -185,7 +184,6 @@ function BrowseInner() {
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ tasks }));
           } catch (error) {
-            console.debug('Error saving tasks cache:', error);
           }
         }
         

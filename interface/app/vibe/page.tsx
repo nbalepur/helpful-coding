@@ -27,7 +27,8 @@ import {
   BookmarkCheck,
   X,
   ArrowLeft,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Download
 } from "lucide-react";
 import { useSidebar } from "../components/AppLayout";
 import MinimalTaskList from "../components/MinimalTaskList";
@@ -50,8 +51,9 @@ import LoadingSpinner from "../components/LoadingSpinner";
 import { formatDateOnly } from "../utils/dateFormat";
 import { PASSWORD_HASH, hashString } from "../utils/password";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
+import { downloadProjectAsRepository } from "../utils/downloadProject";
 
-type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all";
+type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download";
 
 function HomeInner() {
   const router = useRouter();
@@ -195,6 +197,8 @@ function HomeInner() {
   // Vibe page layout state
   const [code, setCode] = useState("");
   const [editorHeight, setEditorHeight] = useState(0);
+  const [customProjectTitle, setCustomProjectTitle] = useState<string>('');
+  const [customProjectDescription, setCustomProjectDescription] = useState<string>('');
   const [suggestionIdx, setSuggestionIdx] = useState(0);
   const [telemetry, setTelemetry] = useState<any[]>([]);
   const [logProbs, setLogProbs] = useState<any>(null);
@@ -332,17 +336,7 @@ function HomeInner() {
       const newIndex = finalHistory.length - 1;
       setHistoryIndex(newIndex);
       
-      console.log('✅ Snapshot saved', { 
-            historyLength: finalHistory.length, 
-        historyIndex: newIndex,
-            fileCount: Object.keys(snapshot.codeState).length,
-        messageCount: snapshot.messages.length,
-        isPlayground: isPlaygroundMode,
-        fileIds: Object.keys(snapshot.codeState),
-        usedProvidedCodeState: !!codeState,
-          });
-      
-          return finalHistory;
+      return finalHistory;
         });
   }, [isPlaygroundMode]);
   
@@ -454,9 +448,6 @@ function HomeInner() {
             };
             setHistory([initialSnapshot]);
             setHistoryIndex(0);
-            console.log('✅ Initial snapshot saved', { 
-              fileCount: Object.keys(initialCodeState).length,
-            });
           }
         } catch (error) {
           console.error('Failed to save initial snapshot:', error);
@@ -519,7 +510,6 @@ function HomeInner() {
         }),
       }).catch((e) => {
         // Silently fail - clearing history is best-effort
-        console.debug('Failed to clear agent history on page load:', e);
       });
     }
   }, [isLoading, isAuthenticated, numericUserId]); // Run when auth state is ready
@@ -635,14 +625,20 @@ function HomeInner() {
     // Disable submissions viewing in playground mode
     if (isPlaygroundMode) return false;
     
-    // Check if correct password is present in URL to unlock submissions
+    // Check if correct password is present in URL to unlock submissions (override for testing)
     if (hasSecretPassword) return true;
     
-    if (!currentTaskMeta?.votingStartDate) return false;
-    const start = new Date(currentTaskMeta.votingStartDate);
-    if (Number.isNaN(start.getTime())) return false;
-    return Date.now() >= start.getTime();
-  }, [currentTaskMeta?.votingStartDate, isPlaygroundMode, hasSecretPassword]);
+    // If we don't have task metadata, lock submissions
+    if (!currentTaskMeta?.name) return false;
+    
+    // Always lock for post-test required tasks
+    if (POST_TEST_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
+      return false;
+    }
+    
+    // Always unlocked for non post-test tasks
+    return true;
+  }, [currentTaskMeta?.name, isPlaygroundMode, hasSecretPassword]);
 
   // Keyboard shortcuts: Cmd/Ctrl + [ and ] to switch Task/Preview; Cmd/Ctrl + Shift to next file; Cmd/Ctrl + (/) for Code/Submissions
   useEffect(() => {
@@ -796,11 +792,6 @@ function HomeInner() {
   useEffect(() => {
     try {
       const nowIso = new Date().toISOString();
-      console.log('[ViewSubmissions] lock state updated', {
-        unlocked: isViewSubmissionsUnlocked,
-        votingStartDate: currentTaskMeta?.votingStartDate ?? null,
-        now: nowIso,
-      });
     } catch (error) {
       // no-op: logging should never break app flow
     }
@@ -989,7 +980,6 @@ function HomeInner() {
         }
       } catch (error) {
         // If cache is corrupted, fall through to fetch from API
-        console.debug('Error reading tasks cache:', error);
       }
     }
     
@@ -1018,7 +1008,6 @@ function HomeInner() {
             localStorage.setItem(cacheKey, JSON.stringify({ tasks }));
           } catch (error) {
             // If localStorage is full or unavailable, silently fail
-            console.debug('Error saving tasks cache:', error);
           }
         }
         
@@ -1090,7 +1079,6 @@ function HomeInner() {
       actualEditorRef.current?.clearDiffEditor?.();
     } catch (error) {
       // Silently fail if editor ref is not available
-      console.debug('Failed to clear diff editor:', error);
     }
     // Clear assistant messages and follow-up ideas
     setAssistantMessages([]);
@@ -1204,35 +1192,29 @@ function HomeInner() {
   const buildCodeLogPayload = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
     // Skip code logging in playground mode - no database saving or logging
     if (isPlaygroundMode || selectedTask === 'playground') {
-      console.log('[code-log] skip: playground mode');
       return null;
     }
     
     if (!user?.id) {
-      console.log('[code-log] skip: no user id');
       return null;
     }
 
     const numericUserId = Number.parseInt(user.id, 10);
     if (!Number.isFinite(numericUserId)) {
-      console.log('[code-log] skip: user id not numeric', user?.id);
       return null;
     }
 
     if (!selectedTask || !currentTaskMeta) {
-      console.log('[code-log] skip: no selected task or currentTaskMeta', { selectedTask, currentTaskMeta });
       return null;
     }
 
     const projectId = currentTaskMeta.projectId ?? allTasks.find((task: any) => task?.id === currentTaskMeta.id)?.projectId;
     if (!projectId) {
-      console.log('[code-log] skip: no project id', { currentTaskMeta, selectedTask });
       return null;
     }
 
     const codeByLanguage = getCodeByLanguage();
     if (!codeByLanguage) {
-      console.log('[code-log] skip: no code by language');
       return null;
     }
 
@@ -1288,12 +1270,14 @@ function HomeInner() {
       ...context,
     };
 
-    // Determine mode: keep/reject actions take precedence, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
+    // Determine mode: keep/reject actions take precedence, then download, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
     let mode: string;
     if (event === 'keep' || event === 'keep_all') {
       mode = event === 'keep_all' ? 'keep_all' : 'keep';
     } else if (event === 'reject' || event === 'reject_all') {
       mode = event === 'reject_all' ? 'reject_all' : 'reject';
+    } else if (event === 'download') {
+      mode = 'download';
     } else if (event === 'AI-refresh') {
       mode = 'AI';
     } else if (isAiGeneratedMode) {
@@ -1320,8 +1304,6 @@ function HomeInner() {
     if (!payload) return;
 
     try {
-      // Temporary debug logging to verify payloads
-      console.log('[code-log] sending snapshot', event, payload);
       await fetch(`${ENV.BACKEND_URL}/api/code-logs`, {
         method: 'POST',
         headers: {
@@ -1351,12 +1333,10 @@ function HomeInner() {
 
       if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const blob = new Blob([body], { type: 'application/json' });
-        console.log('[code-log] beacon snapshot', event, payload);
         dispatched = navigator.sendBeacon(url, blob);
       }
 
       if (!dispatched) {
-        console.log('[code-log] fallback fetch snapshot', event, payload);
         fetch(url, {
           method: 'POST',
           headers: {
@@ -1588,13 +1568,6 @@ function HomeInner() {
 
     let wasAborted = false;
     try {
-      console.log('Files being sent to agent (stream):', {
-        html_length: files.html.length,
-        css_length: files.css.length,
-        js_length: files.js.length,
-        fileIdsByType,
-        currentFiles: currentFiles.map(f => ({ id: f.id, name: f.name, language: f.language })),
-      });
 
       const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
       const controller = new AbortController();
@@ -1989,11 +1962,6 @@ function HomeInner() {
       });
 
       if (Object.keys(modifiedFilesByFileId).length > 0) {
-        console.log('Storing pending agent changes (stream):', {
-          originalFileIds: Object.keys(originalFiles),
-          modifiedFileIds: Object.keys(modifiedFilesByFileId),
-        });
-        
         // Record timestamp when AI code is loaded for marking saves as AI_generated
         aiCodeLoadedTimestampRef.current = Date.now();
         
@@ -2044,7 +2012,6 @@ function HomeInner() {
   const handleSuggestionSelection = useCallback(async (suggestion: string) => {
     // Skip in playground mode - no database saving or logging
     if (isPlaygroundMode || selectedTask === 'playground') {
-      console.log('[playground] Suggestion selection disabled - no database operations');
       return;
     }
     
@@ -2457,10 +2424,8 @@ function HomeInner() {
           event.stopPropagation();
           try { (event as any).stopImmediatePropagation?.(); } catch(_) {}
           if (isOpenParen) {
-            try { console.log('⌘( pressed: switching right pane to Code'); } catch(_) {}
             setRightTab('code');
           } else if (isCloseParen && isViewSubmissionsUnlocked) {
-            try { console.log('⌘) pressed: switching right pane to View Submissions'); } catch(_) {}
             setRightTab('submissions');
           }
           return;
@@ -2470,15 +2435,12 @@ function HomeInner() {
           event.stopPropagation();
           try { (event as any).stopImmediatePropagation?.(); } catch(_) {}
           if (isBracketLeft) {
-            try { console.log('⌘[ pressed: switching left pane to Task'); } catch(_) {}
             setLeftTab('task');
           } else if (isBracketRight) {
             // Switch to preview or project details based on tab
             if (rightTab === 'submissions' && viewedSubmission) {
-              try { console.log('⌘] pressed: switching left pane to Project Details'); } catch(_) {}
               setLeftTab('project-details');
             } else if (rightTab !== 'submissions') {
-              try { console.log('⌘] pressed: switching left pane to Preview'); } catch(_) {}
               setLeftTab('preview');
             }
           }
@@ -2893,6 +2855,48 @@ function HomeInner() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Define handleDownloadProject before conditional returns (hooks must be called unconditionally)
+  const handleDownloadProject = useCallback(async () => {
+    try {
+      const codeByLanguage = getCodeByLanguage();
+      if (!codeByLanguage) {
+        console.warn('No code available to download');
+        return;
+      }
+
+      const projectName = currentTaskMeta?.name || selectedTask || 'VibeJam Project';
+      const taskName = currentTaskMeta?.name || undefined;
+      
+      // Compute task description directly to avoid hook dependency issues
+      let taskDescription: string | undefined = undefined;
+      if (taskDescriptions.length > 0) {
+        taskDescription = taskDescriptions[0];
+      }
+      
+      // Use custom title/description if provided (from title/description page), otherwise use task info
+      const customTitle = customProjectTitle.trim() || undefined;
+      const customDescription = customProjectDescription.trim() || undefined;
+      
+      await downloadProjectAsRepository(
+        {
+          html: codeByLanguage.html || '',
+          css: codeByLanguage.css || '',
+          js: codeByLanguage.js || '',
+        },
+        projectName,
+        taskName,
+        taskDescription,
+        customTitle,
+        customDescription
+      );
+      
+      // Log download event
+      await sendCodeLog('download');
+    } catch (error) {
+      console.error('Failed to download project:', error);
+    }
+  }, [getCodeByLanguage, currentTaskMeta?.name, selectedTask, taskDescriptions, customProjectTitle, customProjectDescription, sendCodeLog]);
 
   // Show loading state while checking authentication
   if (isLoading) {
@@ -3730,6 +3734,14 @@ function HomeInner() {
                     {rightTab === 'code' && !isPlaygroundMode && selectedTask !== 'playground' && (
                     <div className="flex items-center space-x-2 ml-auto">
                       <button
+                          className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-gray-700 hover:bg-gray-600 text-white cursor-pointer border border-gray-600"
+                        onClick={handleDownloadProject}
+                        title="Download project as repository"
+                      >
+                        <Download className="w-3.5 h-3.5 inline-block mr-1" />
+                        Download
+                      </button>
+                      <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
                         onClick={() => {
                           try {
@@ -3743,6 +3755,14 @@ function HomeInner() {
                     )}
                     {rightTab === 'code' && isPlaygroundMode && selectedTask === 'playground' && (
                     <div className="flex items-center space-x-2 ml-auto">
+                      <button
+                          className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-gray-700 hover:bg-gray-600 text-white cursor-pointer border border-gray-600"
+                        onClick={handleDownloadProject}
+                        title="Download project as repository"
+                      >
+                        <Download className="w-3.5 h-3.5 inline-block mr-1" />
+                        Download
+                      </button>
                       <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
                         onClick={() => {
@@ -3809,6 +3829,10 @@ function HomeInner() {
                       taskName={currentTaskMeta?.name ?? null}
                       sidebarOpen={sidebarOpen}
                       onProjectSubmitted={handleProjectSubmitted}
+                      onProjectInfoChange={(title, description) => {
+                        setCustomProjectTitle(title);
+                        setCustomProjectDescription(description);
+                      }}
                       // Pane visibility
                       showCodeEditor={showCodeEditor}
                       showTerminal={false}

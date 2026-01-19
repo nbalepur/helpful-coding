@@ -11,11 +11,13 @@ Quick Links:
 
 - **Data**: [HF Datasets link](https://huggingface.co/datasets/hsseinmz/realhumaneval) and local link [data](data/README.md). All dataset documentation, Croissant metadata record, hosting, licensing, and maintenance plan are provided in the HF link.
 
-- **Interface Code**:  [interface](interface/README.md) - local version
+- **Interface Code**:  [interface](interface/README.md) - local version
 
-- **Analysis Code**:  [analysis](analysis/README.md)
+- **Analysis Code**:  [analysis](analysis/README.md)
 
 - **Paper**: [arxiv link](https://arxiv.org/abs/2404.02806)
+
+- **VibeJam**: [vibe-code.umiacs.umd.edu](https://vibe-code.umiacs.umd.edu/)
 
 <img src="./static/fig1.png" alt="Overview of RealHumanEval" width="75%"/>
 

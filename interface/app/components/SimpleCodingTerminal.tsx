@@ -47,7 +47,6 @@ hello();
 
   const runCode = () => {
     // Simple code execution simulation
-    console.log("Running code:", code);
     // In a real implementation, this would execute the code
   };
 

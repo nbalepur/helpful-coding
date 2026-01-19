@@ -18,7 +18,8 @@ import {
   Smile,
   User,
   FlaskConical,
-  MessageSquare
+  MessageSquare,
+  BarChart3
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
 
@@ -108,6 +109,7 @@ SidebarHeader.displayName = 'SidebarHeader';
 function getActiveTabFromPathname(pathname: string, searchParams?: URLSearchParams | null): string {
   if (pathname === '/leaderboard' || pathname === '/leaderboard/') return 'leaderboard';
   if (pathname === '/skill-check' || pathname === '/skill-check/') return 'skill-check';
+  if (pathname === '/stats' || pathname === '/stats/') return 'stats';
   if (pathname === '/about' || pathname === '/about/') return 'about';
   
   // Check if we're on the playground (task=playground query param on /vibe)
@@ -148,7 +150,8 @@ export default function Sidebar({
     const routesToPrefetch = [
       '/browse',  // Tasks listing page
       '/leaderboard', 
-      '/skill-check', 
+      '/skill-check',
+      '/stats',
       '/about'
     ];
     const prefetchRoutes = () => {
@@ -176,6 +179,7 @@ export default function Sidebar({
     { id: 'tasks', icon: Grid3X3, label: 'All Tasks' },
     { id: 'playground', icon: FlaskConical, label: 'Playground', tooltip: 'Playground (Tutorial)' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
+    { id: 'stats', icon: BarChart3, label: 'Stats' },
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
     { id: 'about', icon: Info, label: 'Instructions' },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback', isExternal: true, externalUrl: 'https://forms.gle/9zr5VcfzcPC4Mp5x8' },
@@ -250,6 +254,7 @@ export default function Sidebar({
                     'playground': '/vibe?task=playground',
                     'leaderboard': '/leaderboard',
                     'skill-check': '/skill-check',
+                    'stats': '/stats',
                     'about': '/about',
                   };
                   const isExternal = (item as any).isExternal;

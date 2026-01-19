@@ -119,8 +119,6 @@ export async function loadCurrentTask(
     
     setTelemetry([...telemetry, taskLoadTelemetry]);
     
-    console.log(`Loaded task ${currentTask.id} (index ${actualTaskIndex >= 0 ? actualTaskIndex : taskIndex}): ${currentTask.name}`);
-    
   } catch (error) {
     console.error('Error loading current task:', error);
     

@@ -35,16 +35,13 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
     
     // Prevent duplicate submissions
     if (isLoading) {
-      console.log('[LoginForm] Already submitting, ignoring duplicate submission');
       return;
     }
     
-    console.log('[LoginForm] Form submitted with data:', { username_or_email: formData.username_or_email, password: '***' });
     setIsLoading(true);
     setError("");
 
     try {
-      console.log('[LoginForm] Making request to:', `${ENV.BACKEND_URL}/login`);
       
       // Add timeout to prevent hanging requests (30 seconds)
       const controller = new AbortController();
@@ -114,14 +111,11 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
         setIsLoading(false);
         return;
       }
-
-      console.log('[LoginForm] Login successful, storing auth data');
       
       // Store token in localStorage
       try {
         localStorage.setItem('auth_token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        console.log('[LoginForm] Stored auth in localStorage');
       } catch (storageError) {
         console.error('[LoginForm] Failed to store auth in localStorage:', storageError);
         // Continue anyway - cookies will still work
@@ -131,13 +125,10 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
       try {
         setUserIdCookie(generateUuidV4());
         setAuthTokenCookie(data.access_token);
-        console.log('[LoginForm] Stored auth in cookies');
       } catch (cookieError) {
         console.error('[LoginForm] Failed to set auth cookies:', cookieError);
         // Continue anyway - localStorage will still work
       }
-      
-      console.log('[LoginForm] Calling onSuccess callback');
       // Call success callback
       onSuccess(data.user, data.access_token);
     } catch (err) {

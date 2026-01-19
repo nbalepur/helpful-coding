@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import signal
 import psutil
+import json
 from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
@@ -16,7 +17,7 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from datetime import datetime, timedelta, date
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request, Query, Request
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -32,7 +33,7 @@ from agent import OpenAIAgent
 
 from pydantic import BaseModel, Field, AliasChoices
 from database.config import get_db
-from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent
+from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent, AssistantLog, CodePreference
 from database.models import (
     UserCreate,
     UserResponse,
@@ -49,9 +50,11 @@ from database.models import (
     ComprehensionQuestionCreate,
     ComprehensionQuestionResponse,
     GenerateComprehensionQuestionsRequest,
+    SaveTutorialQuestionsRequest,
     NavigationEventCreate,
+    ProjectCreate,
 )
-from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD
+from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, ProjectCRUD
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
@@ -869,6 +872,315 @@ def _select_frontend_questions_for_assignment(db: Session) -> tuple[list[str], l
     return frontend_pre, frontend_post
 
 
+def _load_questions_from_jsonl(
+    frontend_count: int,
+    ux_count: int,
+    coding_count: int,
+    debugging_count: int
+) -> list[dict]:
+    """
+    Load questions from JSONL files and randomly select the specified counts.
+    
+    Args:
+        frontend_count: Number of frontend MCQA questions (0-15)
+        ux_count: Number of UX MCQA questions (0-15)
+        coding_count: Number of coding from scratch questions (0-5)
+        debugging_count: Number of debugging questions (0-5)
+    
+    Returns:
+        List of question dictionaries
+    """
+    frontend_group: list[dict] = []
+    ux_group: list[dict] = []
+    coding_group: list[dict] = []
+    debugging_group: list[dict] = []
+    backend_dir = os.path.dirname(__file__)
+    repo_root = os.path.abspath(os.path.join(backend_dir, ".."))
+    
+    # Load MCQA questions from JSONL (try full version first, then fallback)
+    mcqa_file = os.path.join(repo_root, "data", "mcqa_data_full.jsonl")
+    if not os.path.exists(mcqa_file):
+        mcqa_file = os.path.join(repo_root, "data", "mcqa_data.jsonl")
+    if os.path.exists(mcqa_file):
+        all_mcqa = []
+        with open(mcqa_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        all_mcqa.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Filter and sample frontend questions
+        frontend_questions = [q for q in all_mcqa if q.get("type") == "frontend" and q.get("name") != "sanity_frontend"]
+        if frontend_count > 0 and frontend_questions:
+            selected_frontend = random.sample(frontend_questions, min(frontend_count, len(frontend_questions)))
+            for q in selected_frontend:
+                choices_dict = {}
+                choices = q.get("choices", [])
+                if len(choices) >= 1:
+                    choices_dict["choiceA"] = choices[0]
+                if len(choices) >= 2:
+                    choices_dict["choiceB"] = choices[1]
+                if len(choices) >= 3:
+                    choices_dict["choiceC"] = choices[2]
+                if len(choices) >= 4:
+                    choices_dict["choiceD"] = choices[3]
+                
+                question_id = f"frontend_{q.get('name', 'unknown')}"
+                frontend_group.append({
+                    "id": question_id,
+                    "type": "frontend",
+                    "question_type": "mcqa",
+                    "question": q.get("question", ""),
+                    "answer": q.get("answer", ""),
+                    "choices": choices,
+                    **choices_dict,
+                })
+        
+        # Filter and sample UX questions
+        ux_questions = [q for q in all_mcqa if q.get("type") == "ux"]
+        if ux_count > 0 and ux_questions:
+            selected_ux = random.sample(ux_questions, min(ux_count, len(ux_questions)))
+            for q in selected_ux:
+                choices_dict = {}
+                choices = q.get("choices", [])
+                if len(choices) >= 1:
+                    choices_dict["choiceA"] = choices[0]
+                if len(choices) >= 2:
+                    choices_dict["choiceB"] = choices[1]
+                if len(choices) >= 3:
+                    choices_dict["choiceC"] = choices[2]
+                if len(choices) >= 4:
+                    choices_dict["choiceD"] = choices[3]
+                
+                question_id = f"ux_{q.get('name', 'unknown')}"
+                ux_group.append({
+                    "id": question_id,
+                    "type": "ux",
+                    "question_type": "mcqa",
+                    "question": q.get("question", ""),
+                    "answer": q.get("answer", ""),
+                    "choices": choices,
+                    **choices_dict,
+                })
+    
+    # Load coding questions from JSONL
+    code_file = os.path.join(repo_root, "data", "code_data_full.jsonl")
+    if os.path.exists(code_file):
+        all_code = []
+        with open(code_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        all_code.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        
+        # Sample coding from scratch questions (normal type)
+        if coding_count > 0 and all_code:
+            selected_coding = random.sample(all_code, min(coding_count, len(all_code)))
+            for q in selected_coding:
+                task_name = q.get("task_name", "unknown")
+                coding_group.append({
+                    "id": f"code_normal_{task_name}",
+                    "type": "coding",
+                    "question_type": "coding",
+                    "task_id": task_name,
+                    "python_code": q.get("blank_code_py", ""),
+                    "js_code": q.get("blank_code_js", ""),
+                    "test_cases": q.get("test_cases_py", ""),
+                    "test_cases_py": q.get("test_cases_py", ""),
+                    "test_cases_js": q.get("test_cases_js", ""),
+                    "docstring_py": q.get("docstring_py", ""),
+                    "docstring_js": q.get("docstring_js", ""),
+                    "code_type": "normal",
+                    "arguments": q.get("arguments", []),  # Include arguments field for retake mode
+                    "solution": q.get("solution", ""),  # Include solution field for retake mode
+                })
+        
+        # Sample debugging questions (debug type - use model_code)
+        if debugging_count > 0 and all_code:
+            # Remove already selected questions to avoid duplicates
+            remaining_code = [q for q in all_code if q.get("task_name") not in [q.get("task_id") for q in coding_group]]
+            if remaining_code:
+                selected_debugging = random.sample(remaining_code, min(debugging_count, len(remaining_code)))
+                for q in selected_debugging:
+                    task_name = q.get("task_name", "unknown")
+                    debugging_group.append({
+                        "id": f"code_debug_{task_name}",
+                        "type": "coding",
+                        "question_type": "coding",
+                        "task_id": task_name,
+                        "python_code": q.get("model_code_py", ""),
+                        "js_code": q.get("model_code_js", ""),
+                        "test_cases": q.get("test_cases_py", ""),
+                        "test_cases_py": q.get("test_cases_py", ""),
+                        "test_cases_js": q.get("test_cases_js", ""),
+                        "docstring_py": q.get("docstring_py", ""),
+                        "docstring_js": q.get("docstring_js", ""),
+                        "code_type": "debug",
+                        "arguments": q.get("arguments", []),  # Include arguments field for retake mode
+                        "solution": q.get("solution", ""),  # Include solution field for retake mode
+                    })
+    
+    # Shuffle within each group, then concatenate in required order
+    random.shuffle(frontend_group)
+    random.shuffle(ux_group)
+    random.shuffle(coding_group)
+    random.shuffle(debugging_group)
+
+    return frontend_group + ux_group + coding_group + debugging_group
+
+
+def _select_random_questions_for_retake(db: Session) -> tuple[list[str], list[str], list[str], list[str]]:
+    """
+    Randomly sample questions for retake mode using the same strategy as pre-test.
+    Groups by base tags/names and randomly picks between _1 and _2 variants.
+    No assignment checking, no sanity questions.
+    
+    Returns:
+        (frontend_names, ux_names, code_normal_names, code_debug_names)
+    """
+    # Frontend questions: use same strategy as pre-test (group by base tags, pick random variant)
+    all_frontend_questions = db.query(MCQAData).filter(
+        MCQAData.type == "frontend",
+        MCQAData.name != "sanity_frontend"
+    ).all()
+    
+    frontend_names: list[str] = []
+    if all_frontend_questions:
+        # Extract base tags from question names (same as pre-test strategy)
+        base_tags = [
+            "html_knowledge", "html_recall", "html_trace_code", "html_change_code",
+            "css_knowledge", "css_recall", "css_trace_code", "css_change_code",
+            "js_knowledge", "js_recall", "js_trace_code", "js_change_code"
+        ]
+        
+        # Create a map of base_tag -> {name: question}
+        questions_by_base = {}
+        for q in all_frontend_questions:
+            if not q.name:
+                continue
+            if '_' in q.name:
+                parts = q.name.rsplit('_', 1)
+                if len(parts) == 2 and parts[1] in ['1', '2']:
+                    base_tag = parts[0]
+                    if base_tag not in questions_by_base:
+                        questions_by_base[base_tag] = {}
+                    questions_by_base[base_tag][q.name] = q
+        
+        # For each base tag, randomly pick one variant (_1 or _2)
+        for base_tag in base_tags:
+            if base_tag not in questions_by_base:
+                continue
+            
+            tag_questions = questions_by_base[base_tag]
+            variant_1 = f"{base_tag}_1"
+            variant_2 = f"{base_tag}_2"
+            
+            # If both variants exist, randomly pick one
+            if variant_1 in tag_questions and variant_2 in tag_questions:
+                frontend_names.append(random.choice([variant_1, variant_2]))
+            # If only one variant exists, use it
+            elif variant_1 in tag_questions:
+                frontend_names.append(variant_1)
+            elif variant_2 in tag_questions:
+                frontend_names.append(variant_2)
+    
+    # UX questions: use same strategy as pre-test (group by base tags, pick random variant)
+    all_ux_questions = db.query(MCQAData).filter(
+        MCQAData.type == "ux",
+        MCQAData.name != "sanity_ux"
+    ).all()
+    
+    ux_names: list[str] = []
+    if all_ux_questions:
+        # Extract base tags from question names (same as pre-test strategy)
+        base_tags = ["choices", "memory", "mobile", "design_protocol", "error", 
+                     "aesthetics", "object", "cognitive_ease", "visual_order", "excitement"]
+        
+        # Create a map of base_tag -> {name: question}
+        questions_by_base = {}
+        for q in all_ux_questions:
+            if not q.name:
+                continue
+            if '_' in q.name:
+                parts = q.name.rsplit('_', 1)
+                if len(parts) == 2 and parts[1] in ['1', '2']:
+                    base_tag = parts[0]
+                    if base_tag not in questions_by_base:
+                        questions_by_base[base_tag] = {}
+                    questions_by_base[base_tag][q.name] = q
+        
+        # For each base tag, randomly pick one variant (_1 or _2)
+        for base_tag in base_tags:
+            if base_tag not in questions_by_base:
+                continue
+            
+            tag_questions = questions_by_base[base_tag]
+            variant_1 = f"{base_tag}_1"
+            variant_2 = f"{base_tag}_2"
+            
+            # If both variants exist, randomly pick one
+            if variant_1 in tag_questions and variant_2 in tag_questions:
+                ux_names.append(random.choice([variant_1, variant_2]))
+            # If only one variant exists, use it
+            elif variant_1 in tag_questions:
+                ux_names.append(variant_1)
+            elif variant_2 in tag_questions:
+                ux_names.append(variant_2)
+    
+    # Coding questions: use same strategy as pre-test (group by base names, pick random variant)
+    all_code_data = db.query(CodeData).all()
+    code_normal_names: list[str] = []
+    code_debug_names: list[str] = []
+    
+    if all_code_data:
+        # Extract base names from task names (same as pre-test strategy)
+        base_names = ["number", "paren", "prefix", "string_shift"]
+        
+        # Filter against actual CodeData entries to ensure tasks exist
+        code_data_map = {q.task_name: q for q in all_code_data}
+        
+        # Select 2 base names for debug, 2 for normal (keep consistent order)
+        # Use first 2 for normal, last 2 for debug to maintain consistent ordering
+        normal_base_names = base_names[:2]
+        debug_base_names = base_names[2:]
+        
+        # For normal tasks: randomly pick one variant (_1 or _2) for each base name
+        for base_name in normal_base_names:
+            variant_1 = f"{base_name}_1"
+            variant_2 = f"{base_name}_2"
+            
+            # If both variants exist, randomly pick one
+            if variant_1 in code_data_map and variant_2 in code_data_map:
+                code_normal_names.append(random.choice([variant_1, variant_2]))
+            # If only one variant exists, use it
+            elif variant_1 in code_data_map:
+                code_normal_names.append(variant_1)
+            elif variant_2 in code_data_map:
+                code_normal_names.append(variant_2)
+        
+        # For debug tasks: randomly pick one variant (_1 or _2) for each base name
+        for base_name in debug_base_names:
+            variant_1 = f"{base_name}_1"
+            variant_2 = f"{base_name}_2"
+            
+            # If both variants exist, randomly pick one
+            if variant_1 in code_data_map and variant_2 in code_data_map:
+                code_debug_names.append(random.choice([variant_1, variant_2]))
+            # If only one variant exists, use it
+            elif variant_1 in code_data_map:
+                code_debug_names.append(variant_1)
+            elif variant_2 in code_data_map:
+                code_debug_names.append(variant_2)
+    
+    return frontend_names, ux_names, code_normal_names, code_debug_names
+
+
 def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillCheckAssignment:
     """
     Get an existing skill check assignment for a user or create a new one.
@@ -1103,8 +1415,13 @@ def _build_ordered_question_ids(
 
 @app.get("/api/skill-check/questions", tags=["Tasks"])
 async def get_skill_check_questions(
-    mode: str = Query(..., description="Skill check mode: 'pre-test' or 'post-test'"),
-    user_id: Optional[int] = Query(None, description="User ID for skill check assignment"),
+    request: Request,
+    mode: str = Query(..., description="Skill check mode: 'pre-test', 'post-test', or 'retake'"),
+    user_id: Optional[int] = Query(None, description="User ID for skill check assignment (ignored for retake mode)"),
+    frontend_count: Optional[int] = Query(None, description="Number of frontend MCQA questions for retake (0-15)"),
+    ux_count: Optional[int] = Query(None, description="Number of UX MCQA questions for retake (0-15)"),
+    coding_count: Optional[int] = Query(None, description="Number of coding from scratch questions for retake (0-5)"),
+    debugging_count: Optional[int] = Query(None, description="Number of debugging questions for retake (0-5)"),
     db: Session = Depends(get_db),
 ):
     """
@@ -1123,13 +1440,99 @@ async def get_skill_check_questions(
     - 10 questions from mcqa_data where type == 'ux'
     - 3 coding questions from code_data where type == 'normal'
     - 3 coding questions from code_data where type == 'debug'
+    
+    Retake:
+    - 10 randomly sampled frontend questions (no sanity questions)
+    - 10 randomly sampled UX questions (no sanity questions)
+    - 3 randomly sampled coding questions (normal)
+    - 3 randomly sampled coding questions (debug)
+    - No experience/NASA TLI questions
+    - No assignment checking
     """
     try:
-        if mode not in ["pre-test", "post-test"]:
+        if mode not in ["pre-test", "post-test", "retake"]:
             return JSONResponse(
                 status_code=400,
-                content={"error": "Mode must be 'pre-test' or 'post-test'"}
+                content={"error": "Mode must be 'pre-test', 'post-test', or 'retake'"}
             )
+        
+        # Handle retake mode separately (no assignment, random sampling)
+        # IMPORTANT: All questions are sampled/decided in one go before any are returned
+        # This ensures the entire question set is fixed for the retake session
+        if mode == "retake":
+            # Check if count parameters were actually sent in the request URL
+            # This distinguishes between "parameter not sent" vs "parameter sent as None/0"
+            query_params = dict(request.query_params)
+            has_frontend_param = "frontend_count" in query_params
+            has_ux_param = "ux_count" in query_params
+            has_coding_param = "coding_count" in query_params
+            has_debugging_param = "debugging_count" in query_params
+            has_any_param = has_frontend_param or has_ux_param or has_coding_param or has_debugging_param
+            
+            # Convert counts to integers (FastAPI query params should already be int, but be safe)
+            frontend_count_int = None
+            ux_count_int = None
+            coding_count_int = None
+            debugging_count_int = None
+            
+            try:
+                if frontend_count is not None:
+                    frontend_count_int = int(frontend_count)
+                elif has_frontend_param:
+                    # Parameter was sent but is None/empty, treat as 0
+                    frontend_count_int = 0
+                    
+                if ux_count is not None:
+                    ux_count_int = int(ux_count)
+                elif has_ux_param:
+                    ux_count_int = 0
+                    
+                if coding_count is not None:
+                    coding_count_int = int(coding_count)
+                elif has_coding_param:
+                    coding_count_int = 0
+                    
+                if debugging_count is not None:
+                    debugging_count_int = int(debugging_count)
+                elif has_debugging_param:
+                    debugging_count_int = 0
+            except (ValueError, TypeError) as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Invalid question count parameter: {str(e)}"}
+                )
+            
+            # If ANY count parameter was in the URL, use JSONL loading
+            # This ensures we use the new logic when the modal is used
+            has_any_count = has_any_param or (frontend_count_int is not None or ux_count_int is not None or 
+                            coding_count_int is not None or debugging_count_int is not None)
+            
+            if has_any_count:
+                try:
+                    questions = _load_questions_from_jsonl(
+                        frontend_count_int if frontend_count_int is not None else 0,
+                        ux_count_int if ux_count_int is not None else 0,
+                        coding_count_int if coding_count_int is not None else 0,
+                        debugging_count_int if debugging_count_int is not None else 0
+                    )
+                    return {
+                        "questions": questions,
+                        "total": len(questions),
+                        "mode": mode
+                    }
+                except Exception as e:
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": f"Failed to load questions from JSONL: {str(e)}"}
+                    )
+            
+            # Retake mode REQUIRES count parameters - fail if not provided
+            # This ensures we always use JSONL files and never fall back to old database logic
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Retake mode requires question count parameters (frontend_count, ux_count, coding_count, debugging_count). These must be provided when using the retake feature."}
+            )
+            
         
         config_key = "pre_test" if mode == "pre-test" else "post_test"
         question_ids = SKILL_CHECK_QUESTION_IDS[config_key]
@@ -1421,6 +1824,8 @@ async def run_skill_check_tests(request: dict):
         if language == "python":
             # For Python: Just combine code and test cases (Python assertions already stop on first failure)
             combined_code = f"{code}\n{test_cases}"
+
+            # print(combined_code[:1500])
         else:  # javascript
             # For JavaScript: Wrap test execution and handle console.log separately
             # Save original console methods
@@ -1765,7 +2170,7 @@ async def log_mcqa_response(request: dict, db: Session = Depends(get_db)):
         "user_id": int,
         "question_id": str,  # e.g., "experience_1", "nasa_1", or MCQA id
         "question_type": str,  # 'experience', 'nasa_tli', 'ux', 'frontend'
-        "phase": str | null,  # 'pre-test' or 'post-test'
+        "phase": str | null,  # 'pre-test', 'post-test', or 'retake_{uuid}'
         "answer_text": List[str],  # List of answer texts
         "answer_letter": List[str],  # List of answer letters (e.g., ['A', 'B'])
     }
@@ -1777,6 +2182,9 @@ async def log_mcqa_response(request: dict, db: Session = Depends(get_db)):
         phase = request.get("phase")
         answer_text = request.get("answer_text", [])
         answer_letter = request.get("answer_letter", [])
+        # Frontend may provide gold answers directly (especially for retake mode)
+        gold_answer_letter_provided = request.get("gold_answer_letter")
+        gold_answer_text_provided = request.get("gold_answer_text")
         
         if not user_id or not question_id or not question_type:
             return JSONResponse(
@@ -1788,7 +2196,21 @@ async def log_mcqa_response(request: dict, db: Session = Depends(get_db)):
         correct = True  # Default to True for experience/nasa_tli
         gold_answer_letter: list[str] = []
         gold_answer_text: list[str] = []
-        if question_type in ['ux', 'frontend']:
+        
+        # Use provided gold answers if available (from frontend), otherwise look up from database
+        if gold_answer_letter_provided is not None and gold_answer_text_provided is not None:
+            gold_answer_letter = gold_answer_letter_provided if isinstance(gold_answer_letter_provided, list) else []
+            gold_answer_text = gold_answer_text_provided if isinstance(gold_answer_text_provided, list) else []
+            # Compare user's answer letters with correct answer
+            if question_type in ['ux', 'frontend']:
+                user_answers = [a.strip().upper() for a in answer_letter if a and a.strip()]
+                # Sort both for comparison (order doesn't matter for multi-select)
+                if not gold_answer_letter or not user_answers:
+                    # If either is empty, they must both be empty to be correct
+                    correct = len(gold_answer_letter) == 0 and len(user_answers) == 0
+                else:
+                    correct = sorted(gold_answer_letter) == sorted(user_answers)
+        elif question_type in ['ux', 'frontend']:
             # For UX and frontend questions, check against MCQA database
             # Extract name or numeric ID from question_id (e.g., "frontend_choices_1" -> "choices_1", "ux_5" -> 5)
             try:
@@ -1874,7 +2296,7 @@ async def log_code_response(request: dict, db: Session = Depends(get_db)):
         "user_id": int,
         "question_id": str,  # ID of the code question
         "question_type": str,  # 'normal' or 'debug'
-        "phase": str | null,  # 'pre-test' or 'post-test'
+        "phase": str | null,  # 'pre-test', 'post-test', or 'retake_{uuid}'
         "py_code": str,  # User's Python code (optional)
         "js_code": str,  # User's JavaScript code (optional)
         "submitted_language": str,  # 'python' or 'javascript'
@@ -1897,10 +2319,10 @@ async def log_code_response(request: dict, db: Session = Depends(get_db)):
                 content={"error": "user_id, question_id, submitted_language, and state are required"}
             )
         
-        if state not in ['started', 'failed', 'passed']:
+        if state not in ['started', 'failed', 'passed', 'view_solution']:
             return JSONResponse(
                 status_code=400,
-                content={"error": "state must be 'started', 'failed', or 'passed'"}
+                content={"error": "state must be 'started', 'failed', 'passed', or 'view_solution'"}
             )
         
         if submitted_language not in ['python', 'javascript']:
@@ -1948,7 +2370,7 @@ async def report_skill_check_question(request: dict, db: Session = Depends(get_d
         "user_id": int,
         "question_id": str,  # ID of the reported question
         "question_type": str,  # 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'
-        "phase": str | null,  # 'pre-test' or 'post-test'
+        "phase": str | null,  # 'pre-test', 'post-test', or 'retake_{uuid}'
         "report_type": str,  # 'issue_stops_solving', 'frustrated_unable_to_solve', or 'other'
         "rationale": str,  # Required rationale explaining the report
     }
@@ -2432,7 +2854,7 @@ async def log_navigation_event(request: dict, db: Session = Depends(get_db)):
     {
         "user_id": int,
         "question_id": str | null,  # ID of the question (optional)
-        "test_type": str,  # 'pre-test' or 'post-test'
+        "test_type": str,  # 'pre-test', 'post-test', or 'retake_{uuid}'
         "time_away_ms": int | null,  # Time away in milliseconds (optional, only when user returns)
     }
     """
@@ -2448,10 +2870,11 @@ async def log_navigation_event(request: dict, db: Session = Depends(get_db)):
                 content={"error": "user_id and test_type are required"}
             )
         
-        if test_type not in ['pre-test', 'post-test']:
+        # Accept 'pre-test', 'post-test', or 'retake_{uuid}' format
+        if test_type not in ['pre-test', 'post-test'] and not test_type.startswith('retake_'):
             return JSONResponse(
                 status_code=400,
-                content={"error": "test_type must be 'pre-test' or 'post-test'"}
+                content={"error": "test_type must be 'pre-test', 'post-test', or 'retake_{uuid}'"}
             )
         
         # Create navigation event
@@ -3139,10 +3562,16 @@ async def generate_comprehension_questions(
 
         # TODO: Implement question generation logic here
         # This is a placeholder - you will fill in the actual generation logic
+        # Check if this is a required task (post-test required tasks)
+        REQUIRED_TASK_NAMES = {'connect_four', 'snake', 'platformer'}
+        is_required_task = project.name and project.name.lower() in REQUIRED_TASK_NAMES
+        
         generated_questions = await _generate_comprehension_questions(
             submission_title=payload.submission_title,
             submission_description=payload.submission_description,
-            submission_code=payload.submission_code
+            submission_code=payload.submission_code,
+            is_required_task=is_required_task,
+            project_name=project.name.lower() if project.name else None
         )
 
         # Store questions in database
@@ -3166,7 +3595,8 @@ async def generate_comprehension_questions(
                 "question_name": question_record.question_name,
                 "question": question_record.question,
                 "question_type": question_record.question_type,
-                "choices": question_record.choices
+                "choices": question_record.choices,
+                "answer": question_record.answer
             })
 
         db.commit()
@@ -3186,6 +3616,196 @@ async def generate_comprehension_questions(
             status_code=500,
             content={"error": f"Failed to generate comprehension questions: {str(e)}"}
         )
+
+
+@app.post("/api/comprehension-questions/save-tutorial", tags=["Comprehension Questions"])
+async def save_tutorial_questions(
+    payload: SaveTutorialQuestionsRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Save tutorial comprehension questions and answers for the playground task.
+    This endpoint creates or gets a Playground project and saves the questions/answers.
+    """
+    try:
+        # Verify user exists
+        user = db.query(User).filter(User.id == payload.user_id).first()
+        if not user:
+            return JSONResponse(status_code=404, content={"error": "User not found"})
+
+        # Get or create Playground project
+        playground_project = db.query(Project).filter(
+            func.lower(Project.name) == "playground"
+        ).first()
+        
+        if not playground_project:
+            playground_project = ProjectCRUD.create(
+                db,
+                ProjectCreate(
+                    name="Playground",
+                    description="Tutorial playground task",
+                    files=None,
+                    code_start_date=None,
+                    voting_start_date=None,
+                    voting_end_date=None,
+                )
+            )
+
+        # Save questions and answers
+        saved_questions = []
+        print(f"Saving tutorial questions for user {payload.user_id}, project {playground_project.id}")
+        print(f"Questions: {len(payload.questions)}, Answers: {list(payload.answers.keys())}")
+        
+        for question_data in payload.questions:
+            question_name = question_data.get("question_name") or question_data.get("id", "")
+            question_text = question_data.get("question", "")
+            question_type = question_data.get("question_type", "free_response")
+            choices = question_data.get("choices")
+            answer = question_data.get("answer")
+            
+            print(f"Processing question: {question_name}, type: {question_type}")
+            
+            # Check if question already exists for this user and project
+            existing_question = db.query(ComprehensionQuestion).filter(
+                ComprehensionQuestion.user_id == payload.user_id,
+                ComprehensionQuestion.project_id == playground_project.id,
+                ComprehensionQuestion.question_name == question_name
+            ).order_by(ComprehensionQuestion.created_at.desc()).first()
+            
+            if existing_question:
+                # Update existing question
+                question_record = existing_question
+                print(f"Found existing question: {question_name}")
+            else:
+                # Create new question
+                question_record = ComprehensionQuestion(
+                    user_id=payload.user_id,
+                    project_id=playground_project.id,
+                    question_name=question_name,
+                    question=question_text,
+                    question_type=question_type,
+                    choices=choices,
+                    answer=answer,
+                    user_answer=None,
+                    score=None
+                )
+                db.add(question_record)
+                db.flush()
+                print(f"Created new question: {question_name}")
+            
+            # Update with user answer if provided
+            if question_name in payload.answers:
+                print(f"Updating answer for {question_name}: {payload.answers[question_name]}")
+                user_answer = payload.answers[question_name]
+                
+                # Parse user_answer - it should be a binary array for multi_select, string for others
+                parsed_user_answer = user_answer
+                if question_type == 'multi_select':
+                    # user_answer should already be a binary array from frontend
+                    if isinstance(user_answer, str):
+                        import json
+                        try:
+                            parsed_user_answer = json.loads(user_answer)
+                        except:
+                            parsed_user_answer = user_answer
+                    elif not isinstance(user_answer, list):
+                        parsed_user_answer = []
+                    # Store as JSON string for multi_select
+                    import json
+                    question_record.user_answer = json.dumps(parsed_user_answer) if parsed_user_answer else None
+                else:
+                    # For non-multi_select, keep as string
+                    parsed_user_answer = str(user_answer) if user_answer else None
+                    question_record.user_answer = parsed_user_answer
+                
+                print(f"Set user_answer for {question_name}: {question_record.user_answer} (type: {type(question_record.user_answer)})")
+                
+                # Calculate score for self_report questions (extract number 1-5 from answer)
+                if question_name and question_name.startswith('self_report'):
+                    try:
+                        user_answer_str = str(parsed_user_answer) if parsed_user_answer else ""
+                        import re
+                        match = re.match(r'^(\d+)', user_answer_str.strip())
+                        if match:
+                            score_value = int(match.group(1))
+                            if 1 <= score_value <= 5:
+                                question_record.score = float(score_value)
+                        else:
+                            question_record.score = None
+                    except Exception:
+                        question_record.score = None
+                
+                # Calculate score for multi_select questions that have an answer field
+                elif question_type == 'multi_select' and answer:
+                    try:
+                        # Parse correct answer (should be a binary array)
+                        if isinstance(answer, str):
+                            try:
+                                correct_answer = json.loads(answer)
+                            except:
+                                correct_answer = [int(x) for x in answer.split(',') if x.strip()]
+                        else:
+                            correct_answer = answer
+                        
+                        if isinstance(correct_answer, list) and isinstance(parsed_user_answer, list):
+                            if len(correct_answer) == len(parsed_user_answer):
+                                matches = sum(1 for i in range(len(correct_answer)) if correct_answer[i] == parsed_user_answer[i])
+                                question_record.score = float(matches) / len(correct_answer) if len(correct_answer) > 0 else 0.0
+                            else:
+                                question_record.score = None
+                        else:
+                            question_record.score = None
+                    except Exception:
+                        question_record.score = None
+                
+                # Calculate score for mcqa questions
+                elif question_type == 'mcqa' and answer:
+                    try:
+                        correct_answer = int(answer) if isinstance(answer, (int, str)) and str(answer).isdigit() else None
+                        user_answer_int = None
+                        if isinstance(parsed_user_answer, str):
+                            # Extract number from string like "1 - Strongly disagree"
+                            import re
+                            match = re.match(r'^(\d+)', parsed_user_answer.strip())
+                            if match:
+                                user_answer_int = int(match.group(1))
+                        elif isinstance(parsed_user_answer, (int, float)):
+                            user_answer_int = int(parsed_user_answer)
+                        
+                        if correct_answer is not None and user_answer_int is not None:
+                            question_record.score = 1.0 if correct_answer == user_answer_int else 0.0
+                        else:
+                            question_record.score = None
+                    except Exception:
+                        question_record.score = None
+            
+            saved_questions.append({
+                "id": question_record.id,
+                "question_name": question_record.question_name,
+                "question": question_record.question,
+                "question_type": question_record.question_type,
+                "user_answer": question_record.user_answer,
+                "score": question_record.score
+            })
+
+        db.commit()
+
+        return {
+            "success": True,
+            "questions": saved_questions,
+            "count": len(saved_questions)
+        }
+
+    except Exception as e:
+        db.rollback()
+        print(f"Error saving tutorial comprehension questions: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to save tutorial comprehension questions: {str(e)}"}
+        )
+
 
 def generate_distractor_functions(function_names: list[str]) -> list[str]:
     """
@@ -3338,12 +3958,13 @@ def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
     })
     return questions
 
-def generate_js_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any]]:
+def generate_js_questions(submission_code: Dict[str, str], include_explanation: bool = True) -> List[Dict[str, Any]]:
     """ 
     Generate comprehension questions based on the user's submitted code.
     
     Args:
         submission_code: Dictionary mapping filename to code content
+        include_explanation: If True, include the explanation question. If False, only include MCQA questions.
         
     Returns:
         List of question dictionaries
@@ -3373,34 +3994,41 @@ def generate_js_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
     real_function_names = list(functions_map.keys())
     fake_function_names = generate_distractor_functions(real_function_names)
     
-    # Filter functions with more than 10 lines of code
-    large_functions = {
-        name: code 
-        for name, code in functions_map.items() 
-        if len(code.split('\n')) > 20
-    }
-    # Randomly sample one function if any exist
-    if large_functions:
-        sampled_function_name = random.choice(list(large_functions.keys()))
-        sampled_function_code = large_functions[sampled_function_name]
-        print(f"Sampled function '{sampled_function_name}':")
-        print(sampled_function_code)
-    else:
-        # Pick the function with the largest lines
-        function_lengths = {name: len(code.split('\n')) for name, code in functions_map.items()}
-        sampled_function_name = max(function_lengths, key=function_lengths.get)
-        sampled_function_code = functions_map[sampled_function_name]
-        print(f"Sampled function '{sampled_function_name}' (largest lines):")
-        print(sampled_function_code)
+    # Only sample a function for explanation if we're including the explanation question
+    sampled_function_name = None
+    sampled_function_code = None
+    
+    if include_explanation:
+        # Filter functions with more than 10 lines of code
+        large_functions = {
+            name: code 
+            for name, code in functions_map.items() 
+            if len(code.split('\n')) > 20
+        }
+        # Randomly sample one function if any exist
+        if large_functions:
+            sampled_function_name = random.choice(list(large_functions.keys()))
+            sampled_function_code = large_functions[sampled_function_name]
+            print(f"Sampled function '{sampled_function_name}':")
+            print(sampled_function_code)
+        else:
+            # Pick the function with the largest lines
+            function_lengths = {name: len(code.split('\n')) for name, code in functions_map.items()}
+            sampled_function_name = max(function_lengths, key=function_lengths.get)
+            sampled_function_code = functions_map[sampled_function_name]
+            print(f"Sampled function '{sampled_function_name}' (largest lines):")
+            print(sampled_function_code)
 
-    real_function_names_minus_large = [name for name in real_function_names if name != sampled_function_name]
-    if len(fake_function_names) > len(real_function_names_minus_large):
+    # For the MCQA question, exclude the sampled function (if any) from the choices
+    real_function_names_for_mcqa = [name for name in real_function_names if name != sampled_function_name] if sampled_function_name else real_function_names
+    
+    if len(fake_function_names) > len(real_function_names_for_mcqa):
         random.shuffle(fake_function_names)
-        fake_function_names = fake_function_names[:len(real_function_names_minus_large)]
-    if len(real_function_names_minus_large) > len(fake_function_names):
-        random.shuffle(real_function_names_minus_large)
-        real_function_names_minus_large = real_function_names_minus_large[:len(fake_function_names)]
-    all_function_names_to_show = real_function_names_minus_large + fake_function_names
+        fake_function_names = fake_function_names[:len(real_function_names_for_mcqa)]
+    if len(real_function_names_for_mcqa) > len(fake_function_names):
+        random.shuffle(real_function_names_for_mcqa)
+        real_function_names_for_mcqa = real_function_names_for_mcqa[:len(fake_function_names)]
+    all_function_names_to_show = real_function_names_for_mcqa + fake_function_names
     if len(all_function_names_to_show) > MAX_FUNCTION_NAMES_TO_SHOW:
         random.shuffle(all_function_names_to_show)
         all_function_names_to_show = all_function_names_to_show[:MAX_FUNCTION_NAMES_TO_SHOW]
@@ -3415,13 +4043,15 @@ def generate_js_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
             "answer": [0 if name in fake_function_names else 1 for name in all_function_names_to_show]
         })
 
-    questions.append({
-        "question_name": "explain_function",
-        "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you don't know how the function works, please say so.\n```{sampled_function_code}```",
-        "question_type": "free_response",
-        "choices": [],
-        "answer": ''
-    })
+    # Only add explanation question if requested
+    if include_explanation and sampled_function_name and sampled_function_code:
+        questions.append({
+            "question_name": "explain_function",
+            "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you don't know how the function works, please say so.\n```{sampled_function_code}```",
+            "question_type": "free_response",
+            "choices": [],
+            "answer": ''
+        })
 
     return questions
 
@@ -3715,11 +4345,22 @@ def _generate_distractor_features(existing_features: List[str]) -> List[str]:
 async def _generate_comprehension_questions(
     submission_title: str,
     submission_description: str,
-    submission_code: Dict[str, str]
+    submission_code: Dict[str, str],
+    is_required_task: bool = True,
+    project_name: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Generate comprehension questions based on the submission.
     Combines self-report questions with code-based questions.
+    
+    Args:
+        submission_title: Title of the submission
+        submission_description: Description of the submission
+        submission_code: Dictionary mapping filename to code content
+        is_required_task: If True, include all questions (for post-test required tasks).
+                         If False, only include self_report_understanding and MCQA questions,
+                         excluding explanation question.
+        project_name: Lowercase name of the project/task (e.g., "snake", "platformer")
     
     Returns a list of question dictionaries with the following structure:
     {
@@ -3732,55 +4373,78 @@ async def _generate_comprehension_questions(
     """
 
     SANITY_QUESTION_PROBABILITY = 0.5
+    # Tasks that should always have attention checks
+    ALWAYS_ATTENTION_CHECK_TASKS = {'snake', 'platformer'}
 
     questions = []
     self_report_options = ["1 - Strongly disagree", "2 - Disagree", "3 - Neither agree nor disagree", "4 - Agree", "5 - Strongly agree"]
     
     # Add self-report questions
     prefix = "How much do you agree with this statement"
-    questions.extend([
-        {
-            "question_name": "self_report_understanding",
-            "question": f"{prefix}: I understand how my code works.",
-            "question_type": "mcqa",
-            "choices": self_report_options,
-            "answer": ""
-        },
-        {
-            "question_name": "self_report_review",
-            "question": f"{prefix}: I read and reviewed all of the AI-generated code.",
-            "question_type": "mcqa",
-            "choices": self_report_options,
-            "answer": ""
-        },
-        {
-            "question_name": "self_report_explain",
-            "question": f"{prefix}: I could explain how my code works to someone else while looking at it.",
-            "question_type": "mcqa",
-            "choices": self_report_options,
-            "answer": ""
-        },
-        {
-            "question_name": "self_report_modify",
-            "question": f"{prefix}: I could easily add new features to my code without using AI tools.",
-            "question_type": "mcqa",
-            "choices": self_report_options,
-             "answer": ""
-         },
-     ])
+    
+    if is_required_task:
+        # For required tasks, include all self-report questions
+        questions.extend([
+            {
+                "question_name": "self_report_understanding",
+                "question": f"{prefix}: I understand how my code works.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_review",
+                "question": f"{prefix}: I read and reviewed all of the AI-generated code.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_explain",
+                "question": f"{prefix}: I could explain how my code works to someone else while looking at it.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_modify",
+                "question": f"{prefix}: I could easily add new features to my code without using AI tools.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ])
+    else:
+        # For non-required tasks, only include self_report_understanding
+        questions.extend([
+            {
+                "question_name": "self_report_understanding",
+                "question": f"{prefix}: I understand how my code works.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ])
 
     num_self_report_questions = len(questions)
     
     # Add code-based questions (run in parallel)
+    # For non-required tasks, skip the explanation question
     code_questions, ui_questions = await asyncio.gather(
-        asyncio.to_thread(generate_js_questions, submission_code),
+        asyncio.to_thread(generate_js_questions, submission_code, include_explanation=is_required_task),
         asyncio.to_thread(generate_ui_questions, submission_code)
     )
     
     questions.extend(ui_questions)
     questions.extend(code_questions)
 
-    if random.random() < SANITY_QUESTION_PROBABILITY:
+    # Add sanity check question
+    # Always add for snake and platformer, otherwise 50% probability for other required tasks
+    should_add_sanity_check = False
+    if project_name and project_name in ALWAYS_ATTENTION_CHECK_TASKS:
+        should_add_sanity_check = True
+    
+    if should_add_sanity_check:
         position_to_insert = random.randint(0, num_self_report_questions)
         choice_to_select = random.choice(self_report_options)
         sanity_question = {
@@ -3926,6 +4590,400 @@ async def check_user_submission(
     except Exception as e:
         print(f"Error checking user submission: {e}")
         return JSONResponse(status_code=500, content={"error": "Failed to check user submission"})
+
+
+@app.get("/api/users/{user_id}/stats", tags=["Users"])
+async def get_user_stats(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get comprehensive statistics for a user including AI usage, skill check performance, and comprehension scores"""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse(status_code=404, content={"error": "User not found"})
+
+        # AI Statistics
+        assistant_logs = db.query(AssistantLog).filter(AssistantLog.user_id == user_id).all()
+        num_prompts = len(assistant_logs)
+        
+        # Calculate lines generated from assistant logs
+        total_lines = 0
+        for log in assistant_logs:
+            if log.generated_code:
+                # generated_code is a JSON dict, count lines in all values
+                for key, value in log.generated_code.items():
+                    if isinstance(value, dict) and "content" in value:
+                        content = value["content"]
+                        if isinstance(content, str):
+                            total_lines += len(content.splitlines())
+                    elif isinstance(value, str):
+                        total_lines += len(value.splitlines())
+        
+        # Count LLM ideas used (from CodePreference where user_selection is not null)
+        llm_ideas_used = db.query(CodePreference).filter(
+            CodePreference.user_id == user_id,
+            CodePreference.user_selection.isnot(None)
+        ).count()
+
+        # MCQA Accuracy over time (frontend and ux) with frontend topic breakdown
+        mcqa_responses = db.query(UserMCQASkillResponse).filter(
+            UserMCQASkillResponse.user_id == user_id,
+            UserMCQASkillResponse.question_type.in_(['frontend', 'ux'])
+        ).order_by(UserMCQASkillResponse.created_at.asc()).all()
+        
+        # Helper to map MCQA question ids to frontend topics
+        def get_mcqa_topic(question_id: str) -> str:
+            qid = (question_id or "").lower()
+            if "js" in qid or "javascript" in qid:
+                return "js"
+            if "css" in qid:
+                return "css"
+            if "html" in qid:
+                return "html"
+            return "other"
+
+        def add_mcqa_point(target: list, responses: list, phase: str, topic: str):
+            if not responses:
+                return
+            correct = sum(1 for r in responses if r.correct)
+            total = len(responses)
+            target.append({
+                "phase": phase,
+                "question_category": topic,
+                "accuracy": correct / total if total > 0 else 0,
+                "correct": correct,
+                "total": total,
+                "timestamp": responses[0].created_at.isoformat() if responses[0].created_at else None
+            })
+        
+        # Group by phase and calculate accuracy
+        mcqa_frontend_data = []
+        mcqa_ux_data = []
+        
+        for phase in ['pre-test', 'post-test']:
+            phase_responses = [r for r in mcqa_responses if r.phase == phase]
+            if phase_responses:
+                frontend_responses = [r for r in phase_responses if r.question_type == 'frontend']
+                ux_responses = [r for r in phase_responses if r.question_type == 'ux']
+                
+                # Overall frontend accuracy plus topic-level breakdowns
+                add_mcqa_point(mcqa_frontend_data, frontend_responses, phase, "all")
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "html"],
+                    phase,
+                    "html"
+                )
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "css"],
+                    phase,
+                    "css"
+                )
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "js"],
+                    phase,
+                    "js"
+                )
+                
+                if ux_responses:
+                    correct = sum(1 for r in ux_responses if r.correct)
+                    total = len(ux_responses)
+                    mcqa_ux_data.append({
+                        "phase": phase,
+                        "accuracy": correct / total if total > 0 else 0,
+                        "correct": correct,
+                        "total": total,
+                        "timestamp": ux_responses[0].created_at.isoformat() if ux_responses[0].created_at else None
+                    })
+        
+        # Also include retake phases
+        retake_phases = set(r.phase for r in mcqa_responses if r.phase and r.phase.startswith('retake_'))
+        for retake_phase in retake_phases:
+            phase_responses = [r for r in mcqa_responses if r.phase == retake_phase]
+            if phase_responses:
+                frontend_responses = [r for r in phase_responses if r.question_type == 'frontend']
+                ux_responses = [r for r in phase_responses if r.question_type == 'ux']
+                
+                # Overall frontend accuracy plus topic-level breakdowns
+                add_mcqa_point(mcqa_frontend_data, frontend_responses, retake_phase, "all")
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "html"],
+                    retake_phase,
+                    "html"
+                )
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "css"],
+                    retake_phase,
+                    "css"
+                )
+                add_mcqa_point(
+                    mcqa_frontend_data,
+                    [r for r in frontend_responses if get_mcqa_topic(r.question_id) == "js"],
+                    retake_phase,
+                    "js"
+                )
+                
+                if ux_responses:
+                    correct = sum(1 for r in ux_responses if r.correct)
+                    total = len(ux_responses)
+                    mcqa_ux_data.append({
+                        "phase": retake_phase,
+                        "accuracy": correct / total if total > 0 else 0,
+                        "correct": correct,
+                        "total": total,
+                        "timestamp": ux_responses[0].created_at.isoformat() if ux_responses[0].created_at else None
+                    })
+
+        # Coding accuracy and speed (from scratch and debug)
+        code_responses = db.query(UserCodeSkillResponse).filter(
+            UserCodeSkillResponse.user_id == user_id
+        ).order_by(UserCodeSkillResponse.created_at.asc()).all()
+        
+        # Log all coding responses for debugging
+        print(f"\n=== CODING RESPONSES FOR USER {user_id} ===")
+        print(f"Total responses: {len(code_responses)}")
+        for i, resp in enumerate(code_responses, 1):
+            print(f"{i}. question_id={resp.question_id}, question_type={resp.question_type}, phase={resp.phase}, state={resp.state}, created_at={resp.created_at}")
+        print("=== END CODING RESPONSES ===\n")
+        
+        # Group by question_id and phase to calculate tries and time per question
+        # Then aggregate by phase and question_type
+        coding_normal_data = []
+        coding_debug_data = []
+        
+        # Helper function to normalize phase
+        def normalize_phase(phase: str) -> str:
+            if phase == "pre-test":
+                return "pre"
+            elif phase == "post-test":
+                return "post"
+            # Keep retake phases as-is (they'll show as "R{uuid}" in the frontend)
+            return phase or 'none'
+        
+        # Group responses by question_id, normalized phase, and question_type
+        # Using normalized phase from the start ensures proper deduplication of unique questions
+        # Structure: {(question_id, normalized_phase, normalized_question_type): [responses]}
+        question_groups: Dict[tuple, List[UserCodeSkillResponse]] = {}
+        for response in code_responses:
+            # Normalize phase and question_type immediately to ensure proper grouping
+            normalized_phase = normalize_phase(response.phase)
+            # Simple check: if it's "debug" (case-insensitive), it's debug, otherwise it's "from scratch" (normal)
+            question_type_lower = (response.question_type or '').lower().strip()
+            normalized_question_type = 'debug' if question_type_lower == 'debug' else 'normal'
+            # Use normalized values for grouping to ensure questions are properly deduplicated
+            key = (response.question_id, normalized_phase, normalized_question_type)
+            if key not in question_groups:
+                question_groups[key] = []
+            question_groups[key].append(response)
+        
+        # Calculate metrics per individual question
+        # Return individual question-level data instead of aggregated data
+        coding_normal_data = []
+        coding_debug_data = []
+        coding_combined_data = []
+        
+        for (question_id, normalized_phase, normalized_question_type), responses in question_groups.items():
+            # Values are already normalized from the grouping step above
+            
+            # Sort by created_at to find first started and first passed
+            sorted_responses = sorted(
+                [r for r in responses if r.created_at],
+                key=lambda r: r.created_at
+            )
+            
+            started_responses = [r for r in sorted_responses if r.state == 'started']
+            passed_responses = [r for r in sorted_responses if r.state == 'passed']
+            reported_responses = [r for r in sorted_responses if r.state == 'reported']
+            failed_responses = [r for r in sorted_responses if r.state == 'failed']
+            
+            # A question is "attempted" if it has a passed, failed, or reported response
+            # "started" alone doesn't count as an attempt since no code was submitted
+            has_attempt = bool(passed_responses or reported_responses or failed_responses)
+            if not has_attempt:
+                continue  # Skip questions that were only started but never submitted
+            
+            # Calculate pass rate for this specific question
+            passed = 1 if passed_responses else 0
+            score = 1.0 if passed else 0.0
+            
+            # Calculate time taken (only if question was passed)
+            time_taken_seconds = 0.0
+            timestamp = None
+            
+            if passed_responses:
+                # Question was passed - use passed timestamp and calculate time
+                first_started = started_responses[0] if started_responses else None
+                first_passed = passed_responses[0]
+                
+                if first_started and first_started.created_at and first_passed.created_at:
+                    time_taken_seconds = (first_passed.created_at - first_started.created_at).total_seconds()
+                    timestamp = first_passed.created_at.isoformat()
+            else:
+                # Question was not passed - use timestamp from any available response for plotting
+                # Try in order: reported, failed, started (any of these will work for plotting)
+                first_attempt = None
+                if reported_responses and reported_responses[0].created_at:
+                    first_attempt = reported_responses[0]
+                elif failed_responses and failed_responses[0].created_at:
+                    first_attempt = failed_responses[0]
+                elif started_responses and started_responses[0].created_at:
+                    first_attempt = started_responses[0]
+                
+                if first_attempt and first_attempt.created_at:
+                    timestamp = first_attempt.created_at.isoformat()
+            
+            # Create data point for this individual question
+            data_point = {
+                "name": question_id,
+                "score": score,
+                "test_project_id": normalized_phase,  # 'pre', 'post', or 'retake_{uuid}'
+                "time_taken_seconds": time_taken_seconds,
+                "timestamp": timestamp or ""
+            }
+            
+            # Add to appropriate list based on question_type
+            if normalized_question_type == 'debug':
+                coding_debug_data.append(data_point)
+            else:
+                # All other values (including 'normal') go to 'normal' (from scratch)
+                coding_normal_data.append(data_point)
+            
+            # Also add to combined (all questions regardless of type)
+            coding_combined_data.append(data_point)
+
+        # Comprehension scores
+        comprehension_questions = db.query(ComprehensionQuestion).filter(
+            ComprehensionQuestion.user_id == user_id
+        ).all()
+        
+        # Separate MCQA and multi-select questions
+        mcqa_questions = [q for q in comprehension_questions if q.question_type == 'mcqa' and q.user_answer is not None]
+        multi_select_questions = [q for q in comprehension_questions if q.question_type == 'multi_select' and q.score is not None]
+        
+        # For MCQA, extract choice number (1-5) from user_answer instead of using score
+        import re
+        mcqa_choice_values = []
+        for q in mcqa_questions:
+            user_answer_str = str(q.user_answer) if q.user_answer else ""
+            match = re.match(r'^(\d+)', user_answer_str.strip())
+            if match:
+                choice_num = int(match.group(1))
+                if 1 <= choice_num <= 5:
+                    mcqa_choice_values.append(choice_num)
+        
+        # Calculate average MCQA as choice number (1-5), then convert to percentage out of 5
+        avg_mcqa_choice = sum(mcqa_choice_values) / len(mcqa_choice_values) if mcqa_choice_values else None
+        avg_mcqa_score = (avg_mcqa_choice / 5.0) if avg_mcqa_choice is not None else None
+        
+        avg_multi_select_score = sum(q.score for q in multi_select_questions) / len(multi_select_questions) if multi_select_questions else None
+        
+        # Group comprehension scores by project
+        project_mcqa_scores = defaultdict(list)
+        project_multi_select_scores = defaultdict(list)
+        project_names = {}
+        
+        # Fetch project names
+        project_ids = set()
+        for q in comprehension_questions:
+            if q.project_id:
+                project_ids.add(q.project_id)
+        
+        if project_ids:
+            projects = db.query(Project).filter(Project.id.in_(project_ids)).all()
+            for p in projects:
+                project_names[p.id] = p.name or p.title or f"Project {p.id}"
+        
+        # Group MCQA questions by project
+        for q in mcqa_questions:
+            if q.project_id and q.user_answer:
+                user_answer_str = str(q.user_answer) if q.user_answer else ""
+                match = re.match(r'^(\d+)', user_answer_str.strip())
+                if match:
+                    choice_num = int(match.group(1))
+                    if 1 <= choice_num <= 5:
+                        project_mcqa_scores[q.project_id].append(choice_num)
+        
+        # Group multi-select questions by project
+        for q in multi_select_questions:
+            if q.project_id and q.score is not None:
+                project_multi_select_scores[q.project_id].append(q.score)
+        
+        # Get submission order for projects (chronological order of first submission per project)
+        submissions = db.query(Submission).filter(
+            Submission.user_id == user_id
+        ).order_by(Submission.created_at.asc()).all()
+        
+        # Create ordered list of project_ids based on first submission time
+        project_order = []
+        seen_projects = set()
+        for submission in submissions:
+            if submission.project_id and submission.project_id not in seen_projects:
+                project_order.append(submission.project_id)
+                seen_projects.add(submission.project_id)
+        
+        # Build per-project data
+        all_project_ids = set(project_mcqa_scores.keys()) | set(project_multi_select_scores.keys())
+        
+        # Sort projects: first by submission order, then by project_id for any not in submissions
+        def get_project_order(project_id):
+            if project_id in project_order:
+                return project_order.index(project_id)
+            # Projects not in submissions go to the end, sorted by ID
+            return len(project_order) + project_id
+        
+        sorted_project_ids = sorted(all_project_ids, key=get_project_order)
+        
+        per_project_scores = []
+        for project_id in sorted_project_ids:
+            project_name = project_names.get(project_id, f"Project {project_id}")
+            mcqa_values = project_mcqa_scores.get(project_id, [])
+            multi_select_values = project_multi_select_scores.get(project_id, [])
+            
+            avg_mcqa_choice_project = sum(mcqa_values) / len(mcqa_values) if mcqa_values else None
+            avg_mcqa_score_project = (avg_mcqa_choice_project / 5.0) if avg_mcqa_choice_project is not None else None
+            avg_multi_select_score_project = sum(multi_select_values) / len(multi_select_values) if multi_select_values else None
+            
+            per_project_scores.append({
+                "project_id": project_id,
+                "project_name": project_name,
+                "avg_mcqa": avg_mcqa_score_project,
+                "avg_multi_select": avg_multi_select_score_project,
+                "mcqa_count": len(mcqa_values),
+                "multi_select_count": len(multi_select_values)
+            })
+
+        return {
+            "ai_stats": {
+                "num_prompts": num_prompts,
+                "total_lines_generated": total_lines,
+                "llm_ideas_used": llm_ideas_used
+            },
+            "mcqa_accuracy": {
+                "frontend": mcqa_frontend_data,
+                "ux": mcqa_ux_data
+            },
+            "coding_performance": {
+                "from_scratch": coding_normal_data,
+                "debug": coding_debug_data,
+                "combined": coding_combined_data
+            },
+            "comprehension_scores": {
+                "avg_mcqa": avg_mcqa_score,
+                "avg_multi_select": avg_multi_select_score,
+                "mcqa_count": len(mcqa_choice_values),
+                "multi_select_count": len(multi_select_questions),
+                "per_project": per_project_scores
+            }
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": f"Failed to get user stats: {str(e)}"})
 
 
 @app.get("/api/leaderboard", tags=["Submissions"])

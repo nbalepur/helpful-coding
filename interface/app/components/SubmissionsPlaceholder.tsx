@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { Search, Shuffle, Bookmark, Flag, ArrowLeft, Filter, ArrowUpDown, Scale, RefreshCw } from "lucide-react";
+import { Search, Shuffle, Bookmark, Flag, ArrowLeft, Filter, ArrowUpDown, Scale, RefreshCw, Download } from "lucide-react";
 import PreviewIframe, { type PreviewIframeRef } from "./PreviewIframe";
 import ReportSubmissionModal from "./ReportSubmissionModal";
 import { ENV } from "../config/env";
 import { useAuth } from "../utils/auth";
 import { useSnackbar } from "./SnackbarProvider";
+import { downloadProjectAsRepository } from "../utils/downloadProject";
 
 type SubmissionRatingSummary = {
   average: number | null;
@@ -1280,6 +1281,7 @@ const getTooltipPosition = useCallback(
     }
   }, [currentUserId, token]);
 
+
   const handleSubmitRating = useCallback(async () => {
     if (!selectedSubmission) {
       setRatingError("Select a submission to rate first.");
@@ -1488,7 +1490,6 @@ const getTooltipPosition = useCallback(
     } catch {
       // no-op
     }
-    console.log("[SubmissionsGallery] view submission", submission);
     },
     [hideTooltip, loadSubmissionDetail]
   );
@@ -2032,6 +2033,62 @@ const getTooltipPosition = useCallback(
     const { html, css, js } = selectedSubmissionPreview;
     return Boolean(html?.trim() || css?.trim() || js?.trim());
   }, [selectedSubmissionPreview]);
+
+  const handleDownloadSubmission = useCallback(async () => {
+    if (!selectedSubmissionPreview || !selectedSubmission) {
+      return;
+    }
+
+    try {
+      const projectName = selectedSubmission.title || 'VibeJam Project';
+      const codeFiles = {
+        html: selectedSubmissionPreview.html || '',
+        css: selectedSubmissionPreview.css || '',
+        js: selectedSubmissionPreview.js || '',
+      };
+      
+      await downloadProjectAsRepository(
+        codeFiles,
+        projectName
+      );
+
+      // Log download event if userId is available
+      if (currentUserId && selectedSubmission.projectId) {
+        try {
+          await fetch(`${ENV.BACKEND_URL}/api/code-logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: currentUserId,
+              projectId: selectedSubmission.projectId,
+              taskId: taskId || undefined,
+              mode: 'download',
+              event: 'download',
+              code: codeFiles,
+              metadata: {
+                event: 'download',
+                taskId: taskId || null,
+                projectId: selectedSubmission.projectId,
+                submissionId: selectedSubmission.id,
+                submissionTitle: selectedSubmission.title || null,
+                triggeredAt: new Date().toISOString(),
+                codeLengths: Object.fromEntries(
+                  Object.entries(codeFiles).map(([key, value]) => [key, value?.length || 0])
+                ),
+              },
+            }),
+          });
+        } catch (error) {
+          console.warn('Failed to log download event', error);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to download submission:', error);
+      showSnackbar('Failed to download project', 'error');
+    }
+  }, [selectedSubmissionPreview, selectedSubmission, showSnackbar, currentUserId, taskId]);
 
 const isDetailView = !!selectedSubmission;
 const selectedTitle =
@@ -2648,92 +2705,96 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                       className="h-full w-full border-none bg-black"
                     />
                   </div>
-                  <div className="flex w-80 flex-col gap-4 bg-gray-900/70 p-4">
-        <div>
-                      <h3 className="text-sm font-semibold text-white pb-2">Rate this submission</h3>
-                      <p className="text-xs text-gray-400 pb-2">
-                        Provide a score for each category from 1 (needs work) to 5 (outstanding).
-                      </p>
-                      {!currentUserId && (
-                        <p className="mt-1 text-xs text-amber-400">
-                          Sign in to submit your rating. You can still explore the criteria below.
+                  <div className="flex w-80 h-full flex-col overflow-hidden bg-gray-900/70">
+        <div className="flex flex-col flex-1 overflow-y-auto min-h-0 p-4 gap-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white pb-2">Rate this submission</h3>
+                        <p className="text-xs text-gray-400 pb-2">
+                          Provide a score for each category from 1 (needs work) to 5 (outstanding).
                         </p>
-                      )}
-                      {isFeedbackLoading && currentUserId && (
-                        <p className="mt-1 text-[11px] text-gray-500">Loading your saved rating…</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      {RATING_DIMENSIONS.map((dimension) => (
-                        <div key={dimension.key} className="flex flex-col gap-1">
-                          <label className="flex items-center gap-2 text-sm font-medium text-gray-300">
-                            <span>{dimension.name}: <span className="font-light">{ratingScores[dimension.key] ?? 3}</span></span>
-                            <span
-                              data-tooltip={dimension.description}
-                              onPointerEnter={(event) =>
-                                showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
-                              }
-                              onPointerMove={(event) =>
-                                showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
-                              }
-                              onPointerLeave={hideTooltip}
-                              onFocus={(event) =>
-                                showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
-                              }
-                              onBlur={hideTooltip}
-                              tabIndex={0}
-                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-gray-600 text-[10px] text-gray-400 hover:border-blue-500 hover:text-blue-400"
-                            >
-                              ?
-                            </span>
-                          </label>
-                          <input
-                            type="range"
-                            min={1}
-                            max={5}
-                            step={1}
-                            value={ratingScores[dimension.key] ?? 3}
-                            onChange={(event) => handleScoreChange(dimension.key, Number(event.target.value))}
-                            aria-label={`${dimension.name} rating`}
-                            className="w-full accent-blue-500"
-                          />
-                          <div className="flex justify-between text-[11px] text-gray-500">
-                            <span>1</span>
-                            <span>2</span>
-                            <span>3</span>
-                            <span>4</span>
-                            <span>5</span>
+                        {!currentUserId && (
+                          <p className="mt-1 text-xs text-amber-400">
+                            Sign in to submit your rating. You can still explore the criteria below.
+                          </p>
+                        )}
+                        {isFeedbackLoading && currentUserId && (
+                          <p className="mt-1 text-[11px] text-gray-500">Loading your saved rating…</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        {RATING_DIMENSIONS.map((dimension) => (
+                          <div key={dimension.key} className="flex flex-col gap-1">
+                            <label className="flex items-center gap-2 text-sm font-medium text-gray-300">
+                              <span>{dimension.name}: <span className="font-light">{ratingScores[dimension.key] ?? 3}</span></span>
+                              <span
+                                data-tooltip={dimension.description}
+                                onPointerEnter={(event) =>
+                                  showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
+                                }
+                                onPointerMove={(event) =>
+                                  showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
+                                }
+                                onPointerLeave={hideTooltip}
+                                onFocus={(event) =>
+                                  showTooltipForElement(event.currentTarget as HTMLElement, dimension.description)
+                                }
+                                onBlur={hideTooltip}
+                                tabIndex={0}
+                                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-gray-600 text-[10px] text-gray-400 hover:border-blue-500 hover:text-blue-400"
+                              >
+                                ?
+                              </span>
+                            </label>
+                            <input
+                              type="range"
+                              min={1}
+                              max={5}
+                              step={1}
+                              value={ratingScores[dimension.key] ?? 3}
+                              onChange={(event) => handleScoreChange(dimension.key, Number(event.target.value))}
+                              aria-label={`${dimension.name} rating`}
+                              className="w-full accent-blue-500"
+                            />
+                            <div className="flex justify-between text-[11px] text-gray-500">
+                              <span>1</span>
+                              <span>2</span>
+                              <span>3</span>
+                              <span>4</span>
+                              <span>5</span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-medium text-gray-300" htmlFor="submission-feedback">
-                        Comments
-                      </label>
-                      <textarea
-                        id="submission-feedback"
-                        placeholder="Share any additional thoughts..."
-                        value={ratingComment}
-                        onChange={handleCommentChange}
-                        className="h-24 resize-none rounded-md border border-gray-700/70 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                      />
-                      {ratingSuccess && (
-                        <p className="text-xs text-emerald-400">{ratingSuccess}</p>
-                      )}
-                      {ratingError && (
-                        <p className="text-xs text-red-400">{ratingError}</p>
-                      )}
+                        ))}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs font-medium text-gray-300" htmlFor="submission-feedback">
+                          Comments
+                        </label>
+                        <textarea
+                          id="submission-feedback"
+                          placeholder="Share any additional thoughts..."
+                          value={ratingComment}
+                          onChange={handleCommentChange}
+                          className="h-24 resize-none rounded-md border border-gray-700/70 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                        />
+                        {ratingSuccess && (
+                          <p className="text-xs text-emerald-400">{ratingSuccess}</p>
+                        )}
+                        {ratingError && (
+                          <p className="text-xs text-red-400">{ratingError}</p>
+                        )}
+                      </div>
         </div>
-        <button
-                      type="button"
-                      onClick={handleSubmitRating}
-                      disabled={isSubmittingRating || !currentUserId}
-                      className="mt-auto rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                      data-project-mode="true"
-                    >
-                      {isSubmittingRating ? "Submitting…" : "Submit rating"}
-        </button>
+        <div className="flex flex-shrink-0 p-4 border-t border-gray-700/50">
+          <button
+            type="button"
+            onClick={handleSubmitRating}
+            disabled={isSubmittingRating || !currentUserId}
+            className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+            data-project-mode="true"
+          >
+            {isSubmittingRating ? "Submitting…" : "Submit Rating"}
+          </button>
+        </div>
       </div>
                 </>
               ) : (
