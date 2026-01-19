@@ -110,8 +110,22 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
         }
         setError(errorMessage);
       }
-    } catch (err) {
-      setError("Network error. Please check your connection and try again.");
+    } catch (err: any) {
+      console.error('Signup error:', err);
+      // Check for connection refused errors
+      let errorMessage = "Network error. Please check your connection and try again.";
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        // Likely backend server is not running
+        const backendUrl = ENV.BACKEND_URL;
+        if (backendUrl.includes('127.0.0.1:4828') || backendUrl.includes('localhost:4828')) {
+          errorMessage = "Backend server is not running. Please start the backend server on port 4828 and try again.";
+        } else {
+          errorMessage = `Cannot connect to backend server at ${backendUrl}. Please ensure the server is running.`;
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
