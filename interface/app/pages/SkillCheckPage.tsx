@@ -486,7 +486,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
                     <span className="text-white text-xs font-semibold">1</span>
                   </div>
                   <div>
-                    <h3 className="text-base font-semibold text-white mb-1">Multiple-Choice Questions</h3>
+                    <h3 className="text-base font-semibold text-white mb-1">Multiple-Choice Questions ({"<"}20 minutes)</h3>
                     <p className="text-gray-300 text-sm">
                       You'll answer a series of multiple-choice questions covering:
                     </p>
@@ -506,13 +506,20 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
                     <span className="text-white text-xs font-semibold">2</span>
                   </div>
                   <div>
-                    <h3 className="text-base font-semibold text-white mb-1">Coding Tasks</h3>
-                    <p className="text-gray-300 text-sm">
-                      You'll then complete a series of coding tasks <strong className="text-white"> without AI assistance</strong>, where you will be given a problem statement and a set of test cases to pass. These tasks will test your ability to write code, design algorithms, and debug outputs.
+                    <h3 className="text-base font-semibold text-white mb-1">Coding Tasks ({"<"}40 minutes)</h3>
+                    <p className="text-gray-300 text-sm mb-1.5">
+                      You'll then complete a series of coding tasks <strong className="text-white">without AI assistance</strong>, where you must implement a function to pass a set of test cases. You will either start from:
                     </p>
+                    <ul className="list-disc list-inside mt-1.5 text-gray-300 ml-3 text-sm">
+                      <li>A blank implementation</li>
+                      <li>An existing, faulty implementation</li>
+                    </ul>
                   </div>
                 </div>
               </div>
+              <p className="text-gray-300 text-sm mt-4">
+                If you get stuck on any question, you can hit the "Report" button at the top right of the screen to skip it. This button appears after 30 seconds to ensure good-faith attempts.
+              </p>
             </div>
           </div>
         )}

@@ -8,11 +8,12 @@ import { ENV } from "../config/env";
 import { useIframeTheme } from "../utils/IframeThemeContext";
 import { Sun, Moon } from "lucide-react";
 
-export type PopupState = 'none' | 'pre-test' | 'post-test' | 'tutorial';
+export type PopupState = 'none' | 'pre-test' | 'post-test' | 'tutorial' | 'skill-check-prompt';
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
+const SKILL_CHECK_PROMPT_COOKIE_NAME = `${ENV.COOKIE_PREFIX}skill_check_prompt_dismissed`;
 
 interface UserStudyPopupContextType {
   popupState: PopupState;
@@ -46,6 +47,7 @@ function UserStudyPopupInner() {
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [hasWatchedEnough, setHasWatchedEnough] = useState(false);
   const [windowOrigin, setWindowOrigin] = useState<string>('');
+  const [dontShowAgainChecked, setDontShowAgainChecked] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<any>(null);
@@ -71,6 +73,13 @@ function UserStudyPopupInner() {
           setMarkdownContent(text);
           setIsLoading(false);
         });
+    }
+  }, [popupState]);
+
+  // Reset checkbox state when skill-check-prompt modal opens
+  useEffect(() => {
+    if (popupState === 'skill-check-prompt') {
+      setDontShowAgainChecked(false);
     }
   }, [popupState]);
 
@@ -481,6 +490,10 @@ function UserStudyPopupInner() {
         if (pathname !== '/skill-check' && pathname !== '/landing') {
           shouldShow = true;
         }
+      } else if (popupState === 'skill-check-prompt') {
+        if (pathname !== '/landing' && pathname !== '/skill-check') {
+          shouldShow = true;
+        }
       }
     }
     
@@ -515,7 +528,38 @@ function UserStudyPopupInner() {
 
   // Handle navigation to skill-check
   const handleNavigateToSkillCheck = () => {
-    router.push('/skill-check');
+    // Close modal first
+    setPopupState('none');
+    // If already on skill-check page, just close. Otherwise navigate.
+    if (pathname !== '/skill-check') {
+      router.push('/skill-check');
+    }
+  };
+
+  // Handle "don't show again" for skill check prompt (checkbox - 1 day cookie)
+  const handleDontShowAgain = (checked: boolean) => {
+    if (checked) {
+      const expires = new Date();
+      expires.setDate(expires.getDate() + 1); // 1 day from now
+      setCookie(SKILL_CHECK_PROMPT_COOKIE_NAME, 'true', {
+        expires,
+        maxAge: 24 * 60 * 60, // 1 day in seconds
+        sameSite: 'lax'
+      });
+    }
+  };
+
+  // Handle "No Thanks" button - close the modal and hide for session
+  const handleNoThanks = (dontShowAgain: boolean) => {
+    // Hide for this session using sessionStorage
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(SKILL_CHECK_PROMPT_COOKIE_NAME, 'true');
+    }
+    // If checkbox is checked, also set the 1 day cookie
+    if (dontShowAgain) {
+      handleDontShowAgain(true);
+    }
+    setPopupState('none');
   };
 
   // Track tutorial cookie state to avoid calling getCookie during render
@@ -548,6 +592,10 @@ function UserStudyPopupInner() {
     // For pre-test and post-test, don't show on skill-check page
     if ((popupState === 'pre-test' || popupState === 'post-test') && 
         pathname === '/skill-check') {
+      return false;
+    }
+    // For skill-check-prompt, don't show on skill-check page
+    if (popupState === 'skill-check-prompt' && pathname === '/skill-check') {
       return false;
     }
     return true;
@@ -676,6 +724,205 @@ function UserStudyPopupInner() {
             >
               Take me there!
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Skill check prompt modal (optional, can be closed)
+  if (popupState === 'skill-check-prompt') {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setPopupState('none');
+          }
+        }}
+      >
+        <div
+          data-modal-content
+          style={{
+            backgroundColor: '#1f2937',
+            borderRadius: '12px',
+            width: '90%',
+            maxWidth: '500px',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '24px 24px 16px 24px',
+              borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+            }}
+          >
+            <h2
+              style={{
+                color: '#e2e8f0',
+                fontSize: '22px',
+                fontWeight: 600,
+                letterSpacing: '0.01em',
+                margin: 0,
+              }}
+            >
+              Skill Check Available!
+            </h2>
+            <button
+              onClick={() => setPopupState('none')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#9ca3af',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '0',
+                width: '28px',
+                height: '28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease, color 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(148, 163, 184, 0.2)';
+                e.currentTarget.style.color = '#e2e8f0';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = '#9ca3af';
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Content */}
+          <div
+            style={{
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '24px',
+            }}
+          >
+            <p
+              style={{
+                color: '#e5e7eb',
+                fontSize: '16px',
+                lineHeight: '1.6',
+                margin: 0,
+              }}
+            >
+              We've noticed you've submitted a lot of projects in VibeJam! Would you like to take a skill check and see whether you've improved? 👀 
+            </p>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={dontShowAgainChecked}
+                onChange={(e) => {
+                  setDontShowAgainChecked(e.target.checked);
+                  handleDontShowAgain(e.target.checked);
+                }}
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  cursor: 'pointer',
+                  accentColor: '#2563eb',
+                }}
+              />
+              <span
+                style={{
+                  color: '#9ca3af',
+                  fontSize: '14px',
+                }}
+              >
+                Don't show again
+              </span>
+            </label>
+
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                gap: '12px',
+              }}
+            >
+              <button
+                onClick={() => handleNoThanks(dontShowAgainChecked)}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#374151',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '16px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease',
+                  flex: 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#4b5563';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#374151';
+                }}
+              >
+                No Thanks
+              </button>
+              <button
+                onClick={handleNavigateToSkillCheck}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '16px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease',
+                  flex: 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#1d4ed8';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#2563eb';
+                }}
+              >
+                Heck Yeah!
+              </button>
+            </div>
           </div>
         </div>
       </div>

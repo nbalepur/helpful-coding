@@ -10,6 +10,7 @@ import { PASSWORD_HASH, hashString } from "../utils/password";
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
+const SKILL_CHECK_PROMPT_COOKIE_NAME = `${ENV.COOKIE_PREFIX}skill_check_prompt_dismissed`;
 
 // Set to true to disable the user study popup
 const DISABLE_USER_STUDY_POPUP = false;
@@ -75,6 +76,11 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       allRequiredTasksCompleted: null as boolean | null,
       completedTaskNames: [] as string[],
       requiredTaskNames: POST_TEST_REQUIRED_TASKS,
+      numProjectsSubmitted: null as number | null,
+      cookieDismissed: null as boolean | null,
+      sessionDismissed: null as boolean | null,
+      shouldShowSkillCheckPrompt: null as boolean | null,
+      skillCheckPromptCondition: null as any,
       finalDecision: null as PopupState | null,
       error: null as any,
     };
@@ -131,6 +137,10 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         submissions.map((sub: any) => sub.projectId).filter((id: any): id is number => id != null)
       );
       
+      // Calculate number of projects submitted
+      const numProjectsSubmitted = submittedProjectIds.size;
+      debugInfo.numProjectsSubmitted = numProjectsSubmitted;
+      
       // Parse tasks and map projectId to task name
       let tasks: any[] = [];
       if (tasksResponse.ok) {
@@ -173,8 +183,38 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         return 'pre-test';
       }
       
-      // 3. Otherwise, if user has not completed all required tasks, show nothing
+      // 3. Otherwise, if user has not completed all required tasks, check for skill check prompt
       if (!debugInfo.allRequiredTasksCompleted) {
+        // Check if we should show skill check prompt
+        // Condition: (numProjects - 3) % 5 === 0 && numProjects >= 8
+        // Check both cookie (1 day) and sessionStorage (session only)
+        const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
+        const sessionDismissed = typeof window !== 'undefined' 
+          ? sessionStorage.getItem(SKILL_CHECK_PROMPT_COOKIE_NAME) 
+          : null;
+        
+        debugInfo.cookieDismissed = !!cookieDismissed;
+        debugInfo.sessionDismissed = !!sessionDismissed;
+        
+        const shouldShowSkillCheckPrompt = 
+          numProjectsSubmitted >= 8 && 
+          (numProjectsSubmitted - 3) % 5 === 0 &&
+          !cookieDismissed &&
+          !sessionDismissed;
+        
+        debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
+        debugInfo.skillCheckPromptCondition = {
+          numProjectsSubmitted,
+          condition: `(numProjects - 3) % 5 === 0`,
+          result: (numProjectsSubmitted - 3) % 5 === 0,
+          meetsMinProjects: numProjectsSubmitted >= 8
+        };
+        
+        if (shouldShowSkillCheckPrompt) {
+          debugInfo.finalDecision = 'skill-check-prompt';
+          return 'skill-check-prompt';
+        }
+        
         debugInfo.finalDecision = 'none';
         return 'none';
       }
@@ -185,7 +225,37 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         return 'post-test';
       }
       
-      // 5. Otherwise, show nothing
+      // 5. Otherwise, check for skill check prompt (after post-test is done too)
+      // Condition: (numProjects - 3) % 5 === 0 && numProjects >= 8
+      // Check both cookie (1 day) and sessionStorage (session only)
+      const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
+      const sessionDismissed = typeof window !== 'undefined' 
+        ? sessionStorage.getItem(SKILL_CHECK_PROMPT_COOKIE_NAME) 
+        : null;
+      
+      debugInfo.cookieDismissed = !!cookieDismissed;
+      debugInfo.sessionDismissed = !!sessionDismissed;
+      
+      const shouldShowSkillCheckPrompt = 
+        numProjectsSubmitted >= 8 && 
+        (numProjectsSubmitted - 3) % 5 === 0 &&
+        !cookieDismissed &&
+        !sessionDismissed;
+      
+      debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
+      debugInfo.skillCheckPromptCondition = {
+        numProjectsSubmitted,
+        condition: `(numProjects - 3) % 5 === 0`,
+        result: (numProjectsSubmitted - 3) % 5 === 0,
+        meetsMinProjects: numProjectsSubmitted >= 8
+      };
+      
+      if (shouldShowSkillCheckPrompt) {
+        debugInfo.finalDecision = 'skill-check-prompt';
+        return 'skill-check-prompt';
+      }
+      
+      // 6. Otherwise, show nothing
       debugInfo.finalDecision = 'none';
       return 'none';
     } catch (error) {

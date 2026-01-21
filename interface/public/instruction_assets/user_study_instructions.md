@@ -113,6 +113,25 @@ After submitting your project, you can keep working on it, but **any resubmissio
 
 <br />
 
+### Downloading Projects
+
+Throughout the study, you may see download buttons that will let you save your project. It will also generate files that let you easily play the game locally, or upload the game online with Github Pages so others can play it (for free!):
+
+![Project Questions](instruction_assets/download_1.png)
+
+![Project Questions](instruction_assets/download_2.png)
+
+The project will download as a zip file with the following files:
+- `index.html`: Your HTML code
+- `styles.css`: Your CSS code
+- `frontend.js`: Your JavaScript code
+- `README.md`: An explanation of your project and how to deploy it
+- `deploy.sh`: A bash script to help you deploy your project
+
+If you choose to host your game online, we kindly ask that you preserve your README in the Github repository to indicate that it was created in VibeJam!
+
+<br />
+
 #### Voting on Projects
 
 After many users make submissions, we will open up voting on others's submissions. When voting begins and if you are later selected to be a judge, you can hit the "View Submissions" button on any project to view all other user submissions:
@@ -148,11 +167,18 @@ Once you have finished the post-test, you can keep building websites in VibeJam 
 
 ![All Tasks](instruction_assets/browse_all.png)
 
-### Additional Warnings and Notes
+### Skill-Check Statistics
 
-- Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.
-- There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention.
-- Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.
+Once you finish the study, you can also navigate to the [/stats](/stats) page to see your AI usage and performance on our skill checks. Each plot will display your scores in different stages over the study over time
+
+![Usage Statistics](instruction_assets/stats.png)
+
+![Score Statistics](instruction_assets/stats_2.png)
+
+If you want to see whether you have improved after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks using a larger bank of questions. During these retakes, you can customize the type of questions and their numbers:
+
+![Retake](instruction_assets/retake.png)
+
 
 <br />
 <br />
@@ -178,3 +204,15 @@ We also plan to award bonus compensation for particularly creative, popular, or 
 You can win **multiple rewards** across tasks. Each high-performing submission qualifies for its own reward, allowing you to accumulate earnings across all projects.
 
 At the end of the study, all monetary rewards will be distributed via email (online gift cards with Tango). We will intermittently send user study progress updates to your registered email. If you have any questions, please email [nbalepur@umd.edu](mailto:nbalepur@umd.edu).
+
+<div style="background-color: rgba(220, 38, 38, 0.1); border-left: 4px solid #ef4444; border-radius: 0 0.5rem 0.5rem 0; padding: 1rem; margin: 1.5rem 0;">
+    <div style="color:rgb(246, 41, 41); font-weight: 500; margin-bottom: 0.5rem; display: flex; align-items: center; font-size: 1.25rem;">
+    Warnings
+    </div>
+    <ul style="color: #d1d5db; list-style: disc; list-style-position: inside; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+    <li>There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention. We may withdraw your compensation if you fail all checks</li>
+    <li>Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.</li>
+    <li>Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.</li>
+    </ul>
+</div>
+

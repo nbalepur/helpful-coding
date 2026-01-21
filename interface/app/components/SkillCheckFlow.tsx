@@ -472,7 +472,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
         // Show snackbar notification when navigation is detected and exceeds threshold
         // Don't show in retake mode
         if (showNotification && timeAwayMs !== null && timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS && mode !== 'retake') {
-          showSnackbar('We noticed that you navigated away from the page. Do not leave the page to look up answers.', 5000);
+          showSnackbar('We noticed that you navigated away from the page. You should not leave the page to look up answers.', 5000);
         }
       } catch (error) {
         console.error('Failed to log navigation event:', error);
@@ -3046,7 +3046,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
               const monthsValueForChoice = isMultiSelectWithTime ? (monthsPerChoice[choice] || '') : '';
               const monthsCell = isMultiSelectWithTime
                 ? '<td class="matrix-cell" style="vertical-align: middle;">' +
-                  '<input type="number" class="matrix-months-input" data-choice="' + escapedChoice + '" min="1" step="1" value="' + (monthsValueForChoice.replace(/"/g, '&quot;')) + '" placeholder="Months" style="width: 80px; padding: 6px 8px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
+                  '<input type="number" class="matrix-months-input" data-choice="' + escapedChoice + '" min="0" step="1" value="' + (monthsValueForChoice.replace(/"/g, '&quot;')) + '" placeholder="Months" style="width: 80px; padding: 6px 8px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
                   '</td>'
                 : '';
 
@@ -3136,7 +3136,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
             return checkboxesHtml + 
               '<div style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid #374151; background: rgba(31, 41, 55, 0.5);">' +
               '<label style="display: block; margin-bottom: 8px; color: #d1d5db; font-size: 14px; font-weight: 500;"># Months Used</label>' +
-              '<input type="number" class="months-input" min="1" step="1" value="' + (monthsValue.replace(/"/g, '&quot;')) + '" placeholder="Enter a positive integer" style="width: 100%; padding: 8px 12px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
+              '<input type="number" class="months-input" min="0" step="1" value="' + (monthsValue.replace(/"/g, '&quot;')) + '" placeholder="Enter number of months (0 if less than 1 month)" style="width: 100%; padding: 8px 12px; background: rgba(55, 65, 81, 0.5); border: 1px solid #4b5563; border-radius: 4px; color: #fff; font-size: 14px;" />' +
               '</div>';
           }
           
@@ -3923,10 +3923,10 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
         return (
           <div className="flex items-center justify-between mb-1 flex-shrink-0">
             <div className="flex items-center">
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-300 text-sm">
                 {currentQuestion.type === 'coding' ? (
                   <>
-                    Please <span className={`font-bold ${typeWordColor}`}>{typeWord}</span> {currentQuestion.code_type === 'debug' ? 'the existing code implementation to pass all test cases' : 'a new function to pass all test cases'}
+                    Please <span className={`font-bold ${typeWordColor}`}>{typeWord}</span> {currentQuestion.code_type === 'debug' ? 'the existing code implementation to pass all test cases. If you get stuck, you can hit the "Report" button at the top right.' : 'a new function to pass all test cases. If you get stuck, you can hit the "Report" button at the top right.'}
                   </>
                 ) : (
                   <>
@@ -4244,7 +4244,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
                                     return true; // Missing months object
                                   }
                                   const monthsForChoice = String(currentAnswer.months[choice] || '');
-                                  if (!monthsForChoice || isNaN(parseInt(monthsForChoice)) || parseInt(monthsForChoice) < 1) {
+                                  if (!monthsForChoice || isNaN(parseInt(monthsForChoice)) || parseInt(monthsForChoice) < 0) {
                                     return true; // Missing or invalid months for this choice
                                   }
                                 }
@@ -4266,9 +4266,9 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
                                              // Skip "Other" from months validation
                                              if (choice === 'Other') return false;
                                    const monthsStr = String(m || '');
-                                   return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 1;
+                                   return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 0;
                                  })
-                                         : isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1)
+                                         : isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 0)
                                      ));
                             }
                             
@@ -4309,7 +4309,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
                                   return false;
                                 }
                                 const monthsStr = String(currentAnswer.months[choice] || '');
-                                return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 1;
+                                return !monthsStr || isNaN(parseInt(monthsStr)) || parseInt(monthsStr) < 0;
                               });
                               if (hasInvalidMonths) {
                                 return true; // Some selected choices have invalid months
@@ -4319,7 +4319,7 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
                               const nonOtherSelections = currentAnswer.selected.filter((choice: string) => choice !== 'Other');
                               if (nonOtherSelections.length > 0) {
                                 // Only validate months if there are non-"Other" selections
-                                if (isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 1) {
+                                if (isNaN(parseInt(String(currentAnswer.months))) || parseInt(String(currentAnswer.months)) < 0) {
                                   return true; // Invalid months value
                                 }
                               }

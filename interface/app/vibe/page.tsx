@@ -159,7 +159,7 @@ function HomeInner() {
   }, []); // Empty dependency array - only generate once on mount
   
   // Clear snackbars when leaving the Browse page
-  const { clearAllSnackbars } = useSnackbar();
+  const { clearAllSnackbars, showSnackbar } = useSnackbar();
   useEffect(() => {
     // Cleanup function to clear snackbars when component unmounts (navigating away)
     return () => {
@@ -2891,6 +2891,8 @@ function HomeInner() {
         customDescription
       );
       
+      showSnackbar('Thanks for downloading! Unzip the file to see a GitHub repo with steps to run your game locally or host it online for free!');
+      
       // Log download event
       await sendCodeLog('download');
     } catch (error) {
@@ -3739,7 +3741,7 @@ function HomeInner() {
                         title="Download project as repository"
                       >
                         <Download className="w-3.5 h-3.5 inline-block mr-1" />
-                        Download
+                        Download Project
                       </button>
                       <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
@@ -3755,14 +3757,6 @@ function HomeInner() {
                     )}
                     {rightTab === 'code' && isPlaygroundMode && selectedTask === 'playground' && (
                     <div className="flex items-center space-x-2 ml-auto">
-                      <button
-                          className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-gray-700 hover:bg-gray-600 text-white cursor-pointer border border-gray-600"
-                        onClick={handleDownloadProject}
-                        title="Download project as repository"
-                      >
-                        <Download className="w-3.5 h-3.5 inline-block mr-1" />
-                        Download
-                      </button>
                       <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
                         onClick={() => {
