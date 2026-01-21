@@ -5,7 +5,7 @@ import IRBIframe from "../components/IRBIframe";
 import { irbConsentContent } from '../data/irbContent';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Download, Sun, Moon, Trophy, Award, Sparkles } from 'lucide-react';
+import { Download, Sun, Moon, Award, Sparkles, AlertTriangle } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -284,14 +284,30 @@ export default function AboutPage() {
                       {children}
                     </h4>
                   ),
-                  p: ({ children }) => (
-                    <p 
-                      className="mb-3"
-                      style={{ color: isLightMode ? '#1f2937' : '#d1d5db' }}
-                    >
-                      {children}
-                    </p>
-                  ),
+                  p: ({ children, ...props }: any) => {
+                    // If there are inline styles from the markdown HTML, use them and merge with defaults
+                    if (props.style) {
+                      return (
+                        <p 
+                          {...props}
+                          className={props.className || "mb-3"}
+                          style={{
+                            ...props.style,
+                          }}
+                        >
+                          {children}
+                        </p>
+                      );
+                    }
+                    return (
+                      <p 
+                        className="mb-3"
+                        style={{ color: isLightMode ? '#1f2937' : '#d1d5db' }}
+                      >
+                        {children}
+                      </p>
+                    );
+                  },
                   ul: ({ children }) => <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>,
                   li: ({ children }) => (
@@ -437,30 +453,55 @@ export default function AboutPage() {
         </div>
 
         {/* Compensation */}
-        <div id="compensation" className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700 p-8 scroll-mt-8 shadow-lg">
-          <h2 className="text-3xl font-bold text-white mb-6">Compensation</h2>
+        <div 
+          id="compensation" 
+          className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700 p-8 scroll-mt-8 shadow-lg"
+        >
+          <div className="mb-6">
+            <h2 className="text-3xl font-bold text-white">
+              Compensation
+            </h2>
+          </div>
           
           <div className="space-y-6">
             {/* Core Study Compensation */}
-            <div className="bg-gray-700/30 rounded-lg border border-gray-700/50 p-6 hover:border-gray-600/50 transition-colors">
+            <div className={`rounded-lg border p-6 transition-colors ${
+              isLightMode
+                ? 'bg-white border-gray-300 hover:border-gray-400'
+                : 'bg-gray-700/30 border-gray-700/50 hover:border-gray-600/50'
+            }`}>
               <div className="flex items-start gap-4 mb-4">
-                <div className="p-2 bg-green-600/20 rounded-lg flex-shrink-0">
-                  <Award className="w-5 h-5 text-green-400" />
+                <div className={`p-2 rounded-lg flex-shrink-0 ${
+                  isLightMode ? 'bg-green-100' : 'bg-green-600/20'
+                }`}>
+                  <Award className={`w-5 h-5 ${
+                    isLightMode ? 'text-green-600' : 'text-green-400'
+                  }`} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-white mb-3">Main Study Compensation</h3>
-                  <div className="space-y-3 text-gray-300 leading-relaxed">
+                  <h3 className={`text-xl font-semibold mb-3 ${
+                    isLightMode ? 'text-gray-900' : 'text-white'
+                  }`}>
+                    Main Study Compensation
+                  </h3>
+                  <div className={`space-y-3 leading-relaxed ${
+                    isLightMode ? 'text-gray-700' : 'text-gray-300'
+                  }`}>
                     <p>
                       All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor. 
                       
                       Users who participate in the study for monetary compensation will receive{' '}
-                      <span className="text-blue-400 font-bold">
+                      <span className={`font-bold ${
+                        isLightMode ? 'text-blue-600' : 'text-blue-400'
+                      }`}>
                         $75
                       </span>
                       .
                     </p>
                     <p>
-                       The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive <span className="text-blue-400 font-bold">$10</span> each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
+                       The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive <span className={`font-bold ${
+                         isLightMode ? 'text-blue-600' : 'text-blue-400'
+                       }`}>$10</span> each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
                     </p>
                   </div>
                 </div>
@@ -468,16 +509,34 @@ export default function AboutPage() {
             </div>
 
             {/* Public Tasks Compensation */}
-            <div className="bg-gray-700/30 rounded-lg border border-gray-700/50 p-6 hover:border-gray-600/50 transition-colors">
+            <div className={`rounded-lg border p-6 transition-colors ${
+              isLightMode
+                ? 'bg-white border-gray-300 hover:border-gray-400'
+                : 'bg-gray-700/30 border-gray-700/50 hover:border-gray-600/50'
+            }`}>
               <div className="flex items-start gap-4 mb-4">
-                <div className="p-2 bg-purple-600/20 rounded-lg flex-shrink-0">
-                  <Sparkles className="w-5 h-5 text-purple-400" />
+                <div className={`p-2 rounded-lg flex-shrink-0 ${
+                  isLightMode ? 'bg-purple-100' : 'bg-purple-600/20'
+                }`}>
+                  <Sparkles className={`w-5 h-5 ${
+                    isLightMode ? 'text-purple-600' : 'text-purple-400'
+                  }`} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-white mb-3">Public VibeJam Tasks Compensation</h3>
-                  <div className="space-y-3 text-gray-300 leading-relaxed">
+                  <h3 className={`text-xl font-semibold mb-3 ${
+                    isLightMode ? 'text-gray-900' : 'text-white'
+                  }`}>
+                    Public VibeJam Tasks Compensation
+                  </h3>
+                  <div className={`space-y-3 leading-relaxed ${
+                    isLightMode ? 'text-gray-700' : 'text-gray-300'
+                  }`}>
                     <p>
-                      We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive <span className="text-blue-400 font-bold">$10</span>. The three users with the highest website scores per projects will each receive <span className="text-blue-400 font-bold">$5</span>. The same user can win multiple bonus rewards across projects.
+                      We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive <span className={`font-bold ${
+                        isLightMode ? 'text-blue-600' : 'text-blue-400'
+                      }`}>$10</span>. The three users with the highest website scores per projects will each receive <span className={`font-bold ${
+                        isLightMode ? 'text-blue-600' : 'text-blue-400'
+                      }`}>$5</span>. The same user can win multiple bonus rewards across projects.
                     </p>
                     <p>
                       We also plan to award bonus compensation for particularly creative, popular, or well-designed websites. Further details about any other rewards will be announced on this page and over email.
@@ -488,17 +547,21 @@ export default function AboutPage() {
             </div>
 
             {/* Multiple Rewards Available */}
-            <div className="bg-blue-600/10 border-l-4 border-blue-500 rounded-r p-4">
-              <p className="text-white font-medium mb-2">
-                <Trophy className="w-4 h-4 inline mr-2 text-yellow-400" />
-                Multiple Rewards Available!
+            <p className="text-gray-300 leading-relaxed">
+              You can win <strong className="text-white">multiple rewards</strong> across tasks. Each high-performing submission qualifies for its own reward, allowing you to accumulate earnings across all projects. At the end of the study, all monetary rewards will be distributed via email (online gift cards with Tango). We will intermittently send user study progress updates to your registered email. If you have any questions, please email <a href="mailto:nbalepur@umd.edu" className="text-blue-400 hover:text-blue-300 underline">nbalepur@umd.edu</a>.
+            </p>
+
+            {/* Additional Warnings and Notes - Minimal Badge */}
+            <div className="bg-red-600/10 border-l-4 border-red-500 rounded-r p-4">
+              <p className="text-white font-medium mb-2 flex items-center text-lg">
+                <AlertTriangle className="w-5 h-5 mr-2 text-red-400 flex-shrink-0" />
+                Warnings
               </p>
-              <p className="text-gray-300">
-                You can win <strong className="text-white">multiple rewards</strong> across tasks. Each high-performing submission qualifies for its own reward, allowing you to accumulate earnings across all projects.
-              </p>
-              <p className="text-gray-300 mt-3">
-                At the end of the study, all monetary rewards will be distributed via email (online gift cards with Tango). We will intermittently send user study progress updates to your registered email. If you have any questions, please email <a href="mailto:nbalepur@umd.edu" className="text-blue-400 hover:text-blue-300 underline">nbalepur@umd.edu</a>.
-              </p>
+              <ul className="text-gray-300 space-y-2 list-disc list-inside">
+                <li>There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention. We may withdraw your compensation if you fail all checks</li>
+                <li>Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.</li>
+                <li>Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.</li>
+              </ul>
             </div>
           </div>
         </div>

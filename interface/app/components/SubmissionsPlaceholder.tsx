@@ -2051,7 +2051,9 @@ const getTooltipPosition = useCallback(
         codeFiles,
         projectName
       );
-
+      
+      showSnackbar('Thanks for downloading! Unzip the file to see a GitHub repo with steps to run your game locally or host it online for free!');
+      
       // Log download event if userId is available
       if (currentUserId && selectedSubmission.projectId) {
         try {

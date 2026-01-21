@@ -309,9 +309,13 @@ export default function Sidebar({
             <div>
               <div className="pt-4 mb-2">
                 <div className={`flex items-center w-full ${isOpen ? 'justify-start' : 'justify-center'}`}>
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <button
+                  onClick={onToggle}
+                  className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity focus:outline-none"
+                  aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+                >
                   <User size={16} className="text-white" />
-                </div>
+                </button>
                 <div className={`${isOpen ? 'ml-3' : 'ml-0'} transition-all duration-300 leading-tight overflow-hidden ${
                   isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0'
                 }`}>

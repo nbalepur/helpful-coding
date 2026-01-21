@@ -96,7 +96,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     }
     
     const judgmentCriteria = `
-      <p style="margin: 6px 0; color: ${textColor};">Your submission will be evaluated by other users through voting. They will rate your work on the following criteria, each on a scale from 1 (needs work) to 5 (outstanding):</p>
+      <p style="margin: 6px 0; color: ${textColor};">Your submission will be evaluated by other users through voting. They will rate your work on the following criteria, each on a scale from 1 to 5 (higher scores are better):</p>
       
       <ul style="margin: 12px 0; padding-left: 20px;">
         <li style="margin: 6px 0; color: ${textColor};"><strong style="color: ${strongColor};">Task Fulfillment:</strong> How well the interface adheres to the task requirements.</li>

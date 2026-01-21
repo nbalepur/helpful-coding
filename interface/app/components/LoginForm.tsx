@@ -291,6 +291,12 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
                 Sign up
               </button>
             </p>
+            <p className="text-gray-500 text-xs mt-3">
+              If you encounter issues, please contact{" "}
+              <a href="mailto:nbalepur@umd.edu" className="text-blue-400 hover:text-blue-300 underline">
+                nbalepur@umd.edu
+              </a>
+            </p>
           </div>
         </div>
       </div>

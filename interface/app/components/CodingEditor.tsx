@@ -1280,6 +1280,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         customDescription
       );
 
+      showSnackbar('Thanks for downloading! Unzip the file to see a GitHub repo with steps to run your game locally or host it online for free!');
+
       // Log download event if userId and projectId are available
       if (userId && projectId) {
         try {
@@ -2069,7 +2071,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       showSnackbar(
         <>
           Thanks for completing the tutorial! Navigate to the{' '}
-          <Link href="/vibe" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+          <Link href="/browse" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
             tasks page
           </Link>{' '}
           to start working on real projects
@@ -2137,7 +2139,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       showSnackbar(
         <>
           Nice work! Navigate back to the{' '}
-          <Link href="/vibe" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+          <Link href="/browse" style={{ color: '#3b82f6', textDecoration: 'underline' }}>
             tasks page
           </Link>{' '}
           to work on other projects
@@ -2706,7 +2708,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', paddingBottom: 0 }}>
                   <span style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '14px' }}>
-                    Preview
+                    Project Preview Image
                   </span>
                   <div
                     style={{
@@ -2733,7 +2735,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         const spaceBelow = vh - rect.bottom;
                         const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
                         const top = placeAbove ? rect.top : rect.bottom;
-                        setTooltipText("This image is the thumbnail that judges will see before they click on your website. We suggest using a screenshot of your site, but you can use any appropriate image.");
+                        setTooltipText("This image is the thumbnail that judges will see before they click on your site. We suggest using a screenshot of your site, but you can upload any appropriate image with the button in the top right..");
                         setTooltipLeft(left);
                         setTooltipTop(top);
                         setTooltipPlaceAbove(placeAbove);
@@ -2806,11 +2808,27 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             e.currentTarget.style.backgroundColor = '#2563eb';
                             e.currentTarget.style.borderColor = '#2563eb';
                             e.currentTarget.style.color = '#ffffff';
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const vw = window.innerWidth || document.documentElement.clientWidth;
+                            const vh = window.innerHeight || document.documentElement.clientHeight;
+                            const margin = 8;
+                            let left = rect.left + rect.width / 2;
+                            left = Math.min(Math.max(left, margin), vw - margin);
+                            const spaceAbove = rect.top;
+                            const spaceBelow = vh - rect.bottom;
+                            const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
+                            const top = placeAbove ? rect.top : rect.bottom;
+                            setTooltipText("Upload Custom Image");
+                            setTooltipLeft(left);
+                            setTooltipTop(top);
+                            setTooltipPlaceAbove(placeAbove);
+                            setTooltipVisible(true);
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
                             e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
                             e.currentTarget.style.color = '#9ca3af';
+                            setTooltipVisible(false);
                           }}
                         >
                           <svg
@@ -2868,11 +2886,27 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             e.currentTarget.style.backgroundColor = '#2563eb';
                             e.currentTarget.style.borderColor = '#2563eb';
                             e.currentTarget.style.color = '#ffffff';
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const vw = window.innerWidth || document.documentElement.clientWidth;
+                            const vh = window.innerHeight || document.documentElement.clientHeight;
+                            const margin = 8;
+                            let left = rect.left + rect.width / 2;
+                            left = Math.min(Math.max(left, margin), vw - margin);
+                            const spaceAbove = rect.top;
+                            const spaceBelow = vh - rect.bottom;
+                            const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
+                            const top = placeAbove ? rect.top : rect.bottom;
+                            setTooltipText("Upload Custom Image");
+                            setTooltipLeft(left);
+                            setTooltipTop(top);
+                            setTooltipPlaceAbove(placeAbove);
+                            setTooltipVisible(true);
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
                             e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
                             e.currentTarget.style.color = '#9ca3af';
+                            setTooltipVisible(false);
                           }}
                         >
                           <svg
@@ -2922,11 +2956,27 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             e.currentTarget.style.backgroundColor = '#2563eb';
                             e.currentTarget.style.borderColor = '#2563eb';
                             e.currentTarget.style.color = '#ffffff';
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const vw = window.innerWidth || document.documentElement.clientWidth;
+                            const vh = window.innerHeight || document.documentElement.clientHeight;
+                            const margin = 8;
+                            let left = rect.left + rect.width / 2;
+                            left = Math.min(Math.max(left, margin), vw - margin);
+                            const spaceAbove = rect.top;
+                            const spaceBelow = vh - rect.bottom;
+                            const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
+                            const top = placeAbove ? rect.top : rect.bottom;
+                            setTooltipText("Upload Custom Image");
+                            setTooltipLeft(left);
+                            setTooltipTop(top);
+                            setTooltipPlaceAbove(placeAbove);
+                            setTooltipVisible(true);
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = 'rgba(31, 41, 55, 0.9)';
                             e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.3)';
                             e.currentTarget.style.color = '#9ca3af';
+                            setTooltipVisible(false);
                           }}
                         >
                           <svg
@@ -3052,6 +3102,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   marginTop: '8px'
                 }}
               >
+                {taskName !== 'Playground' && taskName !== 'playground' && (
                 <button
                   type="button"
                   onClick={handleDownloadProject}
@@ -3082,8 +3133,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   }}
                 >
                   <Download className="w-4 h-4" />
-                  Download
+                  Download Project
                 </button>
+                )}
                 <button
                   type="submit"
                   disabled={isSubmitDisabled || isSubmittingProject}
@@ -3135,8 +3187,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               >
                 <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
                   {taskName === 'Playground' || taskName === 'playground' 
-                    ? 'Please answer the following questions before you submit! Normally, these will be questions tailored to the task you just completed.'
-                    : 'Please answer the following questions about your project before you submit! If questions do not generate after 60 seconds, please refresh the page and try again.'}
+                    ? 'Before submitting, please answer the following questions so we can understand your AI usage! Normally, these will be questions tailored to the task you just completed.'
+                    : 'Before submitting, please answer the following questions so we can understand your AI usage! If questions do not generate after 60 seconds, please refresh the page and try again.'}
                 </p>
                 
                 {isLoadingComprehensionQuestions && (
@@ -3160,28 +3212,52 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 
                 {!isLoadingComprehensionQuestions && (
                   <>
-                    {comprehensionQuestions.map((q, index) => {
-                      const currentAnswer = comprehensionAnswers[q.id] || '';
-                      // Check if this is a self-report question (should not reveal answers)
-                      const isSelfReportQuestion = q.question_name && q.question_name.startsWith('self_report_');
-                      // Check if this is a report question (should be disabled during check answer)
-                      const isReportQuestion = q.question_name && (q.question_name.toLowerCase().includes('report') || q.question_name.startsWith('report_'));
-                      // Only apply answer checking to non-self-report MCQA questions
-                      const shouldShowAnswers = answersChecked && !isSelfReportQuestion;
-                      // Disable report questions during check answer phase
-                      const shouldDisableQuestion = answersChecked && isReportQuestion;
+                    {(() => {
+                      // Count self-report questions (including sanity check)
+                      const selfReportQuestions = comprehensionQuestions.filter(q => 
+                        q.question_name && (q.question_name.startsWith('self_report_') || q.question_name === 'sanity_check')
+                      );
+                      const selfReportQuestionCount = selfReportQuestions.length;
+                      const hasSelfReportQuestions = selfReportQuestionCount > 0;
+                      // Check if current task is in POST_TEST_REQUIRED_TASKS
+                      const isPostTestRequiredTask = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
                       
-                      return (
-                    <div 
-                      key={q.id || index} 
-                      style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        gap: q.question_type === 'mcqa' ? '6px' : '12px',
-                        paddingTop: index > 0 ? '20px' : '0px',
-                        borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none'
-                      }}
-                    >
+                      return comprehensionQuestions.map((q, index) => {
+                        const currentAnswer = comprehensionAnswers[q.id] || '';
+                        // Check if this is a self-report question (should not reveal answers)
+                        // Includes sanity check since it uses the same self-report options
+                        const isSelfReportQuestion = q.question_name && (q.question_name.startsWith('self_report_') || q.question_name === 'sanity_check');
+                        // Check if this is a report question (should be disabled during check answer)
+                        const isReportQuestion = q.question_name && (q.question_name.toLowerCase().includes('report') || q.question_name.startsWith('report_'));
+                        // Only apply answer checking to non-self-report MCQA questions
+                        const shouldShowAnswers = answersChecked && !isSelfReportQuestion;
+                        // Disable report questions during check answer phase
+                        const shouldDisableQuestion = answersChecked && isReportQuestion;
+                        // Check if this is the first self-report question (index 0), there are self-report questions, and task is in POST_TEST_REQUIRED_TASKS
+                        const isFirstSelfReportQuestion = index === 0 && isSelfReportQuestion && hasSelfReportQuestions && isPostTestRequiredTask;
+                        
+                        return (
+                      <div 
+                        key={q.id || index} 
+                        style={{ 
+                          display: 'flex', 
+                          flexDirection: 'column', 
+                          gap: q.question_type === 'mcqa' ? '6px' : '12px',
+                          paddingTop: index > 0 ? '20px' : '0px',
+                          borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none'
+                        }}
+                      >
+                        {isFirstSelfReportQuestion && (
+                          <div
+                            style={{
+                              color: '#ffffff',
+                              fontSize: '16px',
+                              marginBottom: '12px'
+                            }}
+                          >
+                            For questions 1–{selfReportQuestionCount}, how much do you agree with the following statements:
+                          </div>
+                        )}
                       <div
                         style={{
                           color: '#e5e7eb',
@@ -3627,7 +3703,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                               const isValid = wordCount >= minWords;
                               return (
                                 <span style={{ color: isValid ? '#9ca3af' : '#f87171' }}>
-                                  {wordCount} / {minWords} words {!isValid && '(minimum required)'}
+                                  {wordCount} / {minWords} words {!isValid && '- minimum requirement'}
                                 </span>
                               );
                             })()}
@@ -3636,7 +3712,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       )}
                     </div>
                   );
-                    })}
+                      });
+                    })()}
                   </>
                 )}
 

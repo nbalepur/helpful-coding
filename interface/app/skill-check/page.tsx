@@ -65,8 +65,8 @@ export default function SkillCheckRoute() {
     if (isCalculating) return 'locked-pre-test';
     if (popupState === 'pre-test') return 'pre-test';
     if (popupState === 'post-test') return 'post-test';
-    // If popupState is 'none', determine locked state from completion status
-    if (popupState === 'none') {
+    // If popupState is 'none' or 'skill-check-prompt', determine locked state from completion status
+    if (popupState === 'none' || popupState === 'skill-check-prompt') {
       // Prefer context values from UserStudyPopupProvider (no API call needed)
       const effectivePostTestCompleted = postTestCompleted ?? localPostTestCompleted;
       const effectivePreTestCompleted = preTestCompleted ?? localPreTestCompleted;

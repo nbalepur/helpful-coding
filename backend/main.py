@@ -4047,7 +4047,7 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
     if include_explanation and sampled_function_name and sampled_function_code:
         questions.append({
             "question_name": "explain_function",
-            "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you don't know how the function works, please say so.\n```{sampled_function_code}```",
+            "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you're unable to explain how the function works, please say so.\n```{sampled_function_code}```",
             "question_type": "free_response",
             "choices": [],
             "answer": ''
@@ -4387,28 +4387,28 @@ async def _generate_comprehension_questions(
         questions.extend([
             {
                 "question_name": "self_report_understanding",
-                "question": f"{prefix}: I understand how my code works.",
+                "question": f"I understand how my code works.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
             },
             {
                 "question_name": "self_report_review",
-                "question": f"{prefix}: I read and reviewed all of the AI-generated code.",
+                "question": f"I read and reviewed all of the AI-generated code.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
             },
             {
                 "question_name": "self_report_explain",
-                "question": f"{prefix}: I could explain how my code works to someone else while looking at it.",
+                "question": f"I could explain how my code works to someone else while looking at it.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
             },
             {
                 "question_name": "self_report_modify",
-                "question": f"{prefix}: I could easily add new features to my code without using AI tools.",
+                "question": f"I could easily add new features to my code without using AI tools.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -4449,7 +4449,7 @@ async def _generate_comprehension_questions(
         choice_to_select = random.choice(self_report_options)
         sanity_question = {
             "question_name": "sanity_check",
-            "question": f"{prefix}: Please select \"{choice_to_select}\" as your answer",
+            "question": f"Attention Check: Please select \"{choice_to_select}\" as your answer",
             "question_type": "mcqa",
             "choices": self_report_options,
             "answer": self_report_options.index(choice_to_select) + 1
