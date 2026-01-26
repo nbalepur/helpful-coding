@@ -6,6 +6,7 @@ import { getCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
 import { useAuth } from "../utils/auth";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
+import { isStudyEnded } from "../config/study";
 import { PASSWORD_HASH, hashString } from "../utils/password";
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
@@ -67,6 +68,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     }
     
     // Collect debug information
+    const studyEnded = isStudyEnded();
     const debugInfo: any = {
       userId: numericUserId,
       tutorialState: null as TutorialCookieState | null,
@@ -74,6 +76,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       preTestCompleted: null as boolean | null,
       postTestCompleted: null as boolean | null,
       allRequiredTasksCompleted: null as boolean | null,
+      studyEnded,
       completedTaskNames: [] as string[],
       requiredTaskNames: POST_TEST_REQUIRED_TASKS,
       numProjectsSubmitted: null as number | null,
@@ -118,12 +121,12 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       }
       
       // Store the completion status in state for use by other components
-      setPreTestCompleted(preTestCompletedValue);
-      setPostTestCompleted(postTestCompletedValue);
+      setPreTestCompleted(studyEnded ? true : preTestCompletedValue);
+      setPostTestCompleted(studyEnded ? true : postTestCompletedValue);
       
       // Use the local variables for the rest of the function
-      const preTestCompleted = preTestCompletedValue;
-      const postTestCompleted = postTestCompletedValue;
+      const preTestCompleted = studyEnded ? true : preTestCompletedValue;
+      const postTestCompleted = studyEnded ? true : postTestCompletedValue;
       
       // Parse submissions
       let submissionsData = { items: [] };
@@ -165,9 +168,10 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         });
         
         debugInfo.completedTaskNames = Array.from(completedTaskNames);
-        debugInfo.allRequiredTasksCompleted = POST_TEST_REQUIRED_TASKS.every(
+        const requiredCompleted = POST_TEST_REQUIRED_TASKS.every(
           taskName => completedTaskNames.has(taskName)
         );
+        debugInfo.allRequiredTasksCompleted = studyEnded ? true : requiredCompleted;
       }
       
       // Simplified decision flow:
@@ -178,15 +182,16 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       }
       
       // 2. Otherwise, if user has not done the pre-test, show pre-test
-      if (!preTestCompleted) {
+      if (!studyEnded && !preTestCompleted) {
         debugInfo.finalDecision = 'pre-test';
         return 'pre-test';
       }
       
       // 3. Otherwise, if user has not completed all required tasks, check for skill check prompt
-      if (!debugInfo.allRequiredTasksCompleted) {
+      if (!studyEnded && !debugInfo.allRequiredTasksCompleted) {
         // Check if we should show skill check prompt
-        // Condition: (numProjects - 3) % 5 === 0 && numProjects >= 8
+        // Condition: (numProjects - offset) % 5 === 0 && numProjects >= (5 + offset)
+        // Only subtract offset if study hasn't ended (which is true in this block)
         // Check both cookie (1 day) and sessionStorage (session only)
         const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
         const sessionDismissed = typeof window !== 'undefined' 
@@ -196,18 +201,19 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         debugInfo.cookieDismissed = !!cookieDismissed;
         debugInfo.sessionDismissed = !!sessionDismissed;
         
+        const offset = studyEnded ? 0 : 3;
         const shouldShowSkillCheckPrompt = 
-          numProjectsSubmitted >= 8 && 
-          (numProjectsSubmitted - 3) % 5 === 0 &&
+          numProjectsSubmitted >= (5 + offset) && 
+          (numProjectsSubmitted - offset) % 5 === 0 &&
           !cookieDismissed &&
           !sessionDismissed;
         
         debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
         debugInfo.skillCheckPromptCondition = {
           numProjectsSubmitted,
-          condition: `(numProjects - 3) % 5 === 0`,
-          result: (numProjectsSubmitted - 3) % 5 === 0,
-          meetsMinProjects: numProjectsSubmitted >= 8
+          condition: `(numProjects - ${offset}) % 5 === 0`,
+          result: (numProjectsSubmitted - offset) % 5 === 0,
+          meetsMinProjects: numProjectsSubmitted >= (5 + offset)
         };
         
         if (shouldShowSkillCheckPrompt) {
@@ -220,13 +226,14 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       }
       
       // 4. Otherwise, if user has not done the post-test, show post-test
-      if (!postTestCompleted) {
+      if (!studyEnded && !postTestCompleted) {
         debugInfo.finalDecision = 'post-test';
         return 'post-test';
       }
       
       // 5. Otherwise, check for skill check prompt (after post-test is done too)
-      // Condition: (numProjects - 3) % 5 === 0 && numProjects >= 8
+      // Condition: (numProjects - offset) % 5 === 0 && numProjects >= (5 + offset)
+      // offset is 3 if study hasn't ended, 0 if study has ended
       // Check both cookie (1 day) and sessionStorage (session only)
       const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
       const sessionDismissed = typeof window !== 'undefined' 
@@ -236,18 +243,19 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       debugInfo.cookieDismissed = !!cookieDismissed;
       debugInfo.sessionDismissed = !!sessionDismissed;
       
+      const offset = studyEnded ? 0 : 3;
       const shouldShowSkillCheckPrompt = 
-        numProjectsSubmitted >= 8 && 
-        (numProjectsSubmitted - 3) % 5 === 0 &&
+        numProjectsSubmitted >= (5 + offset) && 
+        (numProjectsSubmitted - offset) % 5 === 0 &&
         !cookieDismissed &&
         !sessionDismissed;
       
       debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
       debugInfo.skillCheckPromptCondition = {
         numProjectsSubmitted,
-        condition: `(numProjects - 3) % 5 === 0`,
-        result: (numProjectsSubmitted - 3) % 5 === 0,
-        meetsMinProjects: numProjectsSubmitted >= 8
+        condition: `(numProjects - ${offset}) % 5 === 0`,
+        result: (numProjectsSubmitted - offset) % 5 === 0,
+        meetsMinProjects: numProjectsSubmitted >= (5 + offset)
       };
       
       if (shouldShowSkillCheckPrompt) {

@@ -10,6 +10,8 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { useIframeTheme } from '../utils/IframeThemeContext';
+import { isStudyEnded } from '../config/study';
+import { formatDateOnly } from '../utils/dateFormat';
 
 export default function AboutPage() {
   const [markdownContent, setMarkdownContent] = useState<string>('');
@@ -19,10 +21,14 @@ export default function AboutPage() {
   const [showContent, setShowContent] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
   const { isLightMode, toggleLightMode } = useIframeTheme();
+  const studyEnded = isStudyEnded();
 
   useEffect(() => {
     // Fetch the markdown file from the public folder
-    fetch('/instruction_assets/user_study_instructions.md')
+    const instructionsPath = studyEnded
+      ? '/instruction_assets/user_study_instructions_post_study.md'
+      : '/instruction_assets/user_study_instructions.md';
+    fetch(instructionsPath)
       .then((response) => {
         if (!response.ok) {
           throw new Error('Failed to load instructions');
@@ -44,7 +50,7 @@ export default function AboutPage() {
         setIsLoading(false);
         setShowContent(true);
       });
-  }, []);
+  }, [studyEnded]);
   
   // Track when videos have loaded their metadata and show content
   useEffect(() => {
@@ -183,15 +189,52 @@ export default function AboutPage() {
     }
   };
 
+  // Handle smooth scrolling for anchor links
+  const handleSmoothScroll = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault();
+    const targetElement = document.getElementById(targetId);
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col items-start justify-start pt-8 pb-8 max-w-6xl mx-auto w-full">
       <h1 className="text-4xl font-semibold text-white mb-4">About</h1>
       <p className="text-gray-300 mb-8 leading-relaxed">
         This page has all information about the study. You can navigate to{' '}
-        <a href="#instructions" className="text-blue-400 hover:text-blue-300 underline">Instructions</a>,{' '}
-        <a href="#compensation" className="text-blue-400 hover:text-blue-300 underline">Compensation</a>,{' '}
-        <a href="#contact" className="text-blue-400 hover:text-blue-300 underline">Contact</a>, or the{' '}
-        <a href="#irb-consent" className="text-blue-400 hover:text-blue-300 underline">Research Consent Form (IRB)</a>.
+        <a 
+          href="#instructions" 
+          onClick={(e) => handleSmoothScroll(e, 'instructions')}
+          className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+        >
+          Instructions
+        </a>
+        ,{' '}
+        <a 
+          href="#compensation" 
+          onClick={(e) => handleSmoothScroll(e, 'compensation')}
+          className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+        >
+          Compensation
+        </a>
+        ,{' '}
+        <a 
+          href="#contact" 
+          onClick={(e) => handleSmoothScroll(e, 'contact')}
+          className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+        >
+          Contact
+        </a>
+        , or the{' '}
+        <a 
+          href="#irb-consent" 
+          onClick={(e) => handleSmoothScroll(e, 'irb-consent')}
+          className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+        >
+          Research Consent Form (IRB)
+        </a>
+        .
       </p>
       <div className="flex flex-col gap-8 w-full">
         {/* User Study Instructions */}
@@ -362,7 +405,7 @@ export default function AboutPage() {
                     
                     // Replace instructions.mp4 with YouTube iframe
                     if (isInstructionsVideo) {
-                      const youtubeVideoId = 'cMGgMO6DttE';
+                      const youtubeVideoId = studyEnded ? '5bmywSslJRw' : 'cMGgMO6DttE';
                       const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1&enablejsapi=0`;
                       
                       return (
@@ -465,48 +508,56 @@ export default function AboutPage() {
           
           <div className="space-y-6">
             {/* Core Study Compensation */}
-            <div className={`rounded-lg border p-6 transition-colors ${
-              isLightMode
-                ? 'bg-white border-gray-300 hover:border-gray-400'
-                : 'bg-gray-700/30 border-gray-700/50 hover:border-gray-600/50'
-            }`}>
-              <div className="flex items-start gap-4 mb-4">
-                <div className={`p-2 rounded-lg flex-shrink-0 ${
-                  isLightMode ? 'bg-green-100' : 'bg-green-600/20'
-                }`}>
-                  <Award className={`w-5 h-5 ${
-                    isLightMode ? 'text-green-600' : 'text-green-400'
-                  }`} />
-                </div>
-                <div className="flex-1">
-                  <h3 className={`text-xl font-semibold mb-3 ${
-                    isLightMode ? 'text-gray-900' : 'text-white'
+            {!studyEnded && (
+              <div className={`rounded-lg border p-6 transition-colors ${
+                isLightMode
+                  ? 'bg-white border-gray-300 hover:border-gray-400'
+                  : 'bg-gray-700/30 border-gray-700/50 hover:border-gray-600/50'
+              }`}>
+                <div className="flex items-start gap-4 mb-4">
+                  <div className={`p-2 rounded-lg flex-shrink-0 ${
+                    isLightMode ? 'bg-green-100' : 'bg-green-600/20'
                   }`}>
-                    Main Study Compensation
-                  </h3>
-                  <div className={`space-y-3 leading-relaxed ${
-                    isLightMode ? 'text-gray-700' : 'text-gray-300'
-                  }`}>
-                    <p>
-                      All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor. 
-                      
-                      Users who participate in the study for monetary compensation will receive{' '}
-                      <span className={`font-bold ${
-                        isLightMode ? 'text-blue-600' : 'text-blue-400'
-                      }`}>
-                        $75
-                      </span>
-                      .
-                    </p>
-                    <p>
-                       The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive <span className={`font-bold ${
-                         isLightMode ? 'text-blue-600' : 'text-blue-400'
-                       }`}>$10</span> each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
-                    </p>
+                    <Award className={`w-5 h-5 ${
+                      isLightMode ? 'text-green-600' : 'text-green-400'
+                    }`} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className={`text-xl font-semibold mb-3 ${
+                      isLightMode ? 'text-gray-900' : 'text-white'
+                    }`}>
+                      Main Study Compensation
+                    </h3>
+                    <div className={`space-y-3 leading-relaxed ${
+                      isLightMode ? 'text-gray-700' : 'text-gray-300'
+                    }`}>
+                      <p>
+                        All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor. 
+                        
+                        Users who participate in the study for monetary compensation will receive{' '}
+                        <span className={`font-bold ${
+                          isLightMode ? 'text-blue-600' : 'text-blue-400'
+                        }`}>
+                          $75
+                        </span>
+                        .
+                      </p>
+                      <p>
+                         The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive <span className={`font-bold ${
+                           isLightMode ? 'text-blue-600' : 'text-blue-400'
+                         }`}>$10</span> each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
+                      </p>
+
+                      <p>
+                        This compensation will be available until <span className={`font-bold ${
+                           isLightMode ? 'text-blue-600' : 'text-blue-400'
+                         }`}>{formatDateOnly(process.env.NEXT_PUBLIC_STUDY_END_DATE)}</span>. Any changes to this date will be announced on this page and over email.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Public Tasks Compensation */}
             <div className={`rounded-lg border p-6 transition-colors ${
@@ -532,14 +583,24 @@ export default function AboutPage() {
                     isLightMode ? 'text-gray-700' : 'text-gray-300'
                   }`}>
                     <p>
-                      We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive <span className={`font-bold ${
+                      We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive <span className={`font-bold ${
                         isLightMode ? 'text-blue-600' : 'text-blue-400'
-                      }`}>$10</span>. The three users with the highest website scores per projects will each receive <span className={`font-bold ${
+                      }`}>$10</span>. The three users with the highest website scores per project will each receive <span className={`font-bold ${
                         isLightMode ? 'text-blue-600' : 'text-blue-400'
                       }`}>$5</span>. The same user can win multiple bonus rewards across projects.
                     </p>
                     <p>
-                      We also plan to award bonus compensation for particularly creative, popular, or well-designed websites. Further details about any other rewards will be announced on this page and over email.
+                      We also plan to award <span className={`font-bold ${
+                        isLightMode ? 'text-blue-600' : 'text-blue-400'
+                      }`}>$100</span> in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you are eligible for this reward.
+                    </p>
+
+                    <p>
+                      This compensation will be available until <span className={`font-bold ${
+                         isLightMode ? 'text-blue-600' : 'text-blue-400'
+                       }`}>
+                         {formatDateOnly(process.env.NEXT_PUBLIC_STUDY_END_DATE_OVERALL)}
+                       </span>. Any changes to this date will be announced on this page and over email.
                     </p>
                   </div>
                 </div>

@@ -60,7 +60,7 @@ export default function PasswordResetModal({ onSuccess, onCancel }: PasswordRese
       const data = await response.json();
 
       if (response.ok) {
-        setSuccessMessage("Password Reset Email Sent!");
+        setSuccessMessage("Password Reset Email Sent! Check your spam folder");
       } else {
         // Handle specific error cases
         if (response.status === 404) {

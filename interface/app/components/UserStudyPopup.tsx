@@ -6,6 +6,7 @@ import rehypeRaw from "rehype-raw";
 import { getCookie, setCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
 import { useIframeTheme } from "../utils/IframeThemeContext";
+import { isStudyEnded } from "../config/study";
 import { Sun, Moon } from "lucide-react";
 
 export type PopupState = 'none' | 'pre-test' | 'post-test' | 'tutorial' | 'skill-check-prompt';
@@ -42,6 +43,7 @@ function UserStudyPopupInner() {
   const pathname = usePathname();
   const { popupState, setPopupState, recalculateState, onTutorialClose } = useUserStudyPopup();
   const { isLightMode, toggleLightMode } = useIframeTheme();
+  const studyEnded = isStudyEnded();
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
@@ -64,7 +66,10 @@ function UserStudyPopupInner() {
   useEffect(() => {
     if (popupState === 'tutorial') {
       setIsLoading(true);
-      fetch('/instruction_assets/user_study_instructions.md')
+      const instructionsPath = studyEnded
+        ? '/instruction_assets/user_study_instructions_post_study.md'
+        : '/instruction_assets/user_study_instructions.md';
+      fetch(instructionsPath)
         .then((response) => {
           if (!response.ok) throw new Error('Failed to load instructions');
           return response.text();
@@ -74,7 +79,7 @@ function UserStudyPopupInner() {
           setIsLoading(false);
         });
     }
-  }, [popupState]);
+  }, [popupState, studyEnded]);
 
   // Reset checkbox state when skill-check-prompt modal opens
   useEffect(() => {
@@ -331,7 +336,7 @@ function UserStudyPopupInner() {
 
       // Replace instructions.mp4 with YouTube iframe
       if (isInstructionsVideo) {
-        const youtubeVideoId = 'cMGgMO6DttE';
+        const youtubeVideoId = studyEnded ? '5bmywSslJRw' : 'cMGgMO6DttE';
         // Use windowOrigin state to avoid hydration mismatch (Safari is stricter about this)
         // Only render iframe after windowOrigin is set to prevent hydration errors
         const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -833,7 +838,7 @@ function UserStudyPopupInner() {
                 margin: 0,
               }}
             >
-              We've noticed you've submitted a lot of projects in VibeJam! Would you like to take a skill check and see whether you've improved? 👀 
+              We've noticed you've submitted a lot of projects in VibeJam! Would you like to take a skill check and see how your skills have changed? 👀 
             </p>
 
             <label

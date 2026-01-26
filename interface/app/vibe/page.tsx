@@ -50,6 +50,7 @@ import { useSnackbar } from "../components/SnackbarProvider";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { formatDateOnly } from "../utils/dateFormat";
 import { PASSWORD_HASH, hashString } from "../utils/password";
+import { isStudyEnded } from "../config/study";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
 import { downloadProjectAsRepository } from "../utils/downloadProject";
 
@@ -64,6 +65,7 @@ function HomeInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user, token, refreshUser } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+  const studyEnded = isStudyEnded();
   
   // This page now exclusively renders tasks.
   const activeTab = 'tasks';
@@ -630,6 +632,8 @@ function HomeInner() {
     
     // If we don't have task metadata, lock submissions
     if (!currentTaskMeta?.name) return false;
+
+    if (studyEnded) return true;
     
     // Always lock for post-test required tasks
     if (POST_TEST_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
@@ -638,7 +642,7 @@ function HomeInner() {
     
     // Always unlocked for non post-test tasks
     return true;
-  }, [currentTaskMeta?.name, isPlaygroundMode, hasSecretPassword]);
+  }, [currentTaskMeta?.name, isPlaygroundMode, hasSecretPassword, studyEnded]);
 
   // Keyboard shortcuts: Cmd/Ctrl + [ and ] to switch Task/Preview; Cmd/Ctrl + Shift to next file; Cmd/Ctrl + (/) for Code/Submissions
   useEffect(() => {
@@ -2185,6 +2189,10 @@ function HomeInner() {
     // Always include playground task regardless of filtering
     const playgroundTask = tasks.find((task: any) => task.id === 'playground');
     const otherTasks = tasks.filter((task: any) => task.id !== 'playground');
+
+    if (studyEnded) {
+      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
+    }
     
     // Check if all required tasks are completed
     // Use task.name instead of task.id since task.id is slugified (underscores become dashes)
@@ -2211,7 +2219,7 @@ function HomeInner() {
     
     // Always include playground task at the beginning
     return playgroundTask ? [playgroundTask, ...filteredOtherTasks] : filteredOtherTasks;
-  }, []);
+  }, [studyEnded]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
@@ -3311,7 +3319,7 @@ function HomeInner() {
                       </button>
                       {/* Tooltip */}
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
-                        Random task
+                        Surprise Me!
                       </div>
                     </div>
                   </div>

@@ -17,6 +17,7 @@ import LoadingSpinner from "../components/LoadingSpinner";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 import { useSnackbar } from "../components/SnackbarProvider";
 import { PASSWORD_HASH, hashString } from "../utils/password";
+import { isStudyEnded } from "../config/study";
 
 function BrowseInner() {
   const router = useRouter();
@@ -26,6 +27,7 @@ function BrowseInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+  const studyEnded = isStudyEnded();
   
   // All hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState("");
@@ -269,6 +271,10 @@ function BrowseInner() {
   const filterTasksByRequiredStatus = useCallback((tasks: any[], userSeed: string): any[] => {
     const playgroundTask = tasks.find((task: any) => task.id === 'playground');
     const otherTasks = tasks.filter((task: any) => task.id !== 'playground');
+
+    if (studyEnded) {
+      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
+    }
     
     const completedTaskNames = new Set(
       otherTasks
@@ -300,7 +306,7 @@ function BrowseInner() {
     // Return: Playground first, then replication tasks, then open-ended tasks
     const orderedTasks = [...shuffledReplication, ...shuffledOpenEnded];
     return playgroundTask ? [playgroundTask, ...orderedTasks] : orderedTasks;
-  }, [shuffleArray]);
+  }, [shuffleArray, studyEnded]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
@@ -322,7 +328,8 @@ function BrowseInner() {
     const allRequiredCompleted = POST_TEST_REQUIRED_TASKS.every(
       taskName => completedTaskNames.has(taskName)
     );
-    setAllRequiredTasksCompleted(allRequiredCompleted);
+    const effectiveRequiredCompleted = studyEnded ? true : allRequiredCompleted;
+    setAllRequiredTasksCompleted(effectiveRequiredCompleted);
     
     let tasksAfterRequiredFilter: any[];
     if (hasSecretPassword) {
@@ -374,7 +381,7 @@ function BrowseInner() {
     }
     
     // Calculate locked tasks and active task (only when not all required tasks are completed)
-    if (!allRequiredCompleted && !hasSecretPassword) {
+    if (!effectiveRequiredCompleted && !hasSecretPassword) {
       const lockedIds = new Set<string>();
       let activeId: string | null = null;
       
@@ -413,7 +420,7 @@ function BrowseInner() {
     }
     
     setFilteredTasks(finalFilteredTasks);
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId]);
+  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId, studyEnded]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -684,7 +691,7 @@ function BrowseInner() {
                     </button>
                     {/* Tooltip */}
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50 pointer-events-none border border-gray-300">
-                      Random task
+                      Surprise Me!
                     </div>
                   </div>
                 </div>
