@@ -185,23 +185,13 @@ If you want to see whether you have improved after using VibeJam, you can naviga
 
 ### Compensation
 
-#### Main Study Compensation
-
-All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor.
-
-Users who participate in the study for monetary compensation will receive **$75** for completing all required components.
-
-The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive **$10** each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
-
-This compensation will be available until May 1, 2026. Any changes to this date will be announced on the About page and over email.
-
 #### Public VibeJam Tasks Compensation
 
-We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
+We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
 
 We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you are eligible for this reward.
 
-This compensation will be available until June 1, 2026. Any changes to this date will be announced on the About page and over email.
+This compensation will be available until the study end date. Any changes to this date will be announced on the About page and over email.
 
 #### Multiple Rewards Available
 

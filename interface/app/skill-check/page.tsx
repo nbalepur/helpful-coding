@@ -6,13 +6,15 @@ import SkillCheckPage from "../pages/SkillCheckPage";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { useAuth } from "../utils/auth";
+import { isStudyEnded } from "../config/study";
 
-type SkillCheckMode = 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
+type SkillCheckMode = 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test' | 'retake';
 
 export default function SkillCheckRoute() {
   const { popupState, isCalculating, preTestCompleted, postTestCompleted } = useUserStudyPopup();
   const { user } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+  const studyEnded = isStudyEnded();
   const [localPreTestCompleted, setLocalPreTestCompleted] = useState<boolean | null>(null);
   const [localPostTestCompleted, setLocalPostTestCompleted] = useState<boolean | null>(null);
   const hasFetchedRef = useRef(false);
@@ -20,6 +22,9 @@ export default function SkillCheckRoute() {
   // Only fetch completion status as a fallback if context values are not available
   // This happens when the page loads before UserStudyPopupProvider has calculated the state
   useEffect(() => {
+    if (studyEnded) {
+      return;
+    }
     // Use context values if available (preferred - avoids redundant API call)
     if (preTestCompleted !== null && postTestCompleted !== null) {
       return;
@@ -57,11 +62,12 @@ export default function SkillCheckRoute() {
     if (popupState !== 'none') {
       hasFetchedRef.current = false;
     }
-  }, [popupState, numericUserId, preTestCompleted, postTestCompleted]);
+  }, [popupState, numericUserId, preTestCompleted, postTestCompleted, studyEnded]);
 
   // Derive skillCheckMode from popupState and completion status
   // Prefer context values, fall back to local state if context values aren't available yet
   const skillCheckMode: SkillCheckMode = useMemo(() => {
+    if (studyEnded) return 'retake';
     if (isCalculating) return 'locked-pre-test';
     if (popupState === 'pre-test') return 'pre-test';
     if (popupState === 'post-test') return 'post-test';
@@ -79,7 +85,7 @@ export default function SkillCheckRoute() {
       return 'locked-pre-test';
     }
     return 'locked-pre-test';
-  }, [isCalculating, popupState, preTestCompleted, postTestCompleted, localPreTestCompleted, localPostTestCompleted]);
+  }, [isCalculating, popupState, preTestCompleted, postTestCompleted, localPreTestCompleted, localPostTestCompleted, studyEnded]);
 
   const showBackground = skillCheckMode === 'locked-pre-test' || skillCheckMode === 'locked-post-test';
 

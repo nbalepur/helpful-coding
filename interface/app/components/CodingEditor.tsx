@@ -18,6 +18,7 @@ import { useUserStudyPopup } from './UserStudyPopup';
 import { POST_TEST_REQUIRED_TASKS } from '../config/tasks';
 import { ERROR_TRY_AGAIN } from '../utils/constants';
 import { useAuth } from '../utils/auth';
+import { isStudyEnded } from '../config/study';
 import { setPlaygroundCompletedInSettings } from '../utils/userSettings';
 import { downloadProjectAsRepository } from '../utils/downloadProject';
 
@@ -304,6 +305,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const { showSnackbar } = useSnackbar();
   const { recalculateState } = useUserStudyPopup();
   const { user, token, refreshUser } = useAuth();
+  const studyEnded = isStudyEnded();
   const [output, setOutput] = useState(
     "Output will be shown here when Run is pressed."
   );
@@ -2172,7 +2174,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
   };
 
-  const isRequiredTask = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+  const isRequiredTask = !studyEnded && taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
   
   const handleCheckAnswers = () => {
     setAnswersChecked(true);
@@ -3220,7 +3222,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       const selfReportQuestionCount = selfReportQuestions.length;
                       const hasSelfReportQuestions = selfReportQuestionCount > 0;
                       // Check if current task is in POST_TEST_REQUIRED_TASKS
-                      const isPostTestRequiredTask = taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
+                      const isPostTestRequiredTask = !studyEnded && taskName && POST_TEST_REQUIRED_TASKS.includes(taskName as any);
                       
                       return comprehensionQuestions.map((q, index) => {
                         const currentAnswer = comprehensionAnswers[q.id] || '';

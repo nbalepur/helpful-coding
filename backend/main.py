@@ -5032,7 +5032,30 @@ async def get_leaderboard(db: Session = Depends(get_db)):
             for feedback in all_feedback:
                 feedback_by_submission[feedback.submission_id].append(feedback)
         
-        # 4. Calculate stats for each user using pre-loaded data
+        # 4. Get all skill check responses to count distinct phases per user
+        skill_check_phases_by_user: Dict[int, set] = defaultdict(set)
+        if user_ids:
+            # Get MCQA skill check responses
+            mcqa_responses = (
+                db.query(UserMCQASkillResponse)
+                .filter(UserMCQASkillResponse.user_id.in_(user_ids))
+                .filter(UserMCQASkillResponse.phase.isnot(None))
+                .all()
+            )
+            for response in mcqa_responses:
+                skill_check_phases_by_user[response.user_id].add(response.phase)
+            
+            # Get code skill check responses
+            code_responses = (
+                db.query(UserCodeSkillResponse)
+                .filter(UserCodeSkillResponse.user_id.in_(user_ids))
+                .filter(UserCodeSkillResponse.phase.isnot(None))
+                .all()
+            )
+            for response in code_responses:
+                skill_check_phases_by_user[response.user_id].add(response.phase)
+        
+        # 5. Calculate stats for each user using pre-loaded data
         user_stats = []
         for user in all_users:
             user_submissions = submissions_by_user.get(user.id, [])
@@ -5051,11 +5074,15 @@ async def get_leaderboard(db: Session = Depends(get_db)):
             # Calculate overall average rating
             average_rating = sum(all_ratings) / len(all_ratings) if all_ratings else 0.0
             
+            # Count distinct skill check phases (pre-test, post-test, retake sessions)
+            skill_check_count = len(skill_check_phases_by_user.get(user.id, set()))
+            
             user_stats.append({
                 "user_id": user.id,
                 "username": user.username,
                 "average_rating": round(average_rating, 2),
                 "submission_count": submission_count,
+                "skill_check_count": skill_check_count,
             })
         
         # Calculate normalized ranks

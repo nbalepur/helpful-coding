@@ -11,10 +11,11 @@ interface LeaderboardEntry {
   username: string;
   average_rating: number;
   submission_count: number;
+  skill_check_count: number;
   overall_score: number;
 }
 
-type SortField = "rank" | "username" | "average_rating" | "submission_count";
+type SortField = "username" | "average_rating" | "submission_count" | "skill_check_count";
 type SortDirection = "asc" | "desc";
 
 export default function LeaderboardPage() {
@@ -22,7 +23,7 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState<SortField>("rank");
+  const [sortField, setSortField] = useState<SortField>("average_rating");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   // Generate animated dots only on client side to avoid hydration mismatch
   const [animatedDots, setAnimatedDots] = useState<Array<{
@@ -92,10 +93,6 @@ export default function LeaderboardPage() {
       let bValue: number | string;
 
       switch (sortField) {
-        case "rank":
-          aValue = a.rank;
-          bValue = b.rank;
-          break;
         case "username":
           aValue = a.username.toLowerCase();
           bValue = b.username.toLowerCase();
@@ -107,6 +104,10 @@ export default function LeaderboardPage() {
         case "submission_count":
           aValue = a.submission_count;
           bValue = b.submission_count;
+          break;
+        case "skill_check_count":
+          aValue = a.skill_check_count;
+          bValue = b.skill_check_count;
           break;
         default:
           return 0;
@@ -255,7 +256,7 @@ export default function LeaderboardPage() {
         </Link>
         .
       </p>
-      <div className="w-full max-w-4xl">
+      <div className="w-full max-w-7xl px-8">
         {loading ? (
           <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center">
             <p className="text-gray-400">Loading leaderboard...</p>
@@ -287,15 +288,6 @@ export default function LeaderboardPage() {
                   <tr>
                     <th
                       className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-800 transition-colors"
-                      onClick={() => handleSort("rank")}
-                    >
-                      <div className="flex items-center gap-2">
-                        Overall Rank
-                        <SortIcon field="rank" />
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-800 transition-colors"
                       onClick={() => handleSort("username")}
                     >
                       <div className="flex items-center gap-2">
@@ -321,6 +313,15 @@ export default function LeaderboardPage() {
                         <SortIcon field="submission_count" />
                       </div>
                     </th>
+                    <th
+                      className="px-6 py-4 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-800 transition-colors"
+                      onClick={() => handleSort("skill_check_count")}
+                    >
+                      <div className="flex items-center gap-2">
+                        # Skill Checks Taken
+                        <SortIcon field="skill_check_count" />
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
@@ -334,16 +335,6 @@ export default function LeaderboardPage() {
                     filteredAndSorted.map((entry) => (
                       <tr key={entry.user_id} className="hover:bg-gray-750 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`text-lg font-bold ${
-                            entry.rank === 1 ? 'text-yellow-400' :
-                            entry.rank === 2 ? 'text-gray-300' :
-                            entry.rank === 3 ? 'text-amber-600' :
-                            'text-gray-400'
-                          }`}>
-                            #{entry.rank}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-white font-medium">{entry.username}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -353,6 +344,9 @@ export default function LeaderboardPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-gray-300">{entry.submission_count}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-gray-300">{entry.skill_check_count}</span>
                         </td>
                       </tr>
                     ))
