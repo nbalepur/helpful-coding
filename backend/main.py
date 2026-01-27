@@ -33,7 +33,7 @@ from agent import OpenAIAgent
 
 from pydantic import BaseModel, Field, AliasChoices
 from database.config import get_db
-from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent, AssistantLog, CodePreference
+from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, SubmissionEvaluation, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent, AssistantLog, CodePreference
 from database.models import (
     UserCreate,
     UserResponse,
@@ -44,6 +44,8 @@ from database.models import (
     SubmissionCreate,
     SubmissionFeedbackCreate,
     SubmissionFeedback as SubmissionFeedbackModel,
+    SubmissionEvaluationCreate,
+    SubmissionEvaluation as SubmissionEvaluationModel,
     UserMCQASkillResponseCreate,
     UserCodeSkillResponseCreate,
     ReportSkillCheckQuestionCreate,
@@ -51,10 +53,11 @@ from database.models import (
     ComprehensionQuestionResponse,
     GenerateComprehensionQuestionsRequest,
     SaveTutorialQuestionsRequest,
+    EvaluateSubmissionRequest,
     NavigationEventCreate,
     ProjectCreate,
 )
-from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, ProjectCRUD
+from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, SubmissionEvaluationCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, ProjectCRUD
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
@@ -526,6 +529,7 @@ class SubmissionRequest(BaseModel):
     code: Dict[str, Any]
     image: Optional[str] = None
     comprehension_answers: Optional[Dict[str, Any]] = Field(None, alias="comprehensionAnswers")
+    evaluation_id: Optional[int] = Field(None, alias="evaluationId")
 
     class Config:
         populate_by_name = True
@@ -3077,6 +3081,120 @@ async def log_code_snapshot(payload: CodeLogRequest, db: Session = Depends(get_d
         return JSONResponse(status_code=500, content={"error": "Failed to log code snapshot"})
 
 
+class ModerationCheckRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    image: Optional[str] = None  # Base64 data URI or URL
+
+    class Config:
+        populate_by_name = True
+
+
+@app.post("/api/submissions/check-moderation", tags=["Submissions"])
+async def check_moderation(payload: ModerationCheckRequest):
+    """
+    Check if project title, description, and image are appropriate using OpenAI moderation API.
+    Only used for public tasks (non-required tasks or past study date).
+    """
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "OpenAI API key not configured", "is_appropriate": False}
+            )
+
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Prepare inputs for moderation API
+        moderation_inputs = []
+        
+        # Add title as text input
+        if payload.title:
+            moderation_inputs.append({
+                "type": "text",
+                "text": payload.title
+            })
+        
+        # Add description as text input
+        if payload.description:
+            moderation_inputs.append({
+                "type": "text",
+                "text": payload.description
+            })
+        
+        # Add image - handle both base64 data URIs and URLs
+        if payload.image:
+            image_url = payload.image
+            # If it's a base64 data URI, use it directly (API supports data URIs)
+            # Format: data:image/png;base64,<base64_data>
+            if not image_url.startswith("http://") and not image_url.startswith("https://"):
+                # Assume it's already a data URI or base64
+                if not image_url.startswith("data:"):
+                    # If it's just base64, wrap it in data URI
+                    image_url = f"data:image/png;base64,{image_url}"
+            
+            moderation_inputs.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": image_url
+                }
+            })
+        
+        if not moderation_inputs:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No content provided for moderation", "is_appropriate": False}
+            )
+        
+        # Call OpenAI moderation API
+        try:
+            response = client.moderations.create(
+                model="omni-moderation-latest",
+                input=moderation_inputs,
+            )
+            
+            # Check results - if any input is flagged, the content is inappropriate
+            is_appropriate = True
+            
+            # Process results - the API returns results for each input
+            if hasattr(response, 'results') and response.results:
+                for result in response.results:
+                    # Check if this result is flagged
+                    if hasattr(result, 'flagged') and result.flagged:
+                        is_appropriate = False
+                        break  # No need to check further if any content is flagged
+            
+            return {
+                "is_appropriate": is_appropriate,
+                "error": None
+            }
+            
+        except Exception as api_error:
+            print(f"Error calling OpenAI moderation API: {api_error}")
+            import traceback
+            traceback.print_exc()
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": f"Moderation API error: {str(api_error)}",
+                    "is_appropriate": False
+                }
+            )
+            
+    except Exception as e:
+        print(f"Error in moderation check: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"Failed to check moderation: {str(e)}",
+                "is_appropriate": False
+            }
+        )
+
+
 @app.post("/api/submissions", tags=["Submissions"])
 async def create_submission(payload: SubmissionRequest, db: Session = Depends(get_db)):
     try:
@@ -3116,6 +3234,10 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
         )
 
         submission_record = SubmissionCRUD.create(db, submission_create)
+        
+        # Link evaluation to submission if evaluation_id is provided
+        if payload.evaluation_id:
+            SubmissionEvaluationCRUD.link_to_submission(db, payload.evaluation_id, submission_record.id)
         
         # Update comprehension questions with user answers and scores
         if payload.comprehension_answers:
@@ -4459,6 +4581,344 @@ async def _generate_comprehension_questions(
     print(questions)
 
     return questions
+
+
+async def _evaluate_submission(
+    submission_title: str,
+    submission_description: str,
+    submission_code: Dict[str, str],
+    task_description: Optional[str] = None,
+    task_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Evaluate a submission using LLM-as-a-judge on four dimensions.
+    
+    Args:
+        submission_title: Title of the submission
+        submission_description: Description of the submission
+        submission_code: Dictionary mapping filename to code content
+        task_description: Description of the task/project
+        task_name: Name of the task/project
+    
+    Returns a dictionary with the following structure:
+    {
+        "task_fulfillment": int,  # 1-5
+        "style": int,  # 1-5
+        "enjoyment": int,  # 1-5
+        "creativity": int,  # 1-5
+        "is_valid": bool,  # Whether submission is valid
+        "explanation": str  # Explanation for the decision
+    }
+    """
+    model = "openai/gpt-5.2-2025-12-11"
+    
+    # Combine code files
+    js_code = ""
+    html_code = ""
+    css_code = ""
+    
+    for filename, code_content in submission_code.items():
+        if filename.endswith('.js') or filename.endswith('.javascript'):
+            js_code += code_content + "\n\n"
+        elif filename.endswith('.html'):
+            html_code += code_content + "\n\n"
+        elif filename.endswith('.css'):
+            css_code += code_content + "\n\n"
+
+    # Combine HTML, CSS, and JS into a single HTML document
+    # If HTML already has structure, inject CSS and JS appropriately
+    # Otherwise, wrap everything in a basic HTML structure
+    newline = '\n'
+    
+    if html_code and ('<html' in html_code.lower() or '<!doctype' in html_code.lower()):
+        # HTML already has structure - inject CSS in <head> and JS before </body>
+        website_code = html_code
+        if css_code:
+            # Try to inject CSS in <head>, or add it if no head exists
+            if '</head>' in html_code.lower():
+                website_code = website_code.replace('</head>', f'<style>{newline}{css_code}{newline}</style>{newline}</head>', 1)
+            elif '<body>' in html_code.lower():
+                website_code = website_code.replace('<body>', f'<head><style>{newline}{css_code}{newline}</style></head>{newline}<body>', 1)
+            else:
+                website_code = f'<head><style>{newline}{css_code}{newline}</style></head>{newline}{website_code}'
+        
+        if js_code:
+            # Inject JS before </body> or at the end
+            if '</body>' in html_code.lower():
+                website_code = website_code.replace('</body>', f'<script>{newline}{js_code}{newline}</script>{newline}</body>', 1)
+            else:
+                website_code = f'{website_code}{newline}<script>{newline}{js_code}{newline}</script>'
+    else:
+        # No HTML structure - create a complete HTML document
+        css_section = f'<style>{newline}{css_code}{newline}</style>' if css_code else ''
+        js_section = f'<script>{newline}{js_code}{newline}</script>' if js_code else ''
+        title_text = submission_title if submission_title else "Submission"
+        html_body = html_code if html_code else ''
+        
+        website_code = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title_text}</title>
+    {css_section}
+</head>
+<body>
+    {html_body}
+    {js_section}
+</body>
+</html>"""
+    
+    # Build the prompt
+    task_info = ""
+    if task_description:
+        task_info = f"\n\n<task_description>\n{task_description}\n</task_description>"
+    if task_name:
+        task_info += f"\n\n<task_name>\n{task_name}\n</task_name>"
+    
+    prompt = f"""<task>
+You are an expert at evaluating websites submitted by users.
+
+Given a user's submission, your job is to evaluate the submission on four dimensions and determine if it is valid. Afterwards, you will write an explanation summarizing your evaluation and providing feedback to the user on how they could improve their submission.
+</task>
+
+Here is information about the task the user submitted to:
+<task_description>
+{task_info}
+</task_description>
+
+Here is the title of the user's submission
+<submission_title>
+{submission_title}
+</submission_title>
+
+Here is the description of the user's submission:
+<submission_description>
+{submission_description}
+</submission_description>
+
+Here is the code for the user's submission:
+<submission_code>
+{website_code}
+</submission_code>
+
+<evaluation_dimensions>
+1. **Task Fulfillment** (1-5): How well does the submission fulfill the task requirements? Does it meet the core objectives of the task?
+   - 1: Does not fulfill the task requirements at all
+   - 2: Fulfills only a small portion of the task requirements
+   - 3: Fulfills most task requirements but missing some key elements
+   - 4: Fulfills all or nearly all task requirements well
+   - 5: Exceeds task requirements and demonstrates excellent fulfillment
+
+2. **Style** (1-5): How well-designed and polished is the submission? Consider visual design, user interface, code organization, and overall presentation.
+   - 1: Poor design, unpolished, messy
+   - 2: Basic design with minimal polish
+   - 3: Adequate design with some polish
+   - 4: Good design with good polish
+   - 5: Excellent design with exceptional polish
+
+3. **Enjoyment** (1-5): How enjoyable and engaging is the submission? Would users find it fun or interesting to interact with?
+   - 1: Not enjoyable, boring, or frustrating
+   - 2: Slightly enjoyable but lacks engagement
+   - 3: Moderately enjoyable with some engaging elements
+   - 4: Very enjoyable and engaging
+   - 5: Extremely enjoyable, highly engaging, and memorable
+
+4. **Creativity** (1-5): How creative and original is the submission? Does it show unique ideas, innovative approaches, or creative problem-solving?
+   - 1: No creativity, completely generic
+   - 2: Minimal creativity, mostly standard approach
+   - 3: Some creative elements or unique touches
+   - 4: Good creativity with original ideas
+   - 5: Exceptional creativity with highly original and innovative ideas
+</evaluation_dimensions>
+
+<validity_criteria>
+A submission is **INVALID** if:
+- It attempts to game or circumvent the task description (e.g., submitting something completely unrelated to the task)
+- It contains offensive, inappropriate, or harmful content
+- It is clearly a placeholder or empty submission with no real effort
+- It violates basic ethical guidelines
+A submission is **VALID** if it represents a genuine attempt to complete the task, even if the quality is low.
+</validity_criteria>
+
+<explanation_criteria>
+- The explanation should be clear and helpful, explaining your reasoning for each dimension and particularly why the submission is valid or invalid
+- The explanation should summarize both what the user did well and what the user could improve
+- Use a friendly, constructive, and honest tone. Do not be too critical or harsh. Similarly, do not be overly sycophantic or overly complimentary.
+- The user you should read the explanation and have ideas of how they could improve their submission. The user's goal is to a win a competition where other users will vote on the submissions based on tsak fulfillment, style, enjoyment, and creativity.
+- The explanation should be in plain English and without emojis.
+- The explanation should be written in second person (e.g. "You", "your", "your submission", "your project", etc.).
+- The explanation should be written in markdown format using bullet points that are concise and easy to read. Generate the markdown directly (no need for ```markdown or ```).
+- Generate no more than five sentences / bullet points in total.
+</explanation_criteria>
+
+<format>
+You must output a JSON object with the following structure:
+{{
+    "task_fulfillment": <integer 1-5>,
+    "style": <integer 1-5>,
+    "enjoyment": <integer 1-5>,
+    "creativity": <integer 1-5>,
+    "is_valid": <boolean>,
+    "explanation": "<string explaining your evaluation, especially focusing on why is_valid is true or false>"
+}}
+Do not generate anything else.
+</format>
+"""
+    
+    # JSON schema for structured output
+    json_schema = {
+        "type": "object",
+        "properties": {
+            "task_fulfillment": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Task fulfillment score from 1-5"
+            },
+            "style": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Style score from 1-5"
+            },
+            "enjoyment": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Enjoyment score from 1-5"
+            },
+            "creativity": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Creativity score from 1-5"
+            },
+            "is_valid": {
+                "type": "boolean",
+                "description": "Whether the submission is valid"
+            },
+            "explanation": {
+                "type": "string",
+                "description": "Explanation for the evaluation"
+            }
+        },
+        "required": ["task_fulfillment", "style", "enjoyment", "creativity", "is_valid", "explanation"],
+        "additionalProperties": False
+    }
+    
+    # Retry logic similar to other LLM calls
+    for attempt in range(3):
+        try:
+            response = litellm.completion(
+                model=model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "submission_evaluation",
+                        "schema": json_schema,
+                        "strict": True
+                    }
+                }
+            )
+            
+            output = response.choices[0].message.content.strip()
+            # Parse JSON
+            result = json.loads(output)
+            
+            # Validate structure
+            if all(key in result for key in ["task_fulfillment", "style", "enjoyment", "creativity", "is_valid", "explanation"]):
+                # Ensure scores are in valid range
+                for key in ["task_fulfillment", "style", "enjoyment", "creativity"]:
+                    result[key] = max(1, min(5, int(result[key])))
+                result["explanation"] = result["explanation"].replace("```markdown", "").replace("```", "")
+                return result
+            else:
+                raise ValueError("Missing required fields in response")
+                
+        except Exception as e:
+            print(f"Error in evaluation attempt {attempt + 1}: {e}")
+            if attempt == 2:
+                # Fallback: return default invalid response
+                return {
+                    "task_fulfillment": 1,
+                    "style": 1,
+                    "enjoyment": 1,
+                    "creativity": 1,
+                    "is_valid": False,
+                    "explanation": f"Evaluation failed after 3 attempts. Error: {str(e)}"
+                }
+            import time
+            time.sleep(0.7)
+    
+    # Should not reach here, but return default if it does
+    return {
+        "task_fulfillment": 1,
+        "style": 1,
+        "enjoyment": 1,
+        "creativity": 1,
+        "is_valid": False,
+        "explanation": "Evaluation failed: Unable to process submission"
+    }
+
+
+@app.post("/api/submissions/evaluate", tags=["Submissions"])
+async def evaluate_submission(
+    payload: EvaluateSubmissionRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluate a submission using LLM-as-a-judge on four dimensions.
+    This endpoint evaluates submissions for non-required tasks or tasks past the study date.
+    """
+    try:
+        # Verify user exists
+        user = db.query(User).filter(User.id == payload.user_id).first()
+        if not user:
+            return JSONResponse(status_code=404, content={"error": "User not found"})
+
+        # Verify project exists
+        project = db.query(Project).filter(Project.id == payload.project_id).first()
+        if not project:
+            return JSONResponse(status_code=404, content={"error": "Project not found"})
+
+        # Evaluate the submission
+        evaluation_result = await _evaluate_submission(
+            submission_title=payload.submission_title,
+            submission_description=payload.submission_description,
+            submission_code=payload.submission_code,
+            task_description=project.description,
+            task_name=project.name
+        )
+
+        # Save evaluation to database
+        evaluation_create = SubmissionEvaluationCreate(
+            user_id=payload.user_id,
+            project_id=payload.project_id,
+            submission_id=None,  # Will be linked when submission is created
+            evaluation_data=evaluation_result,
+            is_valid=evaluation_result.get("is_valid", False)
+        )
+        
+        evaluation_record = SubmissionEvaluationCRUD.create(db, evaluation_create)
+
+        return {
+            "success": True,
+            "evaluation": evaluation_result,
+            "evaluation_id": evaluation_record.id
+        }
+
+    except Exception as e:
+        print(f"Error evaluating submission: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to evaluate submission: {str(e)}"}
+        )
 
 
 @app.get("/api/users/{user_id}/submission-feedback", tags=["Submissions"])

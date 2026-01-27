@@ -91,7 +91,6 @@ export default function IRBIframe({ className }: IRBIframeProps) {
         width: '100%',
         height: '100%',
         border: 'none',
-        borderRadius: '8px',
         background: isLightMode ? '#ffffff' : '#111827'
       }}
       sandbox="allow-same-origin"

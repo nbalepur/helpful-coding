@@ -19,13 +19,6 @@ interface SkillCheckPageProps {
   isCalculating?: boolean;
 }
 
-const DEFAULT_RETAKE_COUNTS = {
-  frontendMcqa: 10,
-  uxMcqa: 10,
-  coding: 3,
-  debugging: 3,
-};
-
 export default function SkillCheckPage({ skillCheckMode, isCalculating = false }: SkillCheckPageProps) {
   const { user } = useAuth();
   const { recalculateState } = useUserStudyPopup();
@@ -55,17 +48,6 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
   const studyEnded = isStudyEnded();
   const isForcedRetake = studyEnded || skillCheckMode === 'retake';
   const effectiveRetakeMode = isRetakeMode || isForcedRetake;
-
-  const startRetakeWithDefaults = () => {
-    if (!retakeSessionId) {
-      setRetakeSessionId(generateUuidV4());
-    }
-    if (!retakeQuestionCounts) {
-      setRetakeQuestionCounts(DEFAULT_RETAKE_COUNTS);
-    }
-    setIsRetakeMode(true);
-    setIsStarted(true);
-  };
 
   // Load confetti script dynamically
   useEffect(() => {
@@ -579,7 +561,8 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
             <button
               onClick={() => {
                 if (effectiveRetakeMode) {
-                  startRetakeWithDefaults();
+                  // Show customization modal for retake mode (including when study has ended)
+                  setShowRetakeModal(true);
                   return;
                 }
                 setIsStarted(true);

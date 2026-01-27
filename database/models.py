@@ -659,6 +659,38 @@ class SaveTutorialQuestionsRequest(BaseModel):
     answers: Dict[str, Any] = Field(..., description="Dictionary mapping question_name to user answer")
 
 
+class EvaluateSubmissionRequest(BaseModel):
+    """Request model for evaluating a submission"""
+    user_id: int = Field(..., description="User ID")
+    project_id: int = Field(..., description="Project ID")
+    submission_title: str = Field(..., description="Submission title")
+    submission_description: str = Field(..., description="Submission description")
+    submission_code: Dict[str, str] = Field(..., description="Submission code as key-value pairs")
+
+
+class SubmissionEvaluationBase(BaseModel):
+    """Base model for SubmissionEvaluation"""
+    user_id: int = Field(..., description="User ID")
+    project_id: int = Field(..., description="Project ID")
+    submission_id: Optional[int] = Field(None, description="Submission ID (nullable, set when submission is created)")
+    evaluation_data: Dict[str, Any] = Field(..., description="Full evaluation data from LLM")
+    is_valid: bool = Field(..., description="Whether submission is valid")
+
+
+class SubmissionEvaluationCreate(SubmissionEvaluationBase):
+    """Model for creating a new submission evaluation"""
+    pass
+
+
+class SubmissionEvaluation(SubmissionEvaluationBase):
+    """Complete SubmissionEvaluation model"""
+    id: int = Field(..., description="Evaluation ID")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        from_attributes = True
+
+
 # Navigation Event Models
 class NavigationEventBase(BaseModel):
     """Base model for navigation events"""

@@ -6,7 +6,8 @@ import MultiFileEditor from './MultiFileEditor';
 import { MessageData } from './Message';
 import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_logic';
 import { BsExclamationTriangle, BsInfoCircle } from 'react-icons/bs';
-import { Check, X, Download } from 'lucide-react';
+import { Check, X, Download, CheckCircle, Sparkles, ThumbsUp, Lightbulb } from 'lucide-react';
+import Markdown from 'react-markdown';
 import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
 import html2canvas from 'html2canvas';
@@ -447,10 +448,24 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [isSubmittingProject, setIsSubmittingProject] = useState(false);
+  const [isCheckingModeration, setIsCheckingModeration] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [existingSubmission, setExistingSubmission] = useState<{ id: number; title: string; description: string | null; createdAt: string | null } | null>(null);
+  const [isCheckingExistingSubmission, setIsCheckingExistingSubmission] = useState(false);
   const [hasConsentedToOverride, setHasConsentedToOverride] = useState(false);
   const [showComprehensionCheck, setShowComprehensionCheck] = useState(false);
+  const [showEvaluationCheck, setShowEvaluationCheck] = useState(false);
+  const [evaluationResult, setEvaluationResult] = useState<{
+    task_fulfillment: number;
+    style: number;
+    enjoyment: number;
+    creativity: number;
+    is_valid: boolean;
+    explanation: string;
+  } | null>(null);
+  const [evaluationId, setEvaluationId] = useState<number | null>(null);
+  const [isLoadingEvaluation, setIsLoadingEvaluation] = useState(false);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
   const [comprehensionAnswers, setComprehensionAnswers] = useState<Record<string, string>>({});
   const [comprehensionQuestions, setComprehensionQuestions] = useState<Array<{
     id: string;
@@ -473,7 +488,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const trimmedProjectDescriptionLength = projectDescription.trim().length;
   const isSubmitDisabled = !!(
     isSubmittingProject ||
+    isCheckingModeration ||
     isScreenshotLoading ||
+    isCheckingExistingSubmission ||
     !trimmedProjectTitleLength ||
     !trimmedProjectDescriptionLength ||
     !previewScreenshot ||
@@ -1651,6 +1668,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       setIsSubmittingProject(false);
       setIsScreenshotLoading(false);
       setExistingSubmission(null);
+      setIsCheckingExistingSubmission(false);
       setHasConsentedToOverride(false);
       setShowComprehensionCheck(false);
       setComprehensionAnswers({});
@@ -1666,6 +1684,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     const checkExistingSubmission = async () => {
       if (!userId || !projectId) return;
       
+      setIsCheckingExistingSubmission(true);
       try {
         const params = new URLSearchParams();
         if (projectId) {
@@ -1690,6 +1709,10 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       } catch (error) {
         console.error('Failed to check existing submission', error);
         // Don't block submission if check fails
+      } finally {
+        if (!cancelled) {
+          setIsCheckingExistingSubmission(false);
+        }
       }
     };
 
@@ -1915,6 +1938,12 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       }
     }
 
+    // Check if there's an existing submission that requires consent
+    if (existingSubmission && !hasConsentedToOverride) {
+      setSubmissionError('Please confirm that you want to override your existing submission.');
+      hasError = true;
+    }
+
     if (hasError) {
       return;
     }
@@ -1923,8 +1952,73 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     setProjectTitle(trimmedTitle);
     setProjectDescription(trimmedDescription);
     
-    // Always show the comprehension check panel for all tasks
-    setShowComprehensionCheck(true);
+    // Check if evaluation is needed (non-required tasks or past study date)
+    const needsEvaluation = studyEnded || (taskName && !POST_TEST_REQUIRED_TASKS.includes(taskName as any));
+    
+    // For public tasks (needsEvaluation), check moderation first
+    if (needsEvaluation && !isTutorialTask) {
+      setIsCheckingModeration(true);
+      setSubmissionError(null);
+      // Clear previous field errors related to moderation
+      setProjectTitleError(null);
+      setProjectDescriptionError(null);
+      setScreenshotError(null);
+      
+      try {
+        // Call moderation endpoint
+        const moderationResponse = await fetch(`${ENV.BACKEND_URL}/api/submissions/check-moderation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: trimmedTitle,
+            description: trimmedDescription,
+            image: previewScreenshot,
+          }),
+        });
+
+        if (!moderationResponse.ok) {
+          const errorData = await moderationResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to check content appropriateness');
+        }
+
+        const moderationData = await moderationResponse.json();
+        
+        if (!moderationData.is_appropriate) {
+          // Content was flagged - show error and prevent proceeding
+          setSubmissionError('Your submission has offensive content. Review and update your title/description/image and try again.');
+          setIsCheckingModeration(false);
+          return;
+        }
+        
+        // Moderation passed - continue with normal flow
+      } catch (error) {
+        console.error('Moderation check error:', error);
+        // On error, show warning but allow user to proceed (graceful degradation)
+        // This prevents blocking users if the moderation service is down
+        const errorMessage = error instanceof Error ? error.message : 'Unable to verify content appropriateness';
+        setSubmissionError(`Warning: ${errorMessage}. You may proceed, but please ensure your content is appropriate.`);
+        // Don't return - allow user to proceed after seeing the warning
+      } finally {
+        setIsCheckingModeration(false);
+      }
+    }
+    
+    if (needsEvaluation) {
+      // Show evaluation step first
+      setShowEvaluationCheck(true);
+      setShowComprehensionCheck(false);
+      // Clear comprehension state when switching to evaluation
+      setComprehensionQuestions([]);
+      setComprehensionAnswers({});
+      setComprehensionQuestionsError(null);
+      setAnswersChecked(false);
+    } else {
+      // Go directly to comprehension questions for required tasks
+      setShowEvaluationCheck(false);
+      setShowComprehensionCheck(true);
+    }
   };
 
   // Fetch comprehension questions when the panel is shown
@@ -2025,6 +2119,87 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     fetchComprehensionQuestions();
   }, [showComprehensionCheck, userId, projectId, projectTitle, projectDescription, taskName]);
 
+  // Fetch evaluation when the evaluation panel is shown
+  useEffect(() => {
+    if (!showEvaluationCheck) {
+      return;
+    }
+
+    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
+    
+    // For tutorial tasks, skip evaluation
+    if (isTutorialTask) {
+      setShowEvaluationCheck(false);
+      setShowComprehensionCheck(true);
+      return;
+    }
+    
+    // For non-tutorial tasks, skip userId/projectId checks would fail, so return early
+    if (!userId || !projectId) {
+      return;
+    }
+
+    const fetchEvaluation = async () => {
+      // Clear previous evaluation result to prevent showing stale scores
+      setEvaluationResult(null);
+      setIsLoadingEvaluation(true);
+      setEvaluationError(null);
+      
+      try {
+        const codeSnapshot = collectSubmissionFiles();
+        if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
+          throw new Error('No code files found');
+        }
+
+        const response = await fetch(`${ENV.BACKEND_URL}/api/submissions/evaluate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            project_id: projectId,
+            submission_title: projectTitle.trim(),
+            submission_description: projectDescription.trim(),
+            submission_code: codeSnapshot,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to evaluate submission');
+        }
+
+        const data = await response.json();
+        if (data.success && data.evaluation) {
+          setEvaluationResult(data.evaluation);
+          // Store evaluation_id if provided
+          if (data.evaluation_id) {
+            setEvaluationId(data.evaluation_id);
+          }
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (error) {
+        console.error('Failed to fetch evaluation:', error);
+        setEvaluationError(error instanceof Error ? error.message : 'Failed to load evaluation');
+        // On error, allow user to proceed (graceful degradation)
+        setEvaluationResult({
+          task_fulfillment: 3,
+          style: 3,
+          enjoyment: 3,
+          creativity: 3,
+          is_valid: true,
+          explanation: 'Evaluation could not be completed, but you may proceed.'
+        });
+      } finally {
+        setIsLoadingEvaluation(false);
+      }
+    };
+
+    fetchEvaluation();
+  }, [showEvaluationCheck, userId, projectId, projectTitle, projectDescription, taskName]);
+
   // Helper function to count words in a string
   const countWords = (text: string): number => {
     return text.trim().split(/\s+/).filter(word => word.length > 0).length;
@@ -2044,6 +2219,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       
       // Close both modals
       setShowComprehensionCheck(false);
+      setShowEvaluationCheck(false);
       setShowSubmitModal(false);
       
       // Update user settings in database to mark playground as completed
@@ -2110,6 +2286,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           code: codeSnapshot,
           image: previewScreenshot,
           comprehensionAnswers: comprehensionAnswersData || {},
+          evaluationId: evaluationId || null,
         }),
       });
 
@@ -2128,6 +2305,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
       // Close both modals
       setShowComprehensionCheck(false);
+      setShowEvaluationCheck(false);
       setShowSubmitModal(false);
       
       handleProjectSubmit();
@@ -2136,6 +2314,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       setExistingSubmission(null);
       // Reset comprehension answers
       setComprehensionAnswers({});
+      // Reset evaluation result and ID
+      setEvaluationResult(null);
+      setEvaluationId(null);
       
       // Show success snackbar immediately after submission
       showSnackbar(
@@ -2531,16 +2712,29 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   fontSize: '22px',
                   fontWeight: 600,
                   letterSpacing: '0.01em',
-                  paddingLeft: showComprehensionCheck ? '10px' : '0px',
+                  paddingLeft: (showComprehensionCheck || showEvaluationCheck) ? '10px' : '0px',
                 }}
               >
-                {showComprehensionCheck 
+                {showEvaluationCheck
+                  ? 'Submission Evaluation'
+                  : showComprehensionCheck 
                   ? 'Project-Specific Questions' 
                   : (taskName === 'Playground' || taskName === 'playground' ? 'Submit Tutorial' : 'Submit Project')}
               </h2>
               <button
                 type="button"
-                onClick={() => !isSubmittingProject && setShowSubmitModal(false)}
+                onClick={() => {
+                  if (!isSubmittingProject) {
+                    setShowSubmitModal(false);
+                    setShowEvaluationCheck(false);
+                    setShowComprehensionCheck(false);
+                    // Clear comprehension state when closing
+                    setComprehensionQuestions([]);
+                    setComprehensionAnswers({});
+                    setComprehensionQuestionsError(null);
+                    setAnswersChecked(false);
+                  }
+                }}
                 aria-label="Close submit modal"
                 disabled={isSubmittingProject}
                 style={{
@@ -2583,7 +2777,274 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               </p>
             )}
 
-            {!showComprehensionCheck ? (
+            {showEvaluationCheck ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '32px',
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  paddingLeft: '10px',
+                  paddingRight: '20px'
+                }}
+              >
+                <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
+                We are automatically reviewing your submission with an LLM judge for good-faith completion and offensive content. This may take up to 60 seconds. You'll also receive scores on Task Fulfillment, Style, Enjoyment, and Creativity along with an explanation, which you might find useful for improving your project!
+                </p>
+                
+                {isLoadingEvaluation && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
+                    <LoadingSpinner size="lg" color="blue" className="mb-4" />
+                    <p style={{ color: '#9ca3af', fontSize: '14px' }}>Evaluating your submission...</p>
+                  </div>
+                )}
+                
+                {evaluationError && (
+                  <div style={{ padding: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', color: '#fca5a5', fontSize: '13px' }}>
+                    {evaluationError}
+                  </div>
+                )}
+                
+                {!isLoadingEvaluation && evaluationResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1 }}>
+                    {/* Unified Evaluation Component */}
+                    <div style={{
+                      backgroundColor: '#1f2937',
+                      border: '1px solid #374151',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '20px'
+                    }}>
+                      <h3 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: 600, marginBottom: '0px' }}>
+                        Evaluation Results
+                      </h3>
+                      
+                      {/* Scores - Responsive grid layout */}
+                      <style>{`
+                        .evaluation-scores-grid {
+                          display: grid;
+                          grid-template-columns: 1fr;
+                          gap: 16px;
+                        }
+                        @media (min-width: 640px) {
+                          .evaluation-scores-grid {
+                            grid-template-columns: repeat(2, 1fr);
+                          }
+                        }
+                        @media (min-width: 1024px) {
+                          .evaluation-scores-grid {
+                            grid-template-columns: repeat(4, 1fr);
+                          }
+                        }
+                        .evaluation-explanation ul {
+                          list-style-type: disc;
+                          padding-left: 20px;
+                          margin: 0.5em 0;
+                        }
+                        .evaluation-explanation ol {
+                          list-style-type: decimal;
+                          padding-left: 20px;
+                          margin: 0.5em 0;
+                        }
+                        .evaluation-explanation li {
+                          margin: 0.25em 0;
+                          display: list-item;
+                        }
+                      `}</style>
+                      <div className="evaluation-scores-grid">
+                        {['task_fulfillment', 'style', 'enjoyment', 'creativity'].map((dimension) => {
+                          const score = evaluationResult[dimension as keyof typeof evaluationResult] as number;
+                          const label = dimension === 'task_fulfillment' ? 'Task Fulfillment' :
+                                       dimension === 'style' ? 'Style' :
+                                       dimension === 'enjoyment' ? 'Enjoyment' : 'Creativity';
+                          
+                          const badgeColor = score >= 4 ? '#10b981' : score >= 3 ? '#f59e0b' : '#ef4444';
+                          
+                          // Icon mapping
+                          let IconComponent;
+                          let iconColor;
+                          if (dimension === 'task_fulfillment') {
+                            IconComponent = CheckCircle;
+                            iconColor = '#60a5fa';
+                          } else if (dimension === 'style') {
+                            IconComponent = Sparkles;
+                            iconColor = '#a78bfa';
+                          } else if (dimension === 'enjoyment') {
+                            IconComponent = ThumbsUp;
+                            iconColor = '#f472b6';
+                          } else {
+                            IconComponent = Lightbulb;
+                            iconColor = '#fbbf24';
+                          }
+                          
+                          return (
+                            <div
+                              key={dimension}
+                              style={{
+                                backgroundColor: 'rgba(17, 24, 39, 0.5)',
+                                borderRadius: '8px',
+                                padding: '16px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <IconComponent size={20} color={iconColor} />
+                                <span style={{ color: '#9ca3af', fontSize: '14px' }}>
+                                  {label}
+                                </span>
+                              </div>
+                              <p style={{
+                                color: badgeColor,
+                                fontSize: '24px',
+                                fontWeight: 700,
+                                margin: 0
+                              }}>
+                                {score}/5
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Explanation */}
+                      <div style={{
+                        paddingTop: '16px',
+                        borderTop: '1px solid #374151'
+                      }}>
+                        <h4 style={{
+                          color: '#e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          marginBottom: '12px'
+                        }}>
+                          Explanation
+                        </h4>
+                        <div style={{
+                          color: '#d1d5db',
+                          fontSize: '14px',
+                          lineHeight: '1.6'
+                        }} className="markdown-content evaluation-explanation">
+                          <Markdown>{evaluationResult.explanation}</Markdown>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Status Message */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0px' }}>
+                      <span style={{
+                        color: '#e2e8f0',
+                        fontSize: '18px',
+                        fontWeight: 600
+                      }}>
+                        Decision:
+                      </span>
+                      <span style={{
+                        color: evaluationResult.is_valid ? '#10b981' : '#ef4444',
+                        fontSize: '18px',
+                        fontWeight: 600
+                      }}>
+                        {evaluationResult.is_valid ? 'Valid Submission' : 'Invalid Submission'}
+                      </span>
+                      {evaluationResult.is_valid ? (
+                        <Check size={18} color="#10b981" />
+                      ) : (
+                        <X size={18} color="#ef4444" />
+                      )}
+                    </div>
+                    <p style={{
+                      color: '#e2e8f0',
+                      fontSize: '16px',
+                      lineHeight: '1.5',
+                      margin: 0,
+                      marginTop: '0px',
+                      marginBottom: '16px'
+                    }}>
+                      {evaluationResult.is_valid
+                        ? 'You can proceed with your submission! However, we encourage you to review the feedback above and consider making improvements to enhance your scores before submitting your project for human judgment.'
+                        : 'Your submission has been marked as invalid. Please review the explanation above and make necessary changes before resubmitting.'}
+                    </p>
+                    
+                    {/* Buttons */}
+                    <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (evaluationResult.is_valid) {
+                              setShowEvaluationCheck(false);
+                            } else {
+                              setShowSubmitModal(false);
+                              setShowEvaluationCheck(false);
+                              setShowComprehensionCheck(false);
+                              // Clear comprehension state when canceling
+                              setComprehensionQuestions([]);
+                              setComprehensionAnswers({});
+                              setComprehensionQuestionsError(null);
+                              setAnswersChecked(false);
+                            }
+                          }}
+                          style={{
+                            padding: '6px 14px',
+                            backgroundColor: '#4b5563',
+                            color: '#f9fafb',
+                            border: '1px solid rgba(148, 163, 184, 0.2)',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#6b7280';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#4b5563';
+                          }}
+                        >
+                          {evaluationResult.is_valid ? 'Back' : 'Revise Submission'}
+                        </button>
+                        {evaluationResult.is_valid && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowEvaluationCheck(false);
+                              setShowComprehensionCheck(true);
+                            }}
+                            style={{
+                              padding: '6px 14px',
+                              backgroundColor: '#2563eb',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#1d4ed8';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#2563eb';
+                            }}
+                          >
+                            Continue
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : !showComprehensionCheck ? (
               <form
                 onSubmit={handleProjectFormSubmit}
                 style={{
@@ -3018,12 +3479,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               {overriddenTestsCount > 0 && (
                 <div
                   style={{
-                    padding: '12px 14px',
-                    backgroundColor: 'rgba(252, 211, 77, 0.08)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.08)',
                     border: '1px solid rgba(252, 211, 77, 0.2)',
                     borderRadius: '10px',
                     color: '#fcd34d',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px'
@@ -3090,88 +3550,102 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 </div>
               )}
 
-              {submissionError && (
-                <div style={{ color: '#f87171', fontSize: '12px', textAlign: 'right' }}>
-                  {submissionError}
-                </div>
-              )}
-
               <div
                 style={{
                   display: 'flex',
                   gap: '10px',
-                  justifyContent: 'flex-end',
+                  justifyContent: submissionError ? 'space-between' : 'flex-end',
+                  alignItems: 'center',
                   marginTop: '8px'
                 }}
               >
-                {taskName !== 'Playground' && taskName !== 'playground' && (
-                <button
-                  type="button"
-                  onClick={handleDownloadProject}
-                  disabled={isSubmittingProject}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: '#374151',
-                    color: '#f9fafb',
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                    borderRadius: '6px',
-                    cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
+                {submissionError && (
+                  <div style={{ 
+                    color: '#f87171', 
+                    fontSize: '14px',
                     fontWeight: 500,
-                    opacity: isSubmittingProject ? 0.6 : 1,
-                    transition: 'background-color 0.2s ease, opacity 0.2s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isSubmittingProject) {
-                      return;
-                    }
-                    e.currentTarget.style.backgroundColor = '#4b5563';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#374151';
-                  }}
-                >
-                  <Download className="w-4 h-4" />
-                  Download Project
-                </button>
+                    flex: 1,
+                    textAlign: 'left'
+                  }}>
+                    {submissionError}
+                  </div>
                 )}
-                <button
-                  type="submit"
-                  disabled={isSubmitDisabled || isSubmittingProject}
-                  style={{
-                    padding: '6px 16px',
-                    backgroundColor: '#2563eb',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: (isSubmitDisabled || isSubmittingProject) ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    opacity: (isSubmitDisabled || isSubmittingProject) ? 0.6 : 1,
-                    transition: 'background-color 0.2s ease, opacity 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isSubmitDisabled || isSubmittingProject) {
-                      return;
-                    }
-                    e.currentTarget.style.backgroundColor = '#1d4ed8';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#2563eb';
-                  }}
-                >
-                  {(() => {
-                    if (isSubmittingProject) {
-                      return 'Submitting…';
-                    }
-                    
-                    // Always show "Continue" since comprehension questions always show now
-                    return 'Continue';
-                  })()}
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {taskName !== 'Playground' && taskName !== 'playground' && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadProject}
+                    disabled={isSubmittingProject}
+                    style={{
+                      padding: '6px 14px',
+                      backgroundColor: '#374151',
+                      color: '#f9fafb',
+                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      borderRadius: '6px',
+                      cursor: isSubmittingProject ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      opacity: isSubmittingProject ? 0.6 : 1,
+                      transition: 'background-color 0.2s ease, opacity 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isSubmittingProject) {
+                        return;
+                      }
+                      e.currentTarget.style.backgroundColor = '#4b5563';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#374151';
+                    }}
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Project
+                  </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSubmitDisabled || isSubmittingProject || isCheckingModeration || isCheckingExistingSubmission}
+                    style={{
+                      padding: '6px 16px',
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: (isSubmitDisabled || isSubmittingProject || isCheckingModeration || isCheckingExistingSubmission) ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      opacity: (isSubmitDisabled || isSubmittingProject || isCheckingModeration || isCheckingExistingSubmission) ? 0.6 : 1,
+                      transition: 'background-color 0.2s ease, opacity 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isSubmitDisabled || isSubmittingProject || isCheckingModeration || isCheckingExistingSubmission) {
+                        return;
+                      }
+                      e.currentTarget.style.backgroundColor = '#1d4ed8';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#2563eb';
+                    }}
+                  >
+                    {(() => {
+                      if (isCheckingExistingSubmission) {
+                        return 'Checking…';
+                      }
+                      if (isCheckingModeration) {
+                        return 'Checking content…';
+                      }
+                      if (isSubmittingProject) {
+                        return 'Submitting…';
+                      }
+                      
+                      // Always show "Continue" since comprehension questions always show now
+                      return 'Continue';
+                    })()}
+                  </button>
+                </div>
               </div>
             </form>
             ) : (
@@ -3824,7 +4298,15 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       <div style={{ display: 'flex', gap: '10px' }}>
                   <button
                     type="button"
-                    onClick={() => setShowComprehensionCheck(false)}
+                    onClick={() => {
+                      setShowComprehensionCheck(false);
+                      setShowEvaluationCheck(false);
+                      // Clear comprehension state when going back
+                      setComprehensionQuestions([]);
+                      setComprehensionAnswers({});
+                      setComprehensionQuestionsError(null);
+                      setAnswersChecked(false);
+                    }}
                     disabled={isSubmittingProject || (!isRequiredTask && answersChecked)}
                     style={{
                       padding: '6px 14px',

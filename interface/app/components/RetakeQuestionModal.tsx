@@ -15,16 +15,16 @@ interface RetakeQuestionModalProps {
 export default function RetakeQuestionModal({ show, onClose, onNext }: RetakeQuestionModalProps) {
   const [frontendMcqa, setFrontendMcqa] = useState(10);
   const [uxMcqa, setUxMcqa] = useState(10);
-  const [coding, setCoding] = useState(3);
-  const [debugging, setDebugging] = useState(3);
+  const [coding, setCoding] = useState(2);
+  const [debugging, setDebugging] = useState(2);
 
   // Reset to defaults when modal opens
   useEffect(() => {
     if (show) {
       setFrontendMcqa(10);
       setUxMcqa(10);
-      setCoding(3);
-      setDebugging(3);
+      setCoding(2);
+      setDebugging(2);
     }
   }, [show]);
 
