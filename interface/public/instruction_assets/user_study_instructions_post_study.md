@@ -6,48 +6,17 @@ Thank you for participating in VibeJam! Before you can get started, you must eit
 
 ### Overview
 
-Our goal is to understand which abilities programmers struggle with and excel at when building websites with AI assistants, and whether these abilities change over time. To help us answer this, please complete the following:
+Our goal is to understand long-term effects and behaviors of users when they code with AI assistants. To do this, we'll ask you to participate in various website and game development tasks, and optionally ask you to complete skill assessments.
 
-1. A **pre-test** where you answer coding questions.
-2. Design **three websites** with AI assistance in VibeJam.
-3. A **post-test** where you answer more coding questions.
-
-Once you start the study, you will have one week to complete all steps, and you will only be compensated after completing all of them. The final date to complete the study is 03/26/2025. We expect the entire study to take five hours, and you will be paid $75 for your time. Additional rewards will be available for top performers, detailed in the "Compensation" section on the About page.
-
-After completing all tasks, you are free to keep competing with other users across 50+ game jam tasks in VibeJam!
-
-We will now describe each step.
+We will now describe three core functionalities of the interface: 1) building websites; 2) voiting on other websites; and 3) taking skill assessments.
 
 <br />
 
-### Step 1: Pre-Test Assessment
+### Building Websites in VibeJam
 
-Before coding with AI assistance, we want you to complete an assessment to measure your programming abilities. Our goal is not to reward participants who score higher on this assessment, but rather to understand the background of who is working in our interface.
+After completing the first skill check, you will be taken to the [tasks page](/vibe) where you will see all tasks that you can complete.
 
-![Pre-Test Page](instruction_assets/pre_test.png)
-
-The first set of questions in the pre-test will ask about your prior experience. Answer as accurately as you can. After that, you'll answer multiple-choice questions about front-end development:
-
-![Multiple-Choice Questions](instruction_assets/mcqa.png)
-
-Finally, you'll answer a few LeetCode-style coding questions. You'll be given a description of a function's inputs and outputs, and your job is to either implement the function from scratch or debug an existing implementation so that it passes a comprehensive set of test cases. You can pick between Python and JavaScript, but the coding questions are identical. You'll need to pass all test cases before moving on. To help you debug, you can view the outputs of all test cases, test your function with custom inputs, and inspect returned values and any print statements.
-
-![Coding Questions](instruction_assets/coding_question.png)
-
-For all of these questions, do not cheat. We only want to understand participants' backgrounds at a whole, so we do not care about your individual performance. Please do not navigate away from the page unless you are looking up general syntax questions. We will show an on-screen reminder every time you leave the page to let you know we detected it.
-
-If you are stuck at any point or find an error in a question, please hit the "Report" button at the top right of the screen. This button appears after 30 seconds on each question to make sure you have made a good-faith attempt at solving it.
-
-After completing the pre-test, you will be prompted to move on to the next step of building websites in VibeJam!
-
-<br />
-<br />
-
-### Step 2: Building Websites in VibeJam
-
-After completing the first skill check, you will be taken to the [tasks page](/vibe) where you will see all tasks that you must complete.
-
-![Browse Tasks](instruction_assets/browse.png)
+![Browse Tasks](instruction_assets/browse_all.png)
 
 You may complete the tasks in any order, but we **highly recommend that you complete the [tutorial task](/playground)** before proceeding to others.
 
@@ -105,17 +74,27 @@ Once you are satisfied with your website, you can hit the "Submit" button at the
 
 ![Initial Submission](instruction_assets/submit_1.png)
 
-Afterwards, you'll be asked to answer a few questions about your project. You'll also be asked to recall whether certain functions and features exist in your code. You do not need to go back and check your code. Do not worry if you are unable to answer these questions correctly, as our goal is to measure how hard these questions are.
+Afterwards, we will add an automated check with an LLM judge to ensure that you are making a good-faith submission that follows the task instructions, and you are not submitting offensive content. These checks will also show you scores from an LLM judge on the four dimensions you will be rated on and an explanation with feedback, which you can use to improve your submission.
 
-![Project Questions](instruction_assets/submit_2.png)
+The screenshots below have examples of feedback from valid and invalid submissions:
+
+![Valid Submission](instruction_assets/submit_valid.png)
+
+![Invalid Submission](instruction_assets/submit_invalid.png)
+
+These judgments are only to establish minimal requirements for each submission and will not impact your overall website score.
+
+Finally, you'll be asked to answer a few questions about your project. You'll also be asked to recall whether certain functions and features exist in your code. You do not need to go back and check your code. Do not worry if you are unable to answer these questions correctly, as our goal is to measure how hard these questions are.
+
+![Project Questions](instruction_assets/submit_2_public.png)
 
 After submitting your project, you can keep working on it, but **any resubmissions will clear your votes** and **only your most recent submission will be considered**. For that reason, we advise making sure you are mostly satisfied with your initial submission.
 
 <br />
 
-### Downloading Projects
+#### Downloading Projects
 
-Throughout the study, you may see download buttons that will let you save your project. It will also generate files that let you easily play the game locally, or upload the game online with Github Pages so others can play it (for free!):
+Throughout the study, you will see download buttons that will let you save your project. It will also generate files that let you easily play the game locally, or upload the game online with Github Pages so others can play it (for free!):
 
 ![Project Questions](instruction_assets/download_1.png)
 
@@ -132,9 +111,9 @@ If you choose to host your game online, we kindly ask that you preserve your REA
 
 <br />
 
-#### Voting on Projects
+### Voting on Projects
 
-After many users make submissions, we will open up voting on others's submissions. When voting begins and if you are later selected to be a judge, you can hit the "View Submissions" button on any project to view all other user submissions:
+For any of the submissions, you can hit the "View Submissions" button to view all other user submissions (and your own):
 
 ![Project Questions](instruction_assets/view_submissions.png)
 
@@ -149,49 +128,63 @@ Specifically, you'll be scored on the following criteria:
 - **Enjoyment:** How fun and engaging the experience is.
 - **Creativity:** Originality and interesting ideas beyond the basic requirements.
 
-
 Participants with websites that score highly will be eligible for extra compensation, detailed in the "Compensation" section below.
 
 <br />
 <br />
 
-### Step 3: Post-Test Assessment
+### Skill-Checks
 
-After completing all tasks, you will be prompted to complete a "Post-Test" on the [/skill-check](/skill-check) page. This process is the same as the pre-test, except the experience questions will be replaced with ones where you summarize how the study went.
+#### Taking Assessments
 
-![Post-Test Page](instruction_assets/post_test.png)
+Throughout the study, you can optionally complete assessments to track your programming abilities. Our goal is not to reward participants who score higher on this assessment, but rather to understand how your abilities may change over time when coding with AI. You will see a popup every ~5 project submissions encouraging you to take a skill check, but again, this is optional.
 
-### Building Even More Websites
+![Retake](instruction_assets/retake_page.png)
 
-Once you have finished the post-test, you can keep building websites in VibeJam if you enjoyed it! You'll have access to 50+ tasks where you can build fun websites, compete against other users, and practice your AI coding skills!
+If you decide to take a skill check, you can customize the type of questions and their numbers:
 
-![All Tasks](instruction_assets/browse_all.png)
+![Retake](instruction_assets/retake.png)
 
-### Skill-Check Statistics
+There are four question types:
+1. Multiple-choice questions about front-end development
+2. Multiple-choice questions about user interface design
+3. Leetcode-style coding questions when you implement a function from a description
+4. Leetcode-style debugging questions when you implement a function from a description and a faulty implementation.
 
-Once you finish the study, you can also navigate to the [/stats](/stats) page to see your AI usage and performance on our skill checks. Each plot will display your scores in different stages over the study over time
+After customizing your assessment, you'll first answer multiple-choice questions about front-end development (if you selected any of this question type):
+
+![Multiple-Choice Questions](instruction_assets/mcqa.png)
+
+You'll be able to check your answer before moving on and see whether you were corect or incorrect.
+
+Then, you'll answer a few LeetCode-style coding questions. You'll be given a description of a function's inputs and outputs, and your job is to either implement the function from scratch or debug an existing implementation so that it passes a comprehensive set of test cases. You can pick between Python and JavaScript, but the coding questions are identical. You'll need to pass all test cases before moving on. To help you debug, you can view the outputs of all test cases, test your function with custom inputs, and inspect returned values and any print statements.
+
+![Coding Questions](instruction_assets/coding_question.png)
+
+For all of these questions, do not cheat. We only want to understand participants' backgrounds at a whole, so we do not care about your individual performance. Please do not navigate away from the page unless you are looking up general syntax questions. We will show an on-screen reminder every time you leave the page to let you know we detected it.
+
+If you are stuck at any point or find an error in a question, please hit the "Report" button at the top right of the screen. The button will appear after 30 seconds to ensure you made a good faith attempt. In the coding questions, you can hit "View Solution (Give Up)" button to view the current solution.
+
+#### Statistics
+
+You can also navigate to the [/stats](/stats) page to see your AI usage and performance on our skill check assessments. Each plot will display your scores in different stages over the study over time
 
 ![Usage Statistics](instruction_assets/stats.png)
 
 ![Score Statistics](instruction_assets/stats_2.png)
 
-If you want to see whether you have improved after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks using a larger bank of questions. During these retakes, you can customize the type of questions and their numbers:
-
-![Retake](instruction_assets/retake.png)
-
+If you want to see whether your skills have changed after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks at any time.
 
 <br />
 <br />
 
 ### Compensation
 
-#### Public VibeJam Tasks Compensation
+We will offer monetary rewards for users who complete the 50+ public projects in VibeJam. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
 
-We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
+We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you win this reward.
 
-We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you are eligible for this reward.
-
-This compensation will be available until the study end date. Any changes to this date will be announced on the About page and over email.
+This compensation will be available until June 1, 2026. Any changes to this date will be announced on the About page and over email.
 
 #### Multiple Rewards Available
 

@@ -38,6 +38,16 @@ export function useUserStudyPopup() {
 
 const VIDEO_THRESHOLD_SECONDS = 30;
 
+// Generate ID from heading text
+const generateHeadingId = (text: string): string => {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '') // Remove special characters
+    .replace(/\s+/g, '-') // Replace spaces with hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with single
+    .trim();
+};
+
 function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
@@ -50,10 +60,13 @@ function UserStudyPopupInner() {
   const [hasWatchedEnough, setHasWatchedEnough] = useState(false);
   const [windowOrigin, setWindowOrigin] = useState<string>('');
   const [dontShowAgainChecked, setDontShowAgainChecked] = useState(false);
+  const [tableOfContents, setTableOfContents] = useState<Array<{ id: string; text: string; level: number }>>([]);
+  const [activeSection, setActiveSection] = useState<string>('');
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<any>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const headingRefs = useRef<Map<string, HTMLHeadingElement>>(new Map());
 
   // Set window origin after mount to avoid hydration mismatch
   useEffect(() => {
@@ -61,6 +74,29 @@ function UserStudyPopupInner() {
       setWindowOrigin(window.location.origin);
     }
   }, []);
+
+  // Extract headings from markdown
+  const extractHeadings = (markdown: string): Array<{ id: string; text: string; level: number }> => {
+    const headings: Array<{ id: string; text: string; level: number }> = [];
+    const lines = markdown.split('\n');
+    
+    for (const line of lines) {
+      // Match ### (h3 in markdown, but we'll treat as level 2 for TOC hierarchy)
+      const h3Match = line.match(/^### (.*)$/);
+      // Match #### (h4 in markdown, but we'll treat as level 3 for TOC hierarchy)
+      const h4Match = line.match(/^#### (.*)$/);
+      
+      if (h3Match) {
+        const text = h3Match[1].trim();
+        headings.push({ id: generateHeadingId(text), text, level: 2 });
+      } else if (h4Match) {
+        const text = h4Match[1].trim();
+        headings.push({ id: generateHeadingId(text), text, level: 3 });
+      }
+    }
+    
+    return headings;
+  };
 
   // Load markdown content for tutorial
   useEffect(() => {
@@ -76,6 +112,9 @@ function UserStudyPopupInner() {
         })
         .then((text) => {
           setMarkdownContent(text);
+          const headings = extractHeadings(text);
+          setTableOfContents(headings);
+          setActiveSection(headings.length > 0 ? headings[0].id : '');
           setIsLoading(false);
         });
     }
@@ -94,6 +133,37 @@ function UserStudyPopupInner() {
     const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
     if (isAtBottom && !hasScrolledToBottom) {
       setHasScrolledToBottom(true);
+    }
+    
+    // Update active section based on scroll position
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const scrollPosition = container.scrollTop + 100; // Offset for sticky header
+      
+      // Find the section that's currently in view
+      for (let i = tableOfContents.length - 1; i >= 0; i--) {
+        const heading = headingRefs.current.get(tableOfContents[i].id);
+        if (heading) {
+          const headingTop = heading.offsetTop - container.offsetTop;
+          if (headingTop <= scrollPosition) {
+            setActiveSection(tableOfContents[i].id);
+            break;
+          }
+        }
+      }
+    }
+  };
+
+  // Scroll to section when TOC item is clicked
+  const scrollToSection = (id: string) => {
+    const heading = headingRefs.current.get(id);
+    if (heading && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const headingTop = heading.offsetTop - container.offsetTop;
+      container.scrollTo({
+        top: headingTop - 20, // Small offset from top
+        behavior: 'smooth'
+      });
     }
   };
 
@@ -179,6 +249,10 @@ function UserStudyPopupInner() {
     const strongColor = isLightMode ? '#111827' : '#ffffff';
     const linkColor = isLightMode ? '#1e40af' : '#9ca3af';
     
+    // Access router and setPopupState from outer scope
+    const currentRouter = router;
+    const currentSetPopupState = setPopupState;
+    
     return {
     h1: ({ children }: any) => (
       <h1
@@ -193,45 +267,78 @@ function UserStudyPopupInner() {
         {children}
       </h1>
     ),
-    h2: ({ children }: any) => (
-      <h2
-        style={{
-          fontSize: '20px',
-          fontWeight: 'semibold',
-          color: h2Color,
-          marginBottom: '12px',
-          marginTop: '24px',
-        }}
-      >
-        {children}
-      </h2>
-    ),
-    h3: ({ children }: any) => (
-      <h3
-        style={{
-          fontSize: '18px',
-          fontWeight: 'semibold',
-          color: h3Color,
-          marginBottom: '8px',
-          marginTop: '16px',
-        }}
-      >
-        {children}
-      </h3>
-    ),
-    h4: ({ children }: any) => (
-      <h4
-        style={{
-          fontSize: '17px',
-          fontWeight: 'bold',
-          color: h1Color,
-          marginBottom: '8px',
-          marginTop: '16px',
-        }}
-      >
-        {children}
-      </h4>
-    ),
+    h2: ({ children }: any) => {
+      const text = typeof children === 'string' ? children : React.Children.toArray(children).join('');
+      const id = generateHeadingId(text);
+      return (
+        <h2
+          id={id}
+          ref={(el) => {
+            if (el) {
+              headingRefs.current.set(id, el);
+            }
+          }}
+          style={{
+            fontSize: '20px',
+            fontWeight: 'semibold',
+            color: h2Color,
+            marginBottom: '12px',
+            marginTop: '24px',
+            scrollMarginTop: '20px',
+          }}
+        >
+          {children}
+        </h2>
+      );
+    },
+    h3: ({ children }: any) => {
+      const text = typeof children === 'string' ? children : React.Children.toArray(children).join('');
+      const id = generateHeadingId(text);
+      return (
+        <h3
+          id={id}
+          ref={(el) => {
+            if (el) {
+              headingRefs.current.set(id, el);
+            }
+          }}
+          style={{
+            fontSize: '18px',
+            fontWeight: 'semibold',
+            color: h3Color,
+            marginBottom: '8px',
+            marginTop: '16px',
+            scrollMarginTop: '20px',
+          }}
+        >
+          {children}
+        </h3>
+      );
+    },
+    h4: ({ children }: any) => {
+      const text = typeof children === 'string' ? children : React.Children.toArray(children).join('');
+      const id = generateHeadingId(text);
+      return (
+        <h4
+          id={id}
+          ref={(el) => {
+            if (el) {
+              headingRefs.current.set(id, el);
+            }
+          }}
+          style={{
+            fontSize: '17px',
+            fontWeight: 'bold',
+            color: h1Color,
+            marginBottom: '8px',
+            marginTop: '16px',
+            scrollMarginTop: '20px',
+          }}
+        >
+          {children}
+        </h4>
+      );
+    },
     p: ({ children }: any) => {
       // Check if children contain block elements (div, img, video, etc.)
       // If so, wrap in div instead of p to avoid hydration errors
@@ -311,17 +418,37 @@ function UserStudyPopupInner() {
         {children}
       </strong>
     ),
-    a: ({ href, children }: any) => (
-      <span
-        style={{
-          color: linkColor,
-          textDecoration: 'none',
-          cursor: 'default',
-        }}
-      >
-        {children}
-      </span>
-    ),
+    a: ({ href, children }: any) => {
+      const isExternal = href?.startsWith('http://') || href?.startsWith('https://') || href?.startsWith('mailto:');
+      const isInternal = href?.startsWith('/');
+      
+      const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+        if (isInternal) {
+          e.preventDefault();
+          // Close the modal first
+          currentSetPopupState('none');
+          // Then navigate
+          currentRouter.push(href);
+        }
+        // External links and mailto links will work normally
+      };
+      
+      return (
+        <a
+          href={href}
+          onClick={handleClick}
+          style={{
+            color: linkColor,
+            textDecoration: 'underline',
+            cursor: 'pointer',
+          }}
+          target={isExternal ? '_blank' : undefined}
+          rel={isExternal ? 'noopener noreferrer' : undefined}
+        >
+          {children}
+        </a>
+      );
+    },
     img: ({ src, alt }: any) => {
       // Check if the source is a video file or instructions.mp4 (which we'll replace with YouTube)
       const isVideo = src?.match(/\.(mp4|webm|ogg|avi|mov)(\?.*)?$/i);
@@ -336,7 +463,7 @@ function UserStudyPopupInner() {
 
       // Replace instructions.mp4 with YouTube iframe
       if (isInstructionsVideo) {
-        const youtubeVideoId = studyEnded ? '5bmywSslJRw' : 'cMGgMO6DttE';
+        const youtubeVideoId = studyEnded ? 'eJ2dppIxG60' : 'cMGgMO6DttE';
         // Use windowOrigin state to avoid hydration mismatch (Safari is stricter about this)
         // Only render iframe after windowOrigin is set to prevent hydration errors
         const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -468,7 +595,7 @@ function UserStudyPopupInner() {
       );
     },
     };
-  }, [initYoutubePlayer, windowOrigin, isLightMode]);
+  }, [initYoutubePlayer, windowOrigin, isLightMode, router, setPopupState]);
 
   // Helper function to set tutorial cookie
   const setTutorialCookie = (state: TutorialCookieState) => {
@@ -659,6 +786,7 @@ function UserStudyPopupInner() {
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid rgba(148, 163, 184, 0.25)',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -767,6 +895,7 @@ function UserStudyPopupInner() {
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid rgba(148, 163, 184, 0.25)',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -961,12 +1090,13 @@ function UserStudyPopupInner() {
           style={{
             backgroundColor: '#1f2937',
             borderRadius: '12px',
-            width: '90%',
-            maxWidth: '1000px',
+            width: '95%',
+            maxWidth: '1400px',
             maxHeight: '90vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid rgba(148, 163, 184, 0.25)',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1014,49 +1144,139 @@ function UserStudyPopupInner() {
             </button>
           </div>
 
-          {/* Scrollable Content */}
+          {/* Content with TOC and Scrollable Content */}
           <div
-            ref={scrollContainerRef}
-            onScroll={handleScroll}
             style={{
+              display: 'flex',
               flex: 1,
-              overflowY: 'auto',
-              padding: '24px',
               minHeight: 0,
-              paddingBottom: '16px',
+              overflow: 'hidden',
             }}
           >
-            {isLoading ? (
+            {/* Table of Contents Sidebar */}
+            {!isLoading && tableOfContents.length > 0 && (
               <div
                 style={{
+                  width: '240px',
+                  minWidth: '240px',
+                  borderRight: '1px solid rgba(148, 163, 184, 0.2)',
+                  backgroundColor: isLightMode ? '#e5e7eb' : '#030712',
+                  overflowY: 'auto',
+                  padding: '16px',
                   display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: '40px',
-                  color: '#9ca3af',
+                  flexDirection: 'column',
+                  alignSelf: 'stretch',
                 }}
               >
-                Loading instructions...
-              </div>
-            ) : (
-              <div
-                ref={contentRef}
-                style={{
-                  backgroundColor: isLightMode ? '#ffffff' : '#111827',
-                  padding: '24px',
-                  borderRadius: '8px',
-                  color: isLightMode ? '#1f2937' : '#e5e7eb',
-                  lineHeight: '1.6',
-                }}
-              >
-                <Markdown
-                  rehypePlugins={[rehypeRaw]}
-                  components={markdownComponents}
+                <div
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: isLightMode ? '#374151' : '#9ca3af',
+                    marginBottom: '12px',
+                    paddingBottom: '8px',
+                    borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+                    flexShrink: 0,
+                  }}
                 >
-                  {markdownContent}
-                </Markdown>
+                  Table of Contents
+                </div>
+                <nav
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    flex: 1,
+                    minHeight: 0,
+                  }}
+                >
+                  {tableOfContents.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => scrollToSection(item.id)}
+                      style={{
+                        textAlign: 'left',
+                        padding: '6px 8px',
+                        fontSize: item.level === 2 ? '13px' : '12px',
+                        fontWeight: item.level === 2 ? 500 : 400,
+                        color: activeSection === item.id
+                          ? (isLightMode ? '#2563eb' : '#60a5fa')
+                          : (isLightMode ? '#6b7280' : '#9ca3af'),
+                        backgroundColor: activeSection === item.id
+                          ? (isLightMode ? 'rgba(37, 99, 235, 0.1)' : 'rgba(96, 165, 250, 0.1)')
+                          : 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: 'none',
+                        marginLeft: item.level === 3 ? '12px' : '0',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (activeSection !== item.id) {
+                          e.currentTarget.style.backgroundColor = isLightMode
+                            ? 'rgba(107, 114, 128, 0.1)'
+                            : 'rgba(148, 163, 184, 0.1)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (activeSection !== item.id) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                      title={item.text}
+                    >
+                      {item.text}
+                    </button>
+                  ))}
+                </nav>
               </div>
             )}
+
+            {/* Scrollable Content */}
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                minHeight: 0,
+                backgroundColor: isLightMode ? '#ffffff' : '#111827',
+              }}
+            >
+              {isLoading ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    padding: '40px',
+                    color: '#9ca3af',
+                  }}
+                >
+                  Loading instructions...
+                </div>
+              ) : (
+                <div
+                  ref={contentRef}
+                  style={{
+                    padding: '24px',
+                    color: isLightMode ? '#1f2937' : '#e5e7eb',
+                    lineHeight: '1.6',
+                  }}
+                >
+                  <Markdown
+                    rehypePlugins={[rehypeRaw]}
+                    components={markdownComponents}
+                  >
+                    {markdownContent}
+                  </Markdown>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer with buttons */}

@@ -85,6 +85,7 @@ class Submission(Base):
     user = relationship("User", back_populates="submissions")
     project = relationship("Project", back_populates="submissions")
     feedback_entries = relationship("SubmissionFeedback", back_populates="submission")
+    evaluation = relationship("SubmissionEvaluation", back_populates="submission", uselist=False)
 
 
 class SubmissionFeedback(Base):
@@ -107,6 +108,26 @@ class SubmissionFeedback(Base):
     submission = relationship("Submission", back_populates="feedback_entries")
     project = relationship("Project", back_populates="submission_feedback")
     voter = relationship("User", back_populates="submission_feedback")
+
+
+class SubmissionEvaluation(Base):
+    """Submission evaluation table for LLM-as-a-judge results"""
+    __tablename__ = "submission_evaluations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True, index=True)
+    evaluation_data = Column(JSON, nullable=False)
+    is_valid = Column(Boolean, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    user = relationship("User")
+    project = relationship("Project")
+    submission = relationship("Submission", back_populates="evaluation")
+
+
 class CodePreference(Base):
     """CodePreference table"""
     __tablename__ = "code_preferences"

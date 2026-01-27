@@ -292,6 +292,53 @@ class SubmissionCRUD:
         return True
 
 
+class SubmissionEvaluationCRUD:
+    """CRUD operations for SubmissionEvaluation"""
+    
+    @staticmethod
+    def create(db: Session, evaluation: "SubmissionEvaluationCreate") -> "SubmissionEvaluation":
+        """Create new submission evaluation"""
+        from database.sqlalchemy_models import SubmissionEvaluation
+        db_evaluation = SubmissionEvaluation(
+            user_id=evaluation.user_id,
+            project_id=evaluation.project_id,
+            submission_id=evaluation.submission_id,
+            evaluation_data=evaluation.evaluation_data,
+            is_valid=evaluation.is_valid,
+        )
+        db.add(db_evaluation)
+        db.commit()
+        db.refresh(db_evaluation)
+        return db_evaluation
+    
+    @staticmethod
+    def get_by_id(db: Session, evaluation_id: int) -> Optional["SubmissionEvaluation"]:
+        """Get evaluation by ID"""
+        from database.sqlalchemy_models import SubmissionEvaluation
+        return db.query(SubmissionEvaluation).filter(SubmissionEvaluation.id == evaluation_id).first()
+    
+    @staticmethod
+    def get_latest_by_user_and_project(db: Session, user_id: int, project_id: int) -> Optional["SubmissionEvaluation"]:
+        """Get the most recent evaluation for a user and project"""
+        from database.sqlalchemy_models import SubmissionEvaluation
+        return db.query(SubmissionEvaluation).filter(
+            SubmissionEvaluation.user_id == user_id,
+            SubmissionEvaluation.project_id == project_id
+        ).order_by(SubmissionEvaluation.created_at.desc()).first()
+    
+    @staticmethod
+    def link_to_submission(db: Session, evaluation_id: int, submission_id: int) -> Optional["SubmissionEvaluation"]:
+        """Link an evaluation to a submission"""
+        from database.sqlalchemy_models import SubmissionEvaluation
+        evaluation = db.query(SubmissionEvaluation).filter(SubmissionEvaluation.id == evaluation_id).first()
+        if not evaluation:
+            return None
+        evaluation.submission_id = submission_id
+        db.commit()
+        db.refresh(evaluation)
+        return evaluation
+
+
 class SubmissionFeedbackCRUD:
     """CRUD operations for SubmissionFeedback"""
 

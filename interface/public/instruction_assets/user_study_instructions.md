@@ -12,7 +12,7 @@ Our goal is to understand which abilities programmers struggle with and excel at
 2. Design **three websites** with AI assistance in VibeJam.
 3. A **post-test** where you answer more coding questions.
 
-Once you start the study, you will have one week to complete all steps, and you will only be compensated after completing all of them. The final date to complete the study is 03/26/2025. We expect the entire study to take five hours, and you will be paid $75 for your time. Additional rewards will be available for top performers, detailed in the "Compensation" section on the About page.
+Once you start the study, you will have one week to complete all steps, and you will only be compensated after completing all of them. The final date to complete the study is 05/01/2026. We expect the entire study to take five hours, and you will be paid $75 for your time. Additional rewards will be available for top performers, detailed in the "Compensation" section on the About page.
 
 After completing all tasks, you are free to keep competing with other users across 50+ game jam tasks in VibeJam!
 
@@ -161,11 +161,29 @@ After completing all tasks, you will be prompted to complete a "Post-Test" on th
 
 ![Post-Test Page](instruction_assets/post_test.png)
 
+
+
+<br />
+<br />
+
 ### Building Even More Websites
 
 Once you have finished the post-test, you can keep building websites in VibeJam if you enjoyed it! You'll have access to 50+ tasks where you can build fun websites, compete against other users, and practice your AI coding skills!
 
 ![All Tasks](instruction_assets/browse_all.png)
+
+The submission process is almost exactly the same, except we will include an automated check with an LLM judge to ensure that you are making a good-faith submission that follows the task instructions, and you are not submitting offensive content. These checks will also show you scores from an LLM judge on the four dimensions you will be rated on and an explanation with feedback, which you can use to improve your submission.
+
+The screenshots below have examples of feedback from valid and invalid submissions:
+
+![Valid Submission](instruction_assets/submit_valid.png)
+
+![Invalid Submission](instruction_assets/submit_invalid.png)
+
+These judgments are only to establish minimal requirements for each submission and will not impact your overall website score.
+
+<br />
+<br />
 
 ### Skill-Check Statistics
 
@@ -175,15 +193,16 @@ Once you finish the study, you can also navigate to the [/stats](/stats) page to
 
 ![Score Statistics](instruction_assets/stats_2.png)
 
-If you want to see whether you have improved after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks using a larger bank of questions. During these retakes, you can customize the type of questions and their numbers:
+If you want to see whether your skills have changed after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks using a larger bank of questions. During these retakes, you can customize the type of questions and their numbers:
 
 ![Retake](instruction_assets/retake.png)
-
 
 <br />
 <br />
 
 ### Compensation
+
+There are two forms of compensation, described below:
 
 #### Main Study Compensation
 
@@ -199,7 +218,7 @@ This compensation will be available until May 1, 2026. Any changes to this date 
 
 We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
 
-We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you are eligible for this reward.
+We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you win this reward.
 
 This compensation will be available until June 1, 2026. Any changes to this date will be announced on the About page and over email.
 
