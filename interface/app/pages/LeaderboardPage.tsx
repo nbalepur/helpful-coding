@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { ENV } from "../config/env";
+import { LEADERBOARD_FILTERED_USERNAMES } from "../config/tasks";
 import { ChevronUp, ChevronDown } from "lucide-react";
 
 interface LeaderboardEntry {
@@ -78,11 +79,17 @@ export default function LeaderboardPage() {
   // Filter and sort the leaderboard
   const filteredAndSorted = useMemo(() => {
     let filtered = leaderboard;
+
+    // Filter out excluded usernames
+    if (LEADERBOARD_FILTERED_USERNAMES.length > 0) {
+      const excludedSet = new Set(LEADERBOARD_FILTERED_USERNAMES.map((u) => u.toLowerCase()));
+      filtered = filtered.filter((entry) => !excludedSet.has(entry.username.toLowerCase()));
+    }
     
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = leaderboard.filter((entry) =>
+      filtered = filtered.filter((entry) =>
         entry.username.toLowerCase().includes(query)
       );
     }
@@ -282,7 +289,7 @@ export default function LeaderboardPage() {
               />
             </div>
 
-            <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+            <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden mb-8">
               <table className="w-full">
                 <thead className="bg-gray-900">
                   <tr>
