@@ -1,0 +1,127 @@
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: radial-gradient(ellipse at 60% 40%, #232946 60%, #0d1b2a 100%);
+  min-height: 100vh;
+  color: #e0e6f7;
+  margin: 0;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: 
+    url('https://svgshare.com/i/13kA.svg') repeat,
+    url('https://svgshare.com/i/13kA.svg') repeat;
+  opacity: 0.08;
+  background-size: 400px 400px, 200px 200px;
+  background-position: 0 0, 200px 200px;
+}
+
+.container {
+  padding: 32px 20px 20px 20px;
+  z-index: 1;
+  position: relative;
+}
+
+h1 {
+  text-align: center;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: #f4d35e;
+  text-shadow: 0 0 8px #fff2, 0 0 24px #f4d35e44;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  grid-template-rows: repeat(3, 72px);
+  gap: 14px;
+  margin: 32px auto 20px auto;
+  width: max-content;
+  background: rgba(30, 40, 80, 0.7);
+  border-radius: 18px;
+  box-shadow: 0 0 32px 8px #0d1b2a88, 0 0 0 2px #f4d35e33;
+  padding: 18px;
+  position: relative;
+}
+
+#win-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 240px;
+  height: 240px;
+  z-index: 2;
+  pointer-events: none;
+  display: none;
+}
+
+.cell {
+  width: 72px;
+  height: 72px;
+  background: linear-gradient(135deg, #232946 60%, #1a2233 100%);
+  border: 2.5px solid #f4d35e;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.7rem;
+  font-family: 'Orbitron', 'Consolas', 'monospace';
+  color: #e0e6f7;
+  cursor: pointer;
+  box-shadow: 0 0 16px 2px #f4d35e22;
+  transition: background 0.2s, box-shadow 0.2s, border-color 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.cell:hover {
+  background: linear-gradient(135deg, #2d3250 60%, #232946 100%);
+  box-shadow: 0 0 24px 4px #f4d35e55, 0 0 0 2px #f4d35e99;
+  border-color: #fffbe6;
+}
+
+.cell[data-x="true"] {
+  color: #f4d35e;
+  text-shadow: 0 0 12px #f4d35e99, 0 0 32px #fffbe644;
+}
+.cell[data-o="true"] {
+  color: #a3cef1;
+  text-shadow: 0 0 12px #a3cef199, 0 0 32px #e0e6f744;
+}
+
+.status {
+  margin-bottom: 18px;
+  font-size: 1.2rem;
+  min-height: 1.5em;
+  text-align: center;
+  color: #e0e6f7;
+  text-shadow: 0 0 8px #0d1b2a88;
+  letter-spacing: 0.04em;
+}
+
+#restart-btn {
+  padding: 8px 24px;
+  font-size: 1.08rem;
+  border-radius: 8px;
+  border: 1.5px solid #f4d35e;
+  background: linear-gradient(90deg, #232946 60%, #1a2233 100%);
+  color: #f4d35e;
+  cursor: pointer;
+  margin: 18px auto 0 auto;
+  display: block;
+  box-shadow: 0 0 8px 2px #f4d35e22;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+#restart-btn:hover {
+  background: #f4d35e;
+  color: #232946;
+  border-color: #fffbe6;
+  box-shadow: 0 0 16px 4px #f4d35e55;
+}
