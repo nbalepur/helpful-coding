@@ -24,6 +24,7 @@ interface UserStudyPopupContextType {
   onTutorialClose?: () => void;
   preTestCompleted?: boolean | null;
   postTestCompleted?: boolean | null;
+  statsAccessible?: boolean;
 }
 
 export const UserStudyPopupContext = createContext<UserStudyPopupContextType | undefined>(undefined);

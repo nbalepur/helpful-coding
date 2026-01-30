@@ -90,6 +90,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
 
     // If no user ID (not authenticated), don't show any popup
     if (!numericUserId) {
+      setAllRequiredTasksCompleted(false);
       debugInfo.finalDecision = 'none';
       return 'none';
     }
@@ -172,6 +173,9 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
           taskName => completedTaskNames.has(taskName)
         );
         debugInfo.allRequiredTasksCompleted = studyEnded ? true : requiredCompleted;
+        setAllRequiredTasksCompleted(studyEnded ? true : requiredCompleted);
+      } else {
+        setAllRequiredTasksCompleted(false);
       }
       
       // Simplified decision flow:
@@ -280,6 +284,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
   const [isCalculating, setIsCalculating] = useState(false);
   const [preTestCompleted, setPreTestCompleted] = useState<boolean | null>(null);
   const [postTestCompleted, setPostTestCompleted] = useState<boolean | null>(null);
+  const [allRequiredTasksCompleted, setAllRequiredTasksCompleted] = useState<boolean | null>(null);
   const isCalculatingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   
@@ -351,6 +356,12 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     }, 100);
   }, [recalculateState]);
   
+  // Stats page is accessible when: secret password in URL, study has ended (past NEXT_PUBLIC_STUDY_END_DATE), OR user has completed the study (pre-test + required tasks + post-test)
+  const statsAccessible =
+    hasSecretPassword ||
+    isStudyEnded() ||
+    (preTestCompleted === true && allRequiredTasksCompleted === true && postTestCompleted === true);
+
   return (
     <UserStudyPopupContext.Provider value={{ 
       popupState, 
@@ -359,7 +370,8 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       isCalculating,
       onTutorialClose: handleTutorialClose,
       preTestCompleted,
-      postTestCompleted
+      postTestCompleted,
+      statsAccessible
     }}>
       <UserStudyPopup />
       {children}
