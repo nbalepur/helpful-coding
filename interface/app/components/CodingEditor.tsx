@@ -2719,7 +2719,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   ? 'Submission Evaluation'
                   : showComprehensionCheck 
                   ? 'Project-Specific Questions' 
-                  : (taskName === 'Playground' || taskName === 'playground' ? 'Submit Tutorial' : 'Submit Project')}
+                  : (taskName === 'Playground' || taskName === 'playground' ? 'Submit / Finish Tutorial' : 'Submit Project')}
               </h2>
               <button
                 type="button"
@@ -3090,7 +3090,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       }
                     }
                   }}
-                  placeholder="Give a name for users to associate with your project"
+                  placeholder="Give a unique name for users to associate with your project"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -3140,7 +3140,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       }
                     }
                   }}
-                  placeholder="Summarize what a user can expect when they open your project, including key mechanics, features, and rules"
+                  placeholder="Summarize what a user can expect when they open your project, including key mechanics, features, and rules!"
                   rows={2}
                   style={{
                     width: '100%',
@@ -4540,7 +4540,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         e.currentTarget.style.animation = '';
                       }}
                     >
-                      {isSubmittingProject ? 'Submitting…' : (taskName === 'Playground' || taskName === 'playground' ? 'Submit Tutorial' : 'Submit Project')}
+                      {isSubmittingProject ? 'Submitting…' : (taskName === 'Playground' || taskName === 'playground' ? 'Submit / Finish Tutorial' : 'Submit Project')}
                     </button>
                   )}
                       </div>

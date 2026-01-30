@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "../utils/auth";
+import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { ENV } from "../config/env";
 import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -547,8 +549,11 @@ function ProjectBarChart({ data, label, color = "#3b82f6", overallAverage = null
 }
 
 export default function StatsPage() {
+  const router = useRouter();
   const { user } = useAuth();
+  const { statsAccessible, isCalculating } = useUserStudyPopup();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -565,6 +570,13 @@ export default function StatsPage() {
     direction: 'left-to-right' | 'right-to-left';
     opacity: number;
   }>>([]);
+
+  // Redirect if user hasn't completed study and we're not past the study end date
+  useEffect(() => {
+    if (!isCalculating && statsAccessible === false) {
+      router.replace("/browse");
+    }
+  }, [isCalculating, statsAccessible, router]);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -720,6 +732,18 @@ export default function StatsPage() {
     }));
     setAnimatedDots(dots);
   }, []);
+
+  // Don't render stats content when redirecting (user hasn't completed study)
+  if (!isCalculating && statsAccessible === false) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
+        <div className="flex items-center justify-center space-x-3">
+          <LoadingSpinner size="lg" color="white" />
+          <p className="text-gray-400 text-lg">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -3773,7 +3773,7 @@ function HomeInner() {
                           } catch {}
                         }}
                       >
-                        Submit Tutorial
+                        Submit / Finish Tutorial
                       </button>
                     </div>
                     )}

@@ -22,6 +22,7 @@ import {
   BarChart3
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
+import { useUserStudyPopup } from "./UserStudyPopup";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -138,6 +139,7 @@ export default function Sidebar({
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { statsAccessible } = useUserStudyPopup();
 
   useEffect(() => {
     setMounted(true);
@@ -179,7 +181,7 @@ export default function Sidebar({
     { id: 'tasks', icon: Grid3X3, label: 'All Tasks' },
     { id: 'playground', icon: FlaskConical, label: 'Playground', tooltip: 'Playground (Tutorial)' },
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
-    { id: 'stats', icon: BarChart3, label: 'Stats' },
+    ...(statsAccessible ? [{ id: 'stats' as const, icon: BarChart3, label: 'Stats' }] : []),
     { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
     { id: 'about', icon: Info, label: 'Instructions' },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback', isExternal: true, externalUrl: 'https://forms.gle/9zr5VcfzcPC4Mp5x8' },

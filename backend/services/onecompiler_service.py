@@ -13,7 +13,7 @@ class OneCompilerService:
     
     def __init__(self, rapidapi_key: str = None, use_local: bool = None):
         self.base_url = "https://onecompiler-apis.p.rapidapi.com/api/v1"
-        self.timeout = 30  # 30 seconds timeout
+        self.timeout = 60  # 60 seconds timeout (for skill check coding questions without AI)
         self.rapidapi_key = rapidapi_key
         
         # Allow override via parameter, otherwise check environment variable
@@ -91,7 +91,7 @@ def endpoint(path):
                     [sys.executable, temp_file],
                     capture_output=True,
                     text=True,
-                    timeout=30  # 30 second timeout
+                    timeout=self.timeout
                 )
                 
                 execution_time = time.time() - start_time
@@ -123,10 +123,10 @@ def endpoint(path):
             return {
                 "success": False,
                 "stdout": "",
-                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "stderr": f"Timeout Error: Code did not execute after {self.timeout} seconds",
                 "exit_code": 1,
                 "execution_time": int(execution_time * 1000),
-                "error": "Timeout Error: Code did not execute after 30 seconds"
+                "error": f"Timeout Error: Code did not execute after {self.timeout} seconds"
             }
         except FileNotFoundError:
             # Python not found - fallback to exec() without timeout (for compatibility)
@@ -211,7 +211,7 @@ def endpoint(path):
                     ['node', temp_file],
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=self.timeout
                 )
                 
                 execution_time = time.time() - start_time
@@ -236,10 +236,10 @@ def endpoint(path):
             return {
                 "success": False,
                 "stdout": "",
-                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "stderr": f"Timeout Error: Code did not execute after {self.timeout} seconds",
                 "exit_code": 1,
                 "execution_time": int(execution_time * 1000),
-                "error": "Timeout Error: Code did not execute after 30 seconds"
+                "error": f"Timeout Error: Code did not execute after {self.timeout} seconds"
             }
         except FileNotFoundError:
             # Node.js not installed
@@ -368,10 +368,10 @@ def endpoint(path):
             return {
                 "success": False,
                 "stdout": "",
-                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "stderr": f"Timeout Error: Code did not execute after {self.timeout} seconds",
                 "exit_code": 1,
-                "execution_time": 30000,
-                "error": "Timeout Error: Code did not execute after 30 seconds"
+                "execution_time": self.timeout * 1000,
+                "error": f"Timeout Error: Code did not execute after {self.timeout} seconds"
             }
         except httpx.RequestError as e:
             return {
@@ -560,10 +560,10 @@ def endpoint(path):
             return {
                 "success": False,
                 "stdout": "",
-                "stderr": "Timeout Error: Code did not execute after 30 seconds",
+                "stderr": f"Timeout Error: Code did not execute after {self.timeout} seconds",
                 "exit_code": 1,
-                "execution_time": 30000,
-                "error": "Timeout Error: Code did not execute after 30 seconds"
+                "execution_time": self.timeout * 1000,
+                "error": f"Timeout Error: Code did not execute after {self.timeout} seconds"
             }
         except httpx.RequestError as e:
             return {
