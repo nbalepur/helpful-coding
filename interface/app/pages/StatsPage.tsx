@@ -786,6 +786,9 @@ export default function StatsPage() {
     return frontendTopic === "all" ? category === "all" || category === "other" : category === frontendTopic;
   });
 
+  const comprehensionProjects =
+    stats.comprehensionScores.per_project?.filter((project) => project.project_name !== "Playground") ?? [];
+
   const codingDatasetPassRate =
     codingTypePassRate === "from_scratch"
       ? stats.codingPerformance.from_scratch
@@ -1076,10 +1079,10 @@ export default function StatsPage() {
           <h2 className="text-xl font-semibold text-white mb-4">Comprehension Scores</h2>
           
           {/* Per-project charts */}
-          {stats.comprehensionScores.per_project && stats.comprehensionScores.per_project.length > 0 && (
+          {comprehensionProjects.length > 0 && (
             <div className="space-y-8">
               <ProjectBarChart
-                data={stats.comprehensionScores.per_project.map(p => ({
+                data={comprehensionProjects.map(p => ({
                   project_name: p.project_name,
                   value: p.avg_mcqa
                 }))}
@@ -1090,7 +1093,7 @@ export default function StatsPage() {
               />
               <div className="border-t border-gray-700"></div>
               <ProjectBarChart
-                data={stats.comprehensionScores.per_project.map(p => ({
+                data={comprehensionProjects.map(p => ({
                   project_name: p.project_name,
                   value: p.avg_multi_select
                 }))}
