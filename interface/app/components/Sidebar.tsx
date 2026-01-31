@@ -322,6 +322,14 @@ export default function Sidebar({
                   isOpen ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0'
                 }`}>
                   <h1 className="text-sm font-semibold text-white">{user?.username || 'User'}</h1>
+                  {user?.email && (
+                    <p
+                      className="text-xs text-gray-400 truncate max-w-[200px]"
+                      title={user.email}
+                    >
+                      {user.email}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => { logout(); }}
