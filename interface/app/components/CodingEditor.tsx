@@ -3198,7 +3198,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         const spaceBelow = vh - rect.bottom;
                         const placeAbove = spaceAbove >= 40 || spaceAbove > spaceBelow;
                         const top = placeAbove ? rect.top : rect.bottom;
-                        setTooltipText("This image is the thumbnail that judges will see before they click on your site. We suggest using a screenshot of your site, but you can upload any appropriate image with the button in the top right..");
+                        setTooltipText("This image is the thumbnail that judges will see before they click on your site. We suggest using a screenshot of your site, but you can upload any appropriate image with the button in the top right.");
                         setTooltipLeft(left);
                         setTooltipTop(top);
                         setTooltipPlaceAbove(placeAbove);
