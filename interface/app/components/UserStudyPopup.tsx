@@ -1160,13 +1160,15 @@ function UserStudyPopupInner() {
                 style={{
                   width: '240px',
                   minWidth: '240px',
+                  flexShrink: 0,
                   borderRight: '1px solid rgba(148, 163, 184, 0.2)',
                   backgroundColor: isLightMode ? '#e5e7eb' : '#030712',
-                  overflowY: 'auto',
                   padding: '16px',
                   display: 'flex',
                   flexDirection: 'column',
                   alignSelf: 'stretch',
+                  minHeight: 0,
+                  overflow: 'hidden',
                 }}
               >
                 <div
@@ -1189,6 +1191,7 @@ function UserStudyPopupInner() {
                     gap: '4px',
                     flex: 1,
                     minHeight: 0,
+                    overflowY: 'auto',
                   }}
                 >
                   {tableOfContents.map((item) => (
@@ -1215,6 +1218,7 @@ function UserStudyPopupInner() {
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
+                        flexShrink: 0,
                       }}
                       onMouseEnter={(e) => {
                         if (activeSection !== item.id) {
