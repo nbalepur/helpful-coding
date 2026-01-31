@@ -54,7 +54,7 @@ import { isStudyEnded } from "../config/study";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
 import { downloadProjectAsRepository } from "../utils/downloadProject";
 
-type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download";
+type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download" | "undo" | "redo";
 
 function HomeInner() {
   const router = useRouter();
@@ -342,6 +342,242 @@ function HomeInner() {
         });
   }, [isPlaygroundMode]);
   
+  // Task state
+  const [responseId, setResponseId] = useState("");
+  const [taskId, setTaskId] = useState<string>("");
+  const [currentTaskMeta, setCurrentTaskMeta] = useState<{
+    id: string;
+    name?: string;
+    projectId?: number;
+    votingStartDate?: string | null;
+    votingEndDate?: string | null;
+    codeStartDate?: string | null;
+  } | null>(null);
+  const [expCondition, setExpCondition] = useState("");
+  const [workerId, setWorkerId] = useState("");
+  const [model, setModel] = useState("gpt-3.5-turbo");
+  const [taskNameDB, setTaskNameDB] = useState("");
+  const [taskIndex, setTaskIndex] = useState(0);
+  const [maxTokensTask, setMaxTokensTask] = useState(2000);
+  const [unitTests, setUnitTests] = useState<string[]>([]);
+  const [functionSignatures, setFunctionSignatures] = useState<string[]>([]);
+  const [chatLogProbs, setChatLogProbs] = useState("");
+  const [modelAutocomplete, setModelAutocomplete] = useState("Off");
+  const [modelChat, setModelChat] = useState("gpt-4o");
+  const [proactive, setProactive] = useState(false);
+  const [suggestion_max_options, setSuggestionMaxOptions] = useState(3);
+  const [insert_cursor, setInsertCursor] = useState(true);
+  const [proactive_refresh_time_active, setProactiveRefreshTimeActive] = useState(15_000);
+  const [proactive_refresh_time_inactive, setProactiveRefreshTimeInactive] = useState(30_000);
+  const [proactive_delete_time, setProactiveDeleteTime] = useState(60_000);
+  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
+
+  const getCodeByLanguage = useCallback((): Record<string, string> | null => {
+    const editorApi = actualEditorRef?.current;
+    if (!editorApi || typeof editorApi.getAllFileContents !== 'function') {
+      return null;
+    }
+
+    try {
+      const contents: Record<string, string> = editorApi.getAllFileContents() || {};
+      const metadataMap = fileMetadataRef.current || {};
+      const result: Record<string, string> = {};
+
+      Object.entries(contents).forEach(([fileId, content]) => {
+        const meta = metadataMap[fileId] || { name: fileId };
+        const key = determineLanguageKey(meta.language, meta.name || fileId);
+        if (key) {
+          result[key] = typeof content === 'string' ? content : String(content ?? '');
+        }
+      });
+
+      return Object.keys(result).length > 0 ? result : null;
+    } catch (error) {
+      console.warn('Failed to collect code by language', error);
+      return null;
+    }
+  }, [actualEditorRef]);
+
+  const buildCodeByLanguageFromState = useCallback((codeState: Record<string, string>) => {
+    const metadataMap = fileMetadataRef.current || {};
+    const result: Record<string, string> = {};
+
+    Object.entries(codeState || {}).forEach(([fileId, content]) => {
+      const meta = metadataMap[fileId] || { name: fileId };
+      const key = determineLanguageKey(meta.language, meta.name || fileId);
+      if (key) {
+        result[key] = typeof content === 'string' ? content : String(content ?? '');
+      }
+    });
+
+    return Object.keys(result).length > 0 ? result : null;
+  }, []);
+
+  const buildCodeLogPayload = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
+    // Skip code logging in playground mode - no database saving or logging
+    if (isPlaygroundMode || selectedTask === 'playground') {
+      return null;
+    }
+    
+    if (!user?.id) {
+      return null;
+    }
+    
+    const numericUserId = Number.parseInt(user.id, 10);
+    if (!Number.isFinite(numericUserId)) {
+      return null;
+    }
+    
+    if (!selectedTask || !currentTaskMeta) {
+      return null;
+    }
+    
+    const projectId = currentTaskMeta.projectId ?? allTasks.find((task: any) => task?.id === currentTaskMeta.id)?.projectId;
+    if (!projectId) {
+      return null;
+    }
+    
+    const codeOverride = context.codeByLanguage;
+    const codeByLanguage = codeOverride || getCodeByLanguage();
+    if (!codeByLanguage) {
+      return null;
+    }
+    
+    // Check if diffEditor is active by checking if pendingAgentChanges has any modified files
+    const isDiffMode = !!(pendingAgentChanges?.modified && 
+                         Object.keys(pendingAgentChanges.modified).length > 0);
+    
+    // Check if this is a save shortly after AI code was loaded
+    const isAiGeneratedMode = event === 'save-shortcut' && 
+                              aiCodeLoadedTimestampRef.current !== null &&
+                              (Date.now() - aiCodeLoadedTimestampRef.current) <= AI_CODE_LOAD_WINDOW_MS;
+    
+    // If in diff mode, convert original code from fileId-based to language-based
+    let originalCodeByLanguage: Record<string, string> | undefined = undefined;
+    if (isDiffMode && pendingAgentChanges?.original) {
+      originalCodeByLanguage = {};
+      const metadataMap = fileMetadataRef.current || {};
+      
+      Object.entries(pendingAgentChanges.original).forEach(([fileId, originalContent]) => {
+        const meta = metadataMap[fileId] || { name: fileId };
+        const key = determineLanguageKey(meta.language, meta.name || fileId);
+        if (key && originalContent && originalCodeByLanguage) {
+          originalCodeByLanguage[key] = typeof originalContent === 'string' ? originalContent : String(originalContent ?? '');
+        }
+      });
+    }
+    
+    const metadata = {
+      event,
+      taskId: currentTaskMeta.id,
+      projectId,
+      taskName: currentTaskMeta?.name ?? null,
+      triggeredAt: new Date().toISOString(),
+      leftTab,
+      showCodingTerminal,
+      isPreviewVisible: showCodingTerminal && selectedTask && leftTab === 'preview',
+      codeLengths: Object.fromEntries(
+        Object.entries(codeByLanguage).map(([key, value]) => [key, String(value ?? '').length])
+      ),
+      files: Object.fromEntries(
+        Object.entries(fileMetadataRef.current || {}).map(([fileId, meta]) => [
+          fileId,
+          {
+            name: meta?.name,
+            language: meta?.language,
+          },
+        ])
+      ),
+      // Include original code in metadata when in diff mode
+      ...(isDiffMode && originalCodeByLanguage && Object.keys(originalCodeByLanguage).length > 0 
+          ? { originalCode: originalCodeByLanguage } 
+          : {}),
+      ...context,
+    };
+    
+    // Determine mode: keep/reject actions take precedence, then download, then undo/redo, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
+    let mode: string;
+    if (event === 'keep' || event === 'keep_all') {
+      mode = event === 'keep_all' ? 'keep_all' : 'keep';
+    } else if (event === 'reject' || event === 'reject_all') {
+      mode = event === 'reject_all' ? 'reject_all' : 'reject';
+    } else if (event === 'download') {
+      mode = 'download';
+    } else if (event === 'undo' || event === 'redo') {
+      mode = event;
+    } else if (event === 'AI-refresh') {
+      mode = 'AI';
+    } else if (isAiGeneratedMode) {
+      mode = 'AI_generated';
+    } else if (isDiffMode) {
+      mode = 'diff';
+    } else {
+      mode = 'regular';
+    }
+    
+    return {
+      userId: numericUserId,
+      projectId,
+      taskId: currentTaskMeta.id,
+      mode,
+      event,
+      code: codeByLanguage,
+      metadata,
+    };
+  }, [user, selectedTask, currentTaskMeta, getCodeByLanguage, leftTab, showCodingTerminal, allTasks, pendingAgentChanges]);
+
+  const sendCodeLog = useCallback(async (event: CodeLogEvent, context: Record<string, any> = {}) => {
+    const payload = buildCodeLogPayload(event, context);
+    if (!payload) return;
+    
+    try {
+      await fetch(`${ENV.BACKEND_URL}/api/code-logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      console.warn('Failed to log code snapshot', error);
+    }
+  }, [buildCodeLogPayload]);
+
+  const sendCodeLogBeacon = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
+    const payload = buildCodeLogPayload(event, context);
+    if (!payload) return;
+    
+    if (event === 'before-unload') {
+      if (unloadLoggedRef.current) return;
+      unloadLoggedRef.current = true;
+    }
+    
+    const url = `${ENV.BACKEND_URL}/api/code-logs`;
+    const body = JSON.stringify(payload);
+    
+    try {
+      let dispatched = false;
+    
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([body], { type: 'application/json' });
+        dispatched = navigator.sendBeacon(url, blob);
+      }
+    
+      if (!dispatched) {
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body,
+          keepalive: true,
+        }).catch(error => console.warn('Failed to beacon code snapshot', error));
+      }
+    } catch (error) {
+      console.warn('Failed to dispatch code snapshot beacon', error);
+    }
+  }, [buildCodeLogPayload]);
+
   // Undo function - go back in history
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
@@ -367,7 +603,11 @@ function HomeInner() {
     
     // Update history index
     setHistoryIndex(targetIdx);
-  }, [history, historyIndex]);
+    const codeByLanguage = buildCodeByLanguageFromState(snapshot.codeState || {});
+    if (codeByLanguage) {
+      void sendCodeLog('undo', { codeByLanguage });
+    }
+  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog]);
     
   // Refresh preview when history index changes (after undo/redo)
   useEffect(() => {
@@ -408,7 +648,11 @@ function HomeInner() {
     
     // Update history index
     setHistoryIndex(targetIdx);
-  }, [history, historyIndex]);
+    const codeByLanguage = buildCodeByLanguageFromState(snapshot.codeState || {});
+    if (codeByLanguage) {
+      void sendCodeLog('redo', { codeByLanguage });
+    }
+  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog]);
   
   // Check if undo/redo is available
   const canUndo = useMemo(() => {
@@ -459,36 +703,6 @@ function HomeInner() {
     }
   }, [initialFiles, isLoadingFiles]);
   
-  // Task state
-  const [responseId, setResponseId] = useState("");
-  const [taskId, setTaskId] = useState<string>("");
-  const [currentTaskMeta, setCurrentTaskMeta] = useState<{
-    id: string;
-    name?: string;
-    projectId?: number;
-    votingStartDate?: string | null;
-    votingEndDate?: string | null;
-    codeStartDate?: string | null;
-  } | null>(null);
-  const [expCondition, setExpCondition] = useState("");
-  const [workerId, setWorkerId] = useState("");
-  const [model, setModel] = useState("gpt-3.5-turbo");
-  const [taskNameDB, setTaskNameDB] = useState("");
-  const [taskIndex, setTaskIndex] = useState(0);
-  const [maxTokensTask, setMaxTokensTask] = useState(2000);
-  const [unitTests, setUnitTests] = useState<string[]>([]);
-  const [functionSignatures, setFunctionSignatures] = useState<string[]>([]);
-  const [chatLogProbs, setChatLogProbs] = useState("");
-  const [modelAutocomplete, setModelAutocomplete] = useState("Off");
-  const [modelChat, setModelChat] = useState("gpt-4o");
-  const [proactive, setProactive] = useState(false);
-  const [suggestion_max_options, setSuggestionMaxOptions] = useState(3);
-  const [insert_cursor, setInsertCursor] = useState(true);
-  const [proactive_refresh_time_active, setProactiveRefreshTimeActive] = useState(15_000);
-  const [proactive_refresh_time_inactive, setProactiveRefreshTimeInactive] = useState(30_000);
-  const [proactive_delete_time, setProactiveDeleteTime] = useState(60_000);
-  const [isMac, setIsMac] = useState(false); // Will be set after mount to detect platform
-
   // Detect platform after mount
   useEffect(() => {
     setIsMac(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform));
@@ -1166,194 +1380,6 @@ function HomeInner() {
       console.warn('Failed to synchronize file contents from editor', error);
     }
   }, [actualEditorRef, initialFiles]);
-
-  const getCodeByLanguage = useCallback((): Record<string, string> | null => {
-    const editorApi = actualEditorRef?.current;
-    if (!editorApi || typeof editorApi.getAllFileContents !== 'function') {
-      return null;
-    }
-
-    try {
-      const contents: Record<string, string> = editorApi.getAllFileContents() || {};
-      const metadataMap = fileMetadataRef.current || {};
-      const result: Record<string, string> = {};
-
-      Object.entries(contents).forEach(([fileId, content]) => {
-        const meta = metadataMap[fileId] || { name: fileId };
-        const key = determineLanguageKey(meta.language, meta.name || fileId);
-        if (key) {
-          result[key] = typeof content === 'string' ? content : String(content ?? '');
-        }
-      });
-
-      return Object.keys(result).length > 0 ? result : null;
-    } catch (error) {
-      console.warn('Failed to collect code by language', error);
-      return null;
-    }
-  }, [actualEditorRef]);
-
-  const buildCodeLogPayload = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
-    // Skip code logging in playground mode - no database saving or logging
-    if (isPlaygroundMode || selectedTask === 'playground') {
-      return null;
-    }
-    
-    if (!user?.id) {
-      return null;
-    }
-
-    const numericUserId = Number.parseInt(user.id, 10);
-    if (!Number.isFinite(numericUserId)) {
-      return null;
-    }
-
-    if (!selectedTask || !currentTaskMeta) {
-      return null;
-    }
-
-    const projectId = currentTaskMeta.projectId ?? allTasks.find((task: any) => task?.id === currentTaskMeta.id)?.projectId;
-    if (!projectId) {
-      return null;
-    }
-
-    const codeByLanguage = getCodeByLanguage();
-    if (!codeByLanguage) {
-      return null;
-    }
-
-    // Check if diffEditor is active by checking if pendingAgentChanges has any modified files
-    const isDiffMode = !!(pendingAgentChanges?.modified && 
-                         Object.keys(pendingAgentChanges.modified).length > 0);
-
-    // Check if this is a save shortly after AI code was loaded
-    const isAiGeneratedMode = event === 'save-shortcut' && 
-                              aiCodeLoadedTimestampRef.current !== null &&
-                              (Date.now() - aiCodeLoadedTimestampRef.current) <= AI_CODE_LOAD_WINDOW_MS;
-
-    // If in diff mode, convert original code from fileId-based to language-based
-    let originalCodeByLanguage: Record<string, string> | undefined = undefined;
-    if (isDiffMode && pendingAgentChanges?.original) {
-      originalCodeByLanguage = {};
-      const metadataMap = fileMetadataRef.current || {};
-      
-      Object.entries(pendingAgentChanges.original).forEach(([fileId, originalContent]) => {
-        const meta = metadataMap[fileId] || { name: fileId };
-        const key = determineLanguageKey(meta.language, meta.name || fileId);
-        if (key && originalContent && originalCodeByLanguage) {
-          originalCodeByLanguage[key] = typeof originalContent === 'string' ? originalContent : String(originalContent ?? '');
-        }
-      });
-    }
-
-    const metadata = {
-      event,
-      taskId: currentTaskMeta.id,
-      projectId,
-      taskName: currentTaskMeta?.name ?? null,
-      triggeredAt: new Date().toISOString(),
-      leftTab,
-      showCodingTerminal,
-      isPreviewVisible: showCodingTerminal && selectedTask && leftTab === 'preview',
-      codeLengths: Object.fromEntries(
-        Object.entries(codeByLanguage).map(([key, value]) => [key, value?.length || 0])
-      ),
-      files: Object.fromEntries(
-        Object.entries(fileMetadataRef.current || {}).map(([fileId, meta]) => [
-          fileId,
-          {
-            name: meta?.name,
-            language: meta?.language,
-          },
-        ])
-      ),
-      // Include original code in metadata when in diff mode
-      ...(isDiffMode && originalCodeByLanguage && Object.keys(originalCodeByLanguage).length > 0 
-          ? { originalCode: originalCodeByLanguage } 
-          : {}),
-      ...context,
-    };
-
-    // Determine mode: keep/reject actions take precedence, then download, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
-    let mode: string;
-    if (event === 'keep' || event === 'keep_all') {
-      mode = event === 'keep_all' ? 'keep_all' : 'keep';
-    } else if (event === 'reject' || event === 'reject_all') {
-      mode = event === 'reject_all' ? 'reject_all' : 'reject';
-    } else if (event === 'download') {
-      mode = 'download';
-    } else if (event === 'AI-refresh') {
-      mode = 'AI';
-    } else if (isAiGeneratedMode) {
-      mode = 'AI_generated';
-    } else if (isDiffMode) {
-      mode = 'diff';
-    } else {
-      mode = 'regular';
-    }
-
-    return {
-      userId: numericUserId,
-      projectId,
-      taskId: currentTaskMeta.id,
-      mode,
-      event,
-      code: codeByLanguage,
-      metadata,
-    };
-  }, [user, selectedTask, currentTaskMeta, getCodeByLanguage, leftTab, showCodingTerminal, allTasks, pendingAgentChanges]);
-
-  const sendCodeLog = useCallback(async (event: CodeLogEvent, context: Record<string, any> = {}) => {
-    const payload = buildCodeLogPayload(event, context);
-    if (!payload) return;
-
-    try {
-      await fetch(`${ENV.BACKEND_URL}/api/code-logs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      console.warn('Failed to log code snapshot', error);
-    }
-  }, [buildCodeLogPayload]);
-
-  const sendCodeLogBeacon = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
-    const payload = buildCodeLogPayload(event, context);
-    if (!payload) return;
-
-    if (event === 'before-unload') {
-      if (unloadLoggedRef.current) return;
-      unloadLoggedRef.current = true;
-    }
-
-    const url = `${ENV.BACKEND_URL}/api/code-logs`;
-    const body = JSON.stringify(payload);
-
-    try {
-      let dispatched = false;
-
-      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-        const blob = new Blob([body], { type: 'application/json' });
-        dispatched = navigator.sendBeacon(url, blob);
-      }
-
-      if (!dispatched) {
-        fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body,
-          keepalive: true,
-        }).catch(error => console.warn('Failed to beacon code snapshot', error));
-      }
-    } catch (error) {
-      console.warn('Failed to dispatch code snapshot beacon', error);
-    }
-  }, [buildCodeLogPayload]);
 
   const handlePreviewRefresh = useCallback((source: string) => {
     // Skip logging for external refreshes (they're triggered programmatically and log separately)
