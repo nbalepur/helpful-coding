@@ -6,7 +6,7 @@ import MultiFileEditor from './MultiFileEditor';
 import { MessageData } from './Message';
 import { loadCurrentTask, submitCode, trackSubmitCode } from '../functions/task_logic';
 import { BsExclamationTriangle, BsInfoCircle } from 'react-icons/bs';
-import { Check, X, Download, CheckCircle, Sparkles, ThumbsUp, Lightbulb } from 'lucide-react';
+import { Check, X, Download } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { TestCasesPanelRef, TestResult } from './TestCasesPanel';
 import { ENV } from '../config/env';
@@ -456,10 +456,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [showComprehensionCheck, setShowComprehensionCheck] = useState(false);
   const [showEvaluationCheck, setShowEvaluationCheck] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<{
-    task_fulfillment: number;
-    style: number;
-    enjoyment: number;
-    creativity: number;
     is_valid: boolean;
     explanation: string;
   } | null>(null);
@@ -2185,10 +2181,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         setEvaluationError(error instanceof Error ? error.message : 'Failed to load evaluation');
         // On error, allow user to proceed (graceful degradation)
         setEvaluationResult({
-          task_fulfillment: 3,
-          style: 3,
-          enjoyment: 3,
-          creativity: 3,
           is_valid: true,
           explanation: 'Evaluation could not be completed, but you may proceed.'
         });
@@ -2791,7 +2783,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 }}
               >
                 <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '0px' }}>
-                We are automatically reviewing your submission with an LLM judge for good-faith completion and offensive content. This may take up to 60 seconds. You'll also receive scores on Task Fulfillment, Style, Enjoyment, and Creativity along with an explanation, which you might find useful for improving your project!
+                We're reviewing your submission for good-faith completion and offensive content. This may take up to 60 seconds.
                 </p>
                 
                 {isLoadingEvaluation && (
@@ -2808,8 +2800,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 )}
                 
                 {!isLoadingEvaluation && evaluationResult && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', flex: 1 }}>
-                    {/* Unified Evaluation Component */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
+                    {/* Evaluation card: judgment first, then reasoning */}
                     <div style={{
                       backgroundColor: '#1f2937',
                       border: '1px solid #374151',
@@ -2817,157 +2809,69 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       padding: '20px',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '20px'
+                      gap: '16px'
                     }}>
-                      <h3 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: 600, marginBottom: '0px' }}>
-                        Evaluation Results
-                      </h3>
-                      
-                      {/* Scores - Responsive grid layout */}
-                      <style>{`
-                        .evaluation-scores-grid {
-                          display: grid;
-                          grid-template-columns: 1fr;
-                          gap: 16px;
-                        }
-                        @media (min-width: 640px) {
-                          .evaluation-scores-grid {
-                            grid-template-columns: repeat(2, 1fr);
-                          }
-                        }
-                        @media (min-width: 1024px) {
-                          .evaluation-scores-grid {
-                            grid-template-columns: repeat(4, 1fr);
-                          }
-                        }
-                        .evaluation-explanation ul {
-                          list-style-type: disc;
-                          padding-left: 20px;
-                          margin: 0.5em 0;
-                        }
-                        .evaluation-explanation ol {
-                          list-style-type: decimal;
-                          padding-left: 20px;
-                          margin: 0.5em 0;
-                        }
-                        .evaluation-explanation li {
-                          margin: 0.25em 0;
-                          display: list-item;
-                        }
-                      `}</style>
-                      <div className="evaluation-scores-grid">
-                        {['task_fulfillment', 'style', 'enjoyment', 'creativity'].map((dimension) => {
-                          const score = evaluationResult[dimension as keyof typeof evaluationResult] as number;
-                          const label = dimension === 'task_fulfillment' ? 'Task Fulfillment' :
-                                       dimension === 'style' ? 'Style' :
-                                       dimension === 'enjoyment' ? 'Enjoyment' : 'Creativity';
-                          
-                          const badgeColor = score >= 4 ? '#10b981' : score >= 3 ? '#f59e0b' : '#ef4444';
-                          
-                          // Icon mapping
-                          let IconComponent;
-                          let iconColor;
-                          if (dimension === 'task_fulfillment') {
-                            IconComponent = CheckCircle;
-                            iconColor = '#60a5fa';
-                          } else if (dimension === 'style') {
-                            IconComponent = Sparkles;
-                            iconColor = '#a78bfa';
-                          } else if (dimension === 'enjoyment') {
-                            IconComponent = ThumbsUp;
-                            iconColor = '#f472b6';
-                          } else {
-                            IconComponent = Lightbulb;
-                            iconColor = '#fbbf24';
-                          }
-                          
-                          return (
-                            <div
-                              key={dimension}
-                              style={{
-                                backgroundColor: 'rgba(17, 24, 39, 0.5)',
-                                borderRadius: '8px',
-                                padding: '16px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '8px'
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <IconComponent size={20} color={iconColor} />
-                                <span style={{ color: '#9ca3af', fontSize: '14px' }}>
-                                  {label}
-                                </span>
-                              </div>
-                              <p style={{
-                                color: badgeColor,
-                                fontSize: '24px',
-                                fontWeight: 700,
-                                margin: 0
-                              }}>
-                                {score}/5
-                              </p>
-                            </div>
-                          );
-                        })}
+                      {/* Judgment + explanation in one flow */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                        {evaluationResult.is_valid ? (
+                          <Check size={22} color="#10b981" />
+                        ) : (
+                          <X size={22} color="#ef4444" />
+                        )}
+                        <span style={{
+                          color: evaluationResult.is_valid ? '#10b981' : '#ef4444',
+                          fontSize: '18px',
+                          fontWeight: 600
+                        }}>
+                          {evaluationResult.is_valid ? 'Valid Submission' : 'Invalid Submission'}
+                        </span>
                       </div>
-                      
-                      {/* Explanation */}
-                      <div style={{
-                        paddingTop: '16px',
-                        borderTop: '1px solid #374151'
-                      }}>
+                      <div>
                         <h4 style={{
-                          color: '#e2e8f0',
+                          color: '#9ca3af',
                           fontSize: '14px',
                           fontWeight: 600,
-                          marginBottom: '12px'
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          marginBottom: '8px'
                         }}>
                           Explanation
                         </h4>
+                        <style>{`
+                          .evaluation-explanation ul {
+                            list-style-type: disc;
+                            padding-left: 20px;
+                            margin: 0.5em 0;
+                          }
+                          .evaluation-explanation ol {
+                            list-style-type: decimal;
+                            padding-left: 20px;
+                            margin: 0.5em 0;
+                          }
+                          .evaluation-explanation li {
+                            margin: 0.25em 0;
+                            display: list-item;
+                          }
+                        `}</style>
                         <div style={{
                           color: '#d1d5db',
-                          fontSize: '14px',
+                          fontSize: '16px',
                           lineHeight: '1.6'
                         }} className="markdown-content evaluation-explanation">
                           <Markdown>{evaluationResult.explanation}</Markdown>
                         </div>
                       </div>
                     </div>
-                    
-                    {/* Status Message */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0px' }}>
-                      <span style={{
-                        color: '#e2e8f0',
-                        fontSize: '18px',
-                        fontWeight: 600
-                      }}>
-                        Decision:
-                      </span>
-                      <span style={{
-                        color: evaluationResult.is_valid ? '#10b981' : '#ef4444',
-                        fontSize: '18px',
-                        fontWeight: 600
-                      }}>
-                        {evaluationResult.is_valid ? 'Valid Submission' : 'Invalid Submission'}
-                      </span>
-                      {evaluationResult.is_valid ? (
-                        <Check size={18} color="#10b981" />
-                      ) : (
-                        <X size={18} color="#ef4444" />
-                      )}
-                    </div>
+
                     <p style={{
-                      color: '#e2e8f0',
+                      color: '#9ca3af',
                       fontSize: '16px',
                       lineHeight: '1.5',
-                      margin: 0,
-                      marginTop: '0px',
-                      marginBottom: '16px'
+                      margin: 0
                     }}>
                       {evaluationResult.is_valid
-                        ? 'You can proceed with your submission! However, we encourage you to review the feedback above and consider making improvements to enhance your scores before submitting your project for human judgment.'
-                        : 'Your submission has been marked as invalid. Please review the explanation above and make necessary changes before resubmitting.'}
+                        ? 'You can proceed with your submission!'
+                        : 'Your submission is invalid. Please review the feedback above and make changes before resubmitting.'}
                     </p>
                     
                     {/* Buttons */}

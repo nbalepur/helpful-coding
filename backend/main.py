@@ -4602,10 +4602,6 @@ async def _evaluate_submission(
     
     Returns a dictionary with the following structure:
     {
-        "task_fulfillment": int,  # 1-5
-        "style": int,  # 1-5
-        "enjoyment": int,  # 1-5
-        "creativity": int,  # 1-5
         "is_valid": bool,  # Whether submission is valid
         "explanation": str  # Explanation for the decision
     }
@@ -4679,7 +4675,7 @@ async def _evaluate_submission(
     prompt = f"""<task>
 You are an expert at evaluating websites submitted by users.
 
-Given a user's submission, your job is to evaluate the submission on four dimensions and determine if it is valid. Afterwards, you will write an explanation summarizing your evaluation and providing feedback to the user on how they could improve their submission.
+Given a user's submission, your job is to evaluate whether the submission is a valid, good-faith attempt to complete the task. Afterwards, you will write an explanation summarizing your evaluation.
 </task>
 
 Here is information about the task the user submitted to:
@@ -4702,36 +4698,6 @@ Here is the code for the user's submission:
 {website_code}
 </submission_code>
 
-<evaluation_dimensions>
-1. **Task Fulfillment** (1-5): How well does the submission fulfill the task requirements? Does it meet the core objectives of the task?
-   - 1: Does not fulfill the task requirements at all
-   - 2: Fulfills only a small portion of the task requirements
-   - 3: Fulfills most task requirements but missing some key elements
-   - 4: Fulfills all or nearly all task requirements well
-   - 5: Exceeds task requirements and demonstrates excellent fulfillment
-
-2. **Style** (1-5): How well-designed and polished is the submission? Consider visual design, user interface, code organization, and overall presentation.
-   - 1: Poor design, unpolished, messy
-   - 2: Basic design with minimal polish
-   - 3: Adequate design with some polish
-   - 4: Good design with good polish
-   - 5: Excellent design with exceptional polish
-
-3. **Enjoyment** (1-5): How enjoyable and engaging is the submission? Would users find it fun or interesting to interact with?
-   - 1: Not enjoyable, boring, or frustrating
-   - 2: Slightly enjoyable but lacks engagement
-   - 3: Moderately enjoyable with some engaging elements
-   - 4: Very enjoyable and engaging
-   - 5: Extremely enjoyable, highly engaging, and memorable
-
-4. **Creativity** (1-5): How creative and original is the submission? Does it show unique ideas, innovative approaches, or creative problem-solving?
-   - 1: No creativity, completely generic
-   - 2: Minimal creativity, mostly standard approach
-   - 3: Some creative elements or unique touches
-   - 4: Good creativity with original ideas
-   - 5: Exceptional creativity with highly original and innovative ideas
-</evaluation_dimensions>
-
 <validity_criteria>
 A submission is **INVALID** if:
 - It attempts to game or circumvent the task description (e.g., submitting something completely unrelated to the task)
@@ -4742,23 +4708,19 @@ A submission is **VALID** if it represents a genuine attempt to complete the tas
 </validity_criteria>
 
 <explanation_criteria>
-- The explanation should be clear and helpful, explaining your reasoning for each dimension and particularly why the submission is valid or invalid
-- The explanation should summarize both what the user did well and what the user could improve
+- The explanation should be clear and helpful, explaining why the submission is valid or invalid
+- The explanation can summarize what the user did well and what the user could improve on.
 - Use a friendly, constructive, and honest tone. Do not be too critical or harsh. Similarly, do not be overly sycophantic or overly complimentary.
 - The user you should read the explanation and have ideas of how they could improve their submission. The user's goal is to a win a competition where other users will vote on the submissions based on tsak fulfillment, style, enjoyment, and creativity.
 - The explanation should be in plain English and without emojis.
 - The explanation should be written in second person (e.g. "You", "your", "your submission", "your project", etc.).
 - The explanation should be written in markdown format using bullet points that are concise and easy to read. Generate the markdown directly (no need for ```markdown or ```).
-- Generate no more than five sentences / bullet points in total.
+- Generate no more than three sentences total.
 </explanation_criteria>
 
 <format>
 You must output a JSON object with the following structure:
 {{
-    "task_fulfillment": <integer 1-5>,
-    "style": <integer 1-5>,
-    "enjoyment": <integer 1-5>,
-    "creativity": <integer 1-5>,
     "is_valid": <boolean>,
     "explanation": "<string explaining your evaluation, especially focusing on why is_valid is true or false>"
 }}
@@ -4770,30 +4732,6 @@ Do not generate anything else.
     json_schema = {
         "type": "object",
         "properties": {
-            "task_fulfillment": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "Task fulfillment score from 1-5"
-            },
-            "style": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "Style score from 1-5"
-            },
-            "enjoyment": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "Enjoyment score from 1-5"
-            },
-            "creativity": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "Creativity score from 1-5"
-            },
             "is_valid": {
                 "type": "boolean",
                 "description": "Whether the submission is valid"
@@ -4803,7 +4741,7 @@ Do not generate anything else.
                 "description": "Explanation for the evaluation"
             }
         },
-        "required": ["task_fulfillment", "style", "enjoyment", "creativity", "is_valid", "explanation"],
+        "required": ["is_valid", "explanation"],
         "additionalProperties": False
     }
     
@@ -4830,10 +4768,7 @@ Do not generate anything else.
             result = json.loads(output)
             
             # Validate structure
-            if all(key in result for key in ["task_fulfillment", "style", "enjoyment", "creativity", "is_valid", "explanation"]):
-                # Ensure scores are in valid range
-                for key in ["task_fulfillment", "style", "enjoyment", "creativity"]:
-                    result[key] = max(1, min(5, int(result[key])))
+            if all(key in result for key in ["is_valid", "explanation"]):
                 result["explanation"] = result["explanation"].replace("```markdown", "").replace("```", "")
                 return result
             else:
@@ -4844,10 +4779,6 @@ Do not generate anything else.
             if attempt == 2:
                 # Fallback: return default invalid response
                 return {
-                    "task_fulfillment": 1,
-                    "style": 1,
-                    "enjoyment": 1,
-                    "creativity": 1,
                     "is_valid": False,
                     "explanation": f"Evaluation failed after 3 attempts. Error: {str(e)}"
                 }
@@ -4856,10 +4787,6 @@ Do not generate anything else.
     
     # Should not reach here, but return default if it does
     return {
-        "task_fulfillment": 1,
-        "style": 1,
-        "enjoyment": 1,
-        "creativity": 1,
         "is_valid": False,
         "explanation": "Evaluation failed: Unable to process submission"
     }
@@ -4894,12 +4821,19 @@ async def evaluate_submission(
             task_name=project.name
         )
 
-        # Save evaluation to database
+        # Save evaluation to database (lazy: set scores to 0 for backward compatibility)
+        evaluation_data_for_db = {
+            **evaluation_result,
+            "task_fulfillment": 0,
+            "style": 0,
+            "enjoyment": 0,
+            "creativity": 0,
+        }
         evaluation_create = SubmissionEvaluationCreate(
             user_id=payload.user_id,
             project_id=payload.project_id,
             submission_id=None,  # Will be linked when submission is created
-            evaluation_data=evaluation_result,
+            evaluation_data=evaluation_data_for_db,
             is_valid=evaluation_result.get("is_valid", False)
         )
         
