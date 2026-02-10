@@ -3,7 +3,7 @@
 import React from "react";
 import { Copy } from "lucide-react";
 import type { BatchCaseResult } from "@/app/utils/testCasesUtils";
-import { useTestCasesPanel } from "@/app/hooks/useTestCasesPanel";
+import { useTestCasesPanel, type TestRunLogMetadata } from "@/app/hooks/useTestCasesPanel";
 
 interface TestCasesPanelProps {
   currentFiles: any[];
@@ -13,6 +13,8 @@ interface TestCasesPanelProps {
   initialFiles?: any[] | null;
   /** For function tasks: called when "Run All Test Cases" results change. allPassed is true when all cases passed. */
   onAllTestsPassedChange?: (allPassed: boolean) => void;
+  /** Called after a test run finishes (custom input or run all). Use to save/log code with run metadata. */
+  onAfterRunTests?: (metadata: TestRunLogMetadata) => void;
 }
 
 function BatchResultCard({
@@ -113,6 +115,7 @@ export default function TestCasesPanel({
   entryPoint,
   initialFiles,
   onAllTestsPassedChange,
+  onAfterRunTests,
 }: TestCasesPanelProps) {
   const {
     runState,
@@ -133,7 +136,7 @@ export default function TestCasesPanel({
     expandedBatchRows,
     setExpandedBatchRows,
     formatBatchValue,
-  } = useTestCasesPanel({ currentFiles, actualEditorRef, testCases, entryPoint, initialFiles, onAllTestsPassedChange });
+  } = useTestCasesPanel({ currentFiles, actualEditorRef, testCases, entryPoint, initialFiles, onAllTestsPassedChange, onAfterRunTests });
 
   const args = selectedSignature?.args || ["input"];
   const outputClass =

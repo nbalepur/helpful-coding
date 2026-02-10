@@ -8,6 +8,7 @@ export type CodeLogEvent =
   | "save-shortcut"
   | "before-unload"
   | "preview-refresh"
+  | "test-run"
   | "AI-refresh"
   | "keep"
   | "reject"

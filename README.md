@@ -12,24 +12,25 @@ Users code with an AI assistant to build websites or complete LeetCode-style fun
 
 ## ✨ Key features
 
-**Browser-based coding.** Participants use a task browser, multi-file editor (HTML/CSS/JS or Python), and live preview—all in the browser, with no IDE or local installation. Everything runs on your deployed website so you can recruit widely without asking people to install anything.
+**Browser-based coding.** Participants use a task browser, multi-file Monaco editor mimicking VS-code (HTML/CSS/JS or Python), with no IDE or local installation. Everything runs on your deployed website so you can recruit widely without asking participants to install anything.
 
 
-**AI coding agent.** The in-task chat is powered by [Aider](https://github.com/Aider-AI/aider), an open-source coding agent. Like Cursor or Copilot, users describe what they want and the agent edits code and streams progress back. After each run, a short summary and follow-up suggestions (e.g. “Add keyboard controls”) keep the vibe going and give you rich interaction data.
+**AI coding agent.** The in-task chat is powered by [Aider](https://github.com/Aider-AI/aider), an open-source coding agent. Like Cursor or Copilot, users describe what they want and the agent edits code and streams progress back. Users can accept or reject each file change. After each run, a short summary and follow-up suggestions (e.g. “Add keyboard controls”) keep the vibe going and give you rich interaction data.
 
 
 **Dataset logging.** We log the human–AI collaboration signals that matter for research: agent traces, which suggestions users accept or reject, and responses to post-submission questions. You get structured data ready for analysis without building your own instrumentation.
 
 
-**Two diverse task types.** VibeJam supports both **web-development** tasks (build a game or UI from a prompt) and **function-completion** tasks (e.g. LeetCode-style Python with test cases). You can run studies that mix creativity-focused and correctness-focused coding, or focus on one.
+**Two diverse task types.** VibeJam supports both **web-development** tasks (build a UI from a prompt) and **function-completion** tasks (e.g. LeetCode-style Python with test cases). You can run studies that mix creativity-focused and correctness-focused coding, or focus on one.
 
 
-**User authentication and onboarding.** Users sign up, consent via an IRB form, log in, and can reset their password. Progress is **automatically saved** mid-task so they can leave and come back. We also provide a tutorial video and in-app instructions so participants can get started quickly.
+**User authentication and onboarding.** Users sign up, consent via an IRB form, and can reset their password. Progress is **automatically saved** mid-task so they can leave and come back. We also provide a tutorial video and in-app instructions so participants can get started quickly.
 
 **Post-submission questions.** After a website submission, you can either define questions manually or use our prompts to **generate questions from the participant’s code** (e.g. comprehension checks, "which features exist in your code?"). That lets you measure understanding and attention without writing task-specific questions by hand.
 
+**Annotator Evaluation.** We provide a submissions pane that you can give certain users access to (set `can_view_submissions=true` in the User table). On the website tasks, they can view participants' games and on function tasks, they can view participants' implementation and run their code with all test cases—including private ones that participants never see during coding.
 
-**Gamification.** We ship with 55 game-based web development tasks that were crowdsourced and selected for being engaging. Submissions can optionally be viewed and voted on by other users, so you can add a lightweight competitive or social layer to your study.
+**Gamification.** We ship with 55 game-based web development tasks that were crowdsourced and selected for being engaging. Our UI is also designed to be visually appealing and fun to use.
 
 ---
 
@@ -48,7 +49,9 @@ Curious what it looks like? Watch the walkthrough below!
 - [Detailed features](#detailed-features)
 - [Setup](#setup)
 - [Repository structure](#repository-structure)
+- [Database](#database)
 - [Customization](#customization)
+- [Limitations](#limitations)
 - [Citation](#citation)
 - [License](#license)
 
@@ -62,9 +65,9 @@ VibeJam is a full-stack application. The frontend is **Next.js**: participants s
 
 ### Task types in depth
 
-**Website tasks.** Each task has a name, title, description (HTML), label (e.g. open-ended or replication), example links, and starter files (e.g. from `data/blank_site/`). Participants edit HTML, CSS, and JavaScript in the browser and see the preview update live. You can add as many website tasks as you want via a single JSON file, or merge `web_tasks.json` and `function_tasks.json` when you load the database.
+**Website tasks.** Each task has a name, title, description (HTML), label (e.g. open-ended or replication), example links, and starter files (e.g. from `data/blank_site/`). Participants can edit three files (`index.html`, `styles.css`, and `frontend.js`) in their browser and see the preview update live. You can add as many website tasks as you want via a single JSON file, or merge `web_tasks.json` and `function_tasks.json` when you load the database.
 
-**Function tasks.** Each task is a single Python file with a problem description, starter code, and test cases. The UI sends the code to a backend runner (OneCompiler via RapidAPI, or a local execution service) and shows pass/fail results. You can require all tests to pass before submission, or allow submission after a “give up” timeout (configurable via `NEXT_PUBLIC_GIVE_UP_SECONDS`). We currently seed 10 function tasks from LiveCodeBench; the JSON format supports any number.
+**Function tasks.** Each task is a single Python file (`solution.py`) with a problem description, starter code, and test cases. The UI sends the code to a backend runner (OneCompiler via RapidAPI, or a local execution service) and shows pass/fail results. You can require all tests to pass before submission, or allow submission after a “give up” timeout (configurable via `NEXT_PUBLIC_GIVE_UP_SECONDS`). We currently seed 10 function tasks from LiveCodeBench; the JSON format supports any number.
 
 **Tutorials.** We ship two tutorials: a web tutorial and a function tutorial, each with its own instructions. The web tutorial uses a fixed set of submission questions in the frontend (no code-based generation). You can keep both, remove one, or add your own tutorial tasks.
 
@@ -74,7 +77,7 @@ VibeJam is a full-stack application. The frontend is **Next.js**: participants s
 
 **Website preview.** For website tasks, the participant can view their HTML/CSS/JS code in an in-browser iframe (the "My Preview" tab). There are no external servers; the sandbox limits (e.g. no CDN, no new files) are described in the in-app instructions.
 
-**Function execution.** For function completion tasks, the participant can test their Python with a test case panel (the "Test Cases" tab). The UI shows test results (pass/fail and output) so participants can fix their code before submitting.
+**Function execution.** For function completion tasks, the participant can test their Python with a test case panel (the "Test Cases" tab). The UI shows test results (pass/fail and output) so participants can fix their code before submitting. Test cases support an `is_public` flag: only public test cases (`is_public: true`) are shown to participants during coding; private test cases remain hidden and are only revealed to judges when they view submissions.
 
 ### Submissions and questions
 
@@ -211,14 +214,47 @@ Or run backend and frontend separately: `./scripts/start-backend.sh` and `./scri
 
 ---
 
+## 🗄️ Database
+
+VibeJam uses **PostgreSQL** in production (or **SQLite** for local development). Configuration lives in `database/config.py`; connection strings come from `DATABASE_URL` and `ASYNC_DATABASE_URL` in `.env`. The backend uses SQLAlchemy with both sync and async engines; connection pooling and optional SSL (e.g. for Supabase) are configured there.
+
+### Tables
+
+| Table | Purpose |
+|-------|---------|
+| **users** | Accounts: username, email, hashed password, `can_view_submissions`, settings JSON. |
+| **projects** | Tasks loaded from JSON: `name`, `title`, `label`, `description`, `files` (starter content), `examples`, `test_cases` (for function tasks). |
+| **code_logs** | Per-user, per-project code snapshots (e.g. auto-saves); stores `code` JSON and optional `metadata`. |
+| **submissions** | Final submissions: user, project, `code` JSON, `title`, `description`, optional `image`. |
+| **submission_feedback** | Ratings of others’ work: voter, submission, project, `scores` JSON, optional report/comment/saved. |
+| **ai_suggestions** (CodePreference) | Which AI suggestions the user accepted or rejected: `suggestion_id`, `suggestions` JSON, `user_selection`. |
+| **ai_trace_logs** (AssistantLog) | Full agent trace per chat turn: `query`, `trace` (streamed events), `summary`, `suggestions`. |
+| **submission_questions** | Post-submission questions (self-report, code-based, etc.): question text, type, choices, `user_answer`, `score`. |
+| **password_reset_tokens** | One-time tokens for password reset with expiry and `used` flag. |
+
+Projects are the central entity: each task (website or function) is one row in **projects**. Users link to projects through **code_logs**, **submissions**, **ai_trace_logs**, and **ai_suggestions**, so you can analyze behavior and outcomes per user and per task.
+
+### Scripts
+
+- **`database/scripts/create.sh`** — Create all tables (no migrations; uses `Base.metadata.create_all`).
+- **`database/scripts/load.sh`** — Load tasks from JSON into **projects** (e.g. `data/tasks.json`); use `--reset` to replace, or run without it to add/update.
+- **`database/scripts/reset.sh`** — Drop and recreate tables (destructive).
+- **`database/scripts/download.sh`** — Export or inspect data (e.g. stats).
+
+For SQLite, uncomment the SQLite URLs in `database/config.py` and ensure the same env vars are set. For hosted Postgres (e.g. Supabase), set `DATABASE_URL` and `ASYNC_DATABASE_URL`; optional pool and keepalive settings are documented in `example.env` and `config.py`.
+
+---
+
 ## ⚙️ Customization
 
 ### Tasks
 
 - **Edit task data:** `data/web_tasks.json`, `data/function_tasks.json` (or your merged `data/tasks.json`).
 - **Website task shape:** Top-level `{ "tasks": [ ... ] }`. Each task: `name` (unique slug), `title`, `description` (HTML), `label` (e.g. `open-ended`, `replication`), `example`, `files` (list of `{ "name", "content"` (path or raw string), `"contentType": "path"|"raw", "language" }`). Starter paths are typically under `data/blank_site/`.
-- **Function task shape:** Same `tasks` array. Each task: `name`, `title`, `description`, `files` (e.g. single `solution.py`), `test_cases` (input/expected_output or judge), optional `entry_point`. Use labels `write_function` or `debug_function` so the UI treats them as function tasks.
+- **Function task shape:** Same `tasks` array. Each task: `name`, `title`, `description`, `files` (e.g. single `solution.py`), `test_cases` (input/expected_output or judge), optional `entry_point`. Use labels `write_function` or `debug_function` so the UI treats them as function tasks. Each test case can include `is_public: true` (shown to participants) or omit it / set `false` (private; only visible to annotators viewing submissions).
 - **After editing:** Re-run `database/scripts/load.sh` (use `--reset` to replace all projects, or omit to add/update). Task labels are defined in `interface/app/utils/taskLabels.ts`; add new labels there if you introduce new task types.
+
+You can view the tasks in `data/*_tasks.json` to get a better idea of our task format
 
 ### Agent
 
@@ -233,6 +269,19 @@ Or run backend and frontend separately: `./scripts/start-backend.sh` and `./scri
 - **Self-report (all tasks):** `backend/routers/submission_questions.py`, function `_generate_submission_questions` — edit the list of Likert items.
 - **Code-based (website):** Same file — `generate_ui_questions`, `generate_js_questions`, `generate_ui_features`, `generate_distractor_functions`. Adjust prompts or models to change difficulty or format.
 - **Rating dimensions:** `interface/app/constants/submissionRatingCriteria.ts` — scale (min/max/default) and dimension names/descriptions for rating others’ submissions.
+
+---
+
+## ⚠️ Limitations
+
+Some constraints of the current platform:
+
+- **Web tasks can’t use a backend.** Website tasks run as static HTML/CSS/JS in the browser; there’s no way to hook up a server (e.g., Python/Flask) or call APIs from the preview.
+- **External assets are limited.** Loading images, fonts, or other resources from CDNs or external URLs is restricted or awkward in the in-browser preview sandbox.
+- **No creating or adding new files.** Participants work within the fixed set of starter files for a task; the editor doesn’t support creating new files or a full project tree.
+- **No repo-level tasks yet.** We don’t support SWE-bench–style or multi-repo tasks (clone, run tests, apply patches across many files). That would require different execution and agent integration.
+
+If you’re interested in tackling any of these, we’d love to see a PR!
 
 ---
 
@@ -252,4 +301,4 @@ See [LICENSE](LICENSE).
 
 ---
 
-*Thanks for checking out VibeJam and happy vibe-coding! 🍞*
+> Thanks for checking out VibeJam and happy vibe-coding!

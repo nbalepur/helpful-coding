@@ -7,6 +7,7 @@ import TaskInstruction from "../tasks/TaskInstruction";
 import PreviewTab, { PreviewTabRef } from "../preview/PreviewTab";
 import ProjectDetailsTab from "./ProjectDetailsTab";
 import TestCasesPanel from "../tasks/TestCasesPanel";
+import type { TestRunLogMetadata } from "@/app/hooks/useTestCasesPanel";
 import LoadingSpinner from "../ui/LoadingSpinner";
 
 export type LeftTabId = "task" | "preview" | "submissions" | "project-details";
@@ -53,6 +54,8 @@ export interface TaskAndPreviewPaneProps {
   isLoadingFiles?: boolean;
   /** For function tasks: called when test results change. allPassed is true when all test cases have passed. */
   onFunctionTaskTestResultsChange?: (allPassed: boolean) => void;
+  /** For function tasks: called after a test run finishes. Use to save/log code with run metadata (e.g. passed/total). */
+  onAfterRunTests?: (metadata: TestRunLogMetadata) => void;
 }
 
 const tabButtonClass =
@@ -86,6 +89,7 @@ export default function TaskAndPreviewPane({
   viewedSubmission,
   isLoadingFiles = false,
   onFunctionTaskTestResultsChange,
+  onAfterRunTests,
 }: TaskAndPreviewPaneProps) {
   const isFunctionTask = taskLabel === "write_function" || taskLabel === "debug_function" || taskLabel === "function_tutorial";
   const [tooltip, setTooltip] = useState({ visible: false, text: "", left: 0, top: 0, placeAbove: true });
@@ -120,7 +124,7 @@ export default function TaskAndPreviewPane({
                 {isMac ? "⌘+[" : "Ctrl+["}
               </span>
             </button>
-            {rightTab !== "submissions" && (
+            {(rightTab !== "submissions" || (viewedSubmission && isFunctionTask)) && (
               <button
                 className={`${tabButtonClass} ${leftTab === "preview" ? tabActiveClass : tabInactiveClass}`}
                 onClick={() => setLeftTab("preview")}
@@ -131,7 +135,7 @@ export default function TaskAndPreviewPane({
                 </span>
               </button>
             )}
-            {rightTab === "submissions" && viewedSubmission && (
+            {rightTab === "submissions" && viewedSubmission && !isFunctionTask && (
               <button
                 className={`${tabButtonClass} ${leftTab === "project-details" ? tabActiveClass : tabInactiveClass}`}
                 onClick={() => setLeftTab("project-details")}
@@ -203,6 +207,7 @@ export default function TaskAndPreviewPane({
                   entryPoint={entryPoint}
                   initialFiles={initialFiles}
                   onAllTestsPassedChange={onFunctionTaskTestResultsChange}
+                  onAfterRunTests={onAfterRunTests}
                 />
               )
             ) : (

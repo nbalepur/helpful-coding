@@ -129,10 +129,6 @@ export default function SubmitProjectModal({
         !previewScreenshot))
   );
 
-  const countWords = useCallback((text: string): number => {
-    return text.trim().split(/\s+/).filter((word) => word.length > 0).length;
-  }, []);
-
   // Notify parent when project title/description changes
   useEffect(() => {
     if (onProjectInfoChange) {
@@ -750,25 +746,6 @@ export default function SubmitProjectModal({
     if (unansweredQuestions.length > 0) {
       setSubmissionError(
         "Please answer all submission questions before submitting."
-      );
-      return;
-    }
-
-    const minWords = 10;
-    const invalidFreeResponseQuestions = submissionQuestions.filter((q) => {
-      if (
-        q.question_type === "free_response" ||
-        (!q.question_type ||
-          (q.question_type !== "mcqa" && q.question_type !== "multi_select"))
-      ) {
-        const answer = submissionAnswers[q.id] || "";
-        return countWords(answer) < minWords;
-      }
-      return false;
-    });
-    if (invalidFreeResponseQuestions.length > 0) {
-      setSubmissionError(
-        `Free response answers must be at least ${minWords} words long.`
       );
       return;
     }

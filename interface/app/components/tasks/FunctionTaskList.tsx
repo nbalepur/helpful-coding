@@ -48,7 +48,7 @@ function getStatusIcon(
       ? "Complete the tutorial first"
       : "Locked";
     return (
-      <div className="relative">
+      <div className="relative flex items-center shrink-0">
         <Lock className="peer h-4 w-4 text-gray-500 cursor-help" />
         <div className={tooltipClass}>{tooltipText}</div>
       </div>
@@ -57,24 +57,24 @@ function getStatusIcon(
   switch (status) {
     case "completed":
       return (
-        <div className="relative">
+        <div className="relative flex items-center shrink-0">
           <CheckCircle className="peer h-4 w-4 text-green-500 cursor-help hover:text-green-400" />
           <div className={tooltipClass}>Completed</div>
         </div>
       );
     case "in-progress":
       return (
-        <div className="relative">
+        <div className="relative flex items-center shrink-0">
           <span className="peer relative inline-flex h-4 w-4 items-center justify-center cursor-help">
-            <Circle className="h-4 w-4 text-yellow-500" strokeWidth={1.5} />
-            <span className="absolute h-1.5 w-1.5 rounded-full bg-yellow-500" />
+            <Circle className="h-4 w-4 text-yellow-500 shrink-0" strokeWidth={1.5} />
+            <span className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full bg-yellow-500" />
           </span>
           <div className={tooltipClass}>In progress</div>
         </div>
       );
     default:
       return (
-        <div className="relative">
+        <div className="relative flex items-center shrink-0">
           <Circle className="peer h-4 w-4 text-gray-500 cursor-help hover:text-gray-400" />
           <div className={tooltipClass}>Not started</div>
         </div>
@@ -86,7 +86,7 @@ function getLabelIcon(label: string | undefined) {
   if (!label) return null;
   if (label === FUNCTION_TUTORIAL_LABEL) {
     return (
-      <div className="relative shrink-0">
+      <div className="relative flex items-center shrink-0">
         <FlaskConical className="peer h-4 w-4 text-green-400 cursor-help hover:text-green-300" strokeWidth={2} />
         <div className={tooltipClass}>Tutorial</div>
       </div>
@@ -94,7 +94,7 @@ function getLabelIcon(label: string | undefined) {
   }
   if (label === WRITE_FUNCTION_LABEL) {
     return (
-      <div className="relative shrink-0">
+      <div className="relative flex items-center shrink-0">
         <Pencil className="peer h-4 w-4 text-blue-400 cursor-help hover:text-blue-300" />
         <div className={tooltipClass}>Write function</div>
       </div>
@@ -102,7 +102,7 @@ function getLabelIcon(label: string | undefined) {
   }
   if (label === DEBUG_FUNCTION_LABEL) {
     return (
-      <div className="relative shrink-0">
+      <div className="relative flex items-center shrink-0">
         <Bug className="peer h-4 w-4 text-yellow-400 cursor-help hover:text-yellow-300" />
         <div className={tooltipClass}>Debug function</div>
       </div>

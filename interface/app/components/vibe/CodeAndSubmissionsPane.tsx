@@ -994,6 +994,7 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
                   <SubmissionsGallery
                     projectId={currentTaskMeta?.projectId}
                     taskId={selectedTask}
+                    taskLabel={taskLabel}
                   />
                 </div>
               </div>

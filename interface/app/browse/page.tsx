@@ -75,7 +75,7 @@ function BrowseInner() {
     // Try to load from cache first (unless forcing refresh)
     if (!forceRefresh && typeof window !== 'undefined') {
       try {
-        const cachedData = localStorage.getItem(cacheKey);
+        const cachedData = sessionStorage.getItem(cacheKey);
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
@@ -107,7 +107,7 @@ function BrowseInner() {
         // Save to cache
         if (typeof window !== 'undefined') {
           try {
-            localStorage.setItem(cacheKey, JSON.stringify({ tasks }));
+            sessionStorage.setItem(cacheKey, JSON.stringify({ tasks }));
           } catch (error) {
           }
         }

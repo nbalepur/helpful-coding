@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { Search, Shuffle, Bookmark, Flag, ArrowLeft, Filter, ArrowUpDown, Scale, RefreshCw, Download } from "lucide-react";
 import PreviewIframe, { type PreviewIframeRef } from "../preview/PreviewIframe";
 import ReportSubmissionModal from "./ReportSubmissionModal";
+import ReadOnlyCodeViewer from "./ReadOnlyCodeViewer";
+import { isFunctionTaskLabel } from "../../utils/taskLabels";
 import { ENV } from "../../config/env";
 import { useAuth } from "../../context/auth";
 import { useSnackbar } from "../ui/SnackbarProvider";
@@ -706,9 +708,12 @@ const IFRAME_TEMPLATE = `<!DOCTYPE html>
 interface SubmissionsGalleryProps {
   projectId?: number | null;
   taskId?: string | null;
+  /** When set, used to show read-only code viewer for function task submissions instead of preview. */
+  taskLabel?: string | null;
 }
 
-const SubmissionsGallery = ({ projectId, taskId }: SubmissionsGalleryProps = {}) => {
+const SubmissionsGallery = ({ projectId, taskId, taskLabel }: SubmissionsGalleryProps = {}) => {
+  const isFunctionTask = isFunctionTaskLabel(taskLabel);
   const [submissions, setSubmissions] = useState<SubmissionCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -2013,6 +2018,17 @@ const getTooltipPosition = useCallback(
     return Boolean(html?.trim() || css?.trim() || js?.trim());
   }, [selectedSubmissionPreview]);
 
+  const selectedSubmissionCodeAsFiles = useMemo(() => {
+    if (!selectedSubmissionCode) return {};
+    return coerceSubmissionCode(selectedSubmissionCode);
+  }, [selectedSubmissionCode]);
+
+  const hasSelectedCodeForViewer = useMemo(() => {
+    if (!isFunctionTask) return false;
+    const files = selectedSubmissionCodeAsFiles;
+    return Object.keys(files).length > 0 && Object.values(files).some((v) => String(v).trim() !== "");
+  }, [isFunctionTask, selectedSubmissionCodeAsFiles]);
+
   const handleDownloadSubmission = useCallback(async () => {
     if (!selectedSubmissionPreview || !selectedSubmission) {
       return;
@@ -2416,36 +2432,38 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                data-tooltip="Pop out preview"
-                onClick={handlePopout}
-                onPointerEnter={(event) =>
-                  showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
-                }
-                onPointerMove={(event) =>
-                  showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
-                }
-                onPointerLeave={hideTooltip}
-                className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700"
-                aria-label="Pop out preview"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4"
+              {!isFunctionTask && (
+                <button
+                  type="button"
+                  data-tooltip="Pop out preview"
+                  onClick={handlePopout}
+                  onPointerEnter={(event) =>
+                    showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
+                  }
+                  onPointerMove={(event) =>
+                    showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
+                  }
+                  onPointerLeave={hideTooltip}
+                  className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700"
+                  aria-label="Pop out preview"
                 >
-                  <path d="M14 3h7v7" />
-                  <path d="M10 14 21 3" />
-                  <path d="M21 14v7h-7" />
-                  <path d="M3 10 14 21" />
-                </svg>
-              </button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                  >
+                    <path d="M14 3h7v7" />
+                    <path d="M10 14 21 3" />
+                    <path d="M21 14v7h-7" />
+                    <path d="M3 10 14 21" />
+                  </svg>
+                </button>
+              )}
               <button
                 type="button"
                 data-tooltip={isSelectedFavorite ? "Remove bookmark" : "Save"}
@@ -2674,17 +2692,24 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                 <div className="flex flex-1 items-center justify-center text-sm text-red-400">
                   {detailError}
                 </div>
-              ) : hasSelectedPreview && selectedSubmissionPreview ? (
+              ) : hasSelectedCodeForViewer || (hasSelectedPreview && selectedSubmissionPreview) ? (
                 <>
-                  <div className="flex-1 border-r border-gray-800/60 bg-black">
-                    <PreviewIframe
-                      ref={selectedPreviewRef}
-                      key={selectedSubmission?.id ?? "detail-view"}
-                      htmlContent={selectedSubmissionPreview.html}
-                      cssContent={selectedSubmissionPreview.css}
-                      jsContent={selectedSubmissionPreview.js}
-                      className="h-full w-full border-none bg-black"
-                    />
+                  <div className={`flex-1 border-r border-gray-800/60 min-h-0 ${!hasSelectedCodeForViewer ? "bg-black" : ""}`}>
+                    {hasSelectedCodeForViewer ? (
+                      <ReadOnlyCodeViewer
+                        files={selectedSubmissionCodeAsFiles}
+                        className="h-full w-full"
+                      />
+                    ) : (
+                      <PreviewIframe
+                        ref={selectedPreviewRef}
+                        key={selectedSubmission?.id ?? "detail-view"}
+                        htmlContent={selectedSubmissionPreview!.html}
+                        cssContent={selectedSubmissionPreview!.css}
+                        jsContent={selectedSubmissionPreview!.js}
+                        className="h-full w-full border-none bg-black"
+                      />
+                    )}
                   </div>
                   <div className="flex w-80 h-full flex-col overflow-hidden bg-gray-900/70">
         <div className="flex flex-col flex-1 overflow-y-auto min-h-0 p-4 gap-4">

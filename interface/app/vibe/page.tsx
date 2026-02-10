@@ -19,6 +19,7 @@ import CodeAndSubmissionsPane, { CodeAndSubmissionsPaneRef } from "../components
 import { cloneFileNodes, flattenFileNodes } from "../utils/fileTree";
 import { useResize } from "../hooks/useResize";
 import { useCodeLog, type CodeLogEvent } from "../hooks/useCodeLog";
+import type { TestRunLogMetadata } from "../hooks/useTestCasesPanel";
 import { useVibeTask } from "../hooks/useVibeTask";
 import { isFunctionTaskLabel } from "../utils/taskLabels";
 
@@ -170,7 +171,14 @@ function HomeInner() {
     const solution = flat.find((f: any) => String(f?.name || "").toLowerCase() === "solution.py");
     return solution?.entry ?? null;
   }, [isFunctionTask, initialFiles]);
-  
+
+  /** In coding mode only public test cases; in submission mode (viewing a submission) show all. */
+  const testCasesForPanel = useMemo(() => {
+    if (!Array.isArray(taskTestCases)) return taskTestCases;
+    if (viewedSubmission) return taskTestCases;
+    return taskTestCases.filter((tc: Record<string, unknown>) => tc.is_public === true);
+  }, [taskTestCases, viewedSubmission]);
+
   const [messages, setMessages] = useState<MessageData[]>([
     { text: "How can I help you today?", sender: "bot" },
   ]);
@@ -382,10 +390,10 @@ function HomeInner() {
           e.stopPropagation();
           if (showCodingTerminal && selectedTask) {
             if (isBracketLeft) setLeftTab('task');
-            // Switch to preview or project details based on tab
+            // Switch to preview (Test Cases) or project details based on tab and task type
             else if (isBracketRight) {
               if (viewedSubmission) {
-                setLeftTab('project-details');
+                setLeftTab(isFunctionTask ? 'preview' : 'project-details');
               } else if (rightTab !== 'submissions') {
                 setLeftTab('preview');
               }
@@ -436,7 +444,7 @@ function HomeInner() {
       window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
     };
-  }, [showCodingTerminal, selectedTask, isViewSubmissionsUnlocked]);
+  }, [showCodingTerminal, selectedTask, isViewSubmissionsUnlocked, viewedSubmission, isFunctionTask]);
 
   useEffect(() => {
     setRightTab('code');
@@ -464,12 +472,12 @@ function HomeInner() {
     ? 'View user submissions.'
     : 'You are unable to view submissions.';
 
-  // Switch from preview to task when switching to submissions tab
+  // When switching to submissions tab, leave preview only if not viewing a function submission
   useEffect(() => {
-    if (rightTab === 'submissions' && leftTab === 'preview') {
+    if (rightTab === 'submissions' && leftTab === 'preview' && !viewedSubmission) {
       setLeftTab('task');
     }
-  }, [rightTab, leftTab]);
+  }, [rightTab, leftTab, viewedSubmission]);
 
   // Switch from project-details to task when switching to code tab
   useEffect(() => {
@@ -488,9 +496,10 @@ function HomeInner() {
           title: submission.title,
           description: submission.description || null,
         });
-        // When a specific project is viewed while on the submissions tab,
-        // automatically switch to the Project Details tab
-        setLeftTab(prev => (rightTab === 'submissions' ? 'project-details' : prev));
+        // When viewing a submission: function tasks show Test Cases, others show Project Details
+        if (rightTab === 'submissions') {
+          setLeftTab(isFunctionTask ? 'preview' : 'project-details');
+        }
       }
     };
 
@@ -498,7 +507,7 @@ function HomeInner() {
     return () => {
       window.removeEventListener('view-submission', handleViewSubmission);
     };
-  }, [rightTab]);
+  }, [rightTab, isFunctionTask]);
 
   // Listen for exit-submission-view events to clear project details state
   useEffect(() => {
@@ -522,6 +531,14 @@ function HomeInner() {
     }
     void sendCodeLog('preview-refresh', { refreshSource: source });
   }, [sendCodeLog]);
+
+  /** Save code after a test run finishes, with metadata (e.g. passed/total for run all, success for custom). */
+  const handleAfterRunTests = useCallback(
+    (metadata: TestRunLogMetadata) => {
+      void sendCodeLog("test-run", metadata);
+    },
+    [sendCodeLog]
+  );
 
   // Track when we want to focus the assistant input
   const [shouldFocusAssistant, setShouldFocusAssistant] = useState(false);
@@ -651,9 +668,8 @@ function HomeInner() {
           if (isBracketLeft) {
             setLeftTab('task');
           } else if (isBracketRight) {
-            // Switch to preview or project details based on tab
             if (rightTab === 'submissions' && viewedSubmission) {
-              setLeftTab('project-details');
+              setLeftTab(isFunctionTask ? 'preview' : 'project-details');
             } else if (rightTab !== 'submissions') {
               setLeftTab('preview');
             }
@@ -704,7 +720,7 @@ function HomeInner() {
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keyup', handleKeyUp, true);
     };
-  }, [showAIAssistant, showCodingTerminal, selectedTask, isViewSubmissionsUnlocked]);
+  }, [showAIAssistant, showCodingTerminal, selectedTask, isViewSubmissionsUnlocked, viewedSubmission, isFunctionTask]);
 
   // Prevent submissions tab in tutorial mode
   useEffect(() => {
@@ -835,7 +851,7 @@ function HomeInner() {
               }
               taskLabel={selectedTaskLabel}
               taskExample={selectedTaskEntry?.example}
-              taskTestCases={taskTestCases}
+              taskTestCases={testCasesForPanel}
               entryPoint={functionTaskEntryPoint}
               initialFiles={initialFiles}
               currentFiles={currentFiles}
@@ -846,6 +862,7 @@ function HomeInner() {
               viewedSubmission={viewedSubmission}
               isLoadingFiles={isLoadingFiles}
               onFunctionTaskTestResultsChange={handleFunctionTaskTestResultsChange}
+              onAfterRunTests={handleAfterRunTests}
             />
           )}
         </div>

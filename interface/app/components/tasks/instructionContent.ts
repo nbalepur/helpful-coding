@@ -39,10 +39,16 @@ function taskTypeInfo(
   theme: InstructionTheme
 ): string {
   if (label === "replication") {
-    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is a <span style="color: ${theme.accentColor}; font-weight: 600;">replication</span> task: fixed rules are provided to help scope the game, but you can do whatever you want within those rules. This is based on an existing, popular game. Other users will judge your project on ${criteriaNames} (details below).</p>`;
+    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is a <span style="color: ${theme.accentColor}; font-weight: 600;">replication</span> web development task: fixed rules are provided to help scope the game, but you can do whatever you want within those rules. This is based on an existing, popular game. Other users will judge your project on ${criteriaNames}. The specification is described below:</p>`;
   }
   if (label === "open-ended") {
-    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is an <span style="color: ${theme.accentColor}; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Other users will judge your project on ${criteriaNames} (details below).</p>`;
+    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is an <span style="color: ${theme.accentColor}; font-weight: 600;">open-ended</span> web development task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Other users will judge your project on ${criteriaNames}. The specification is described below:</p>`;
+  }
+  if (label === "write_function") {
+    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is a <span style="color: ${theme.accentColor}; font-weight: 600;">function completion</span> task: implement a function from scratch that satisfies the specification and passes the provided test cases. The specification is described below:</p>`;
+  }
+  if (label === "debug_function") {
+    return `<p style="margin: 0 0 12px 0; color: ${theme.textColor};">This is a <span style="color: ${theme.accentColor}; font-weight: 600;">function debugging</span> task: the starter code contains bugs; fix them so the function satisfies the specification and passes the provided test cases. The specification is described below:</p>`;
   }
   return "";
 }
@@ -125,6 +131,7 @@ export function buildStructuredContent(options: BuildStructuredContentOptions): 
   return `
     <h2>Task Description</h2>
     ${taskTypeBlock}
+    ${taskTypeBlock ? "<hr />" : ""}
     ${taskDescription}
 
     ${examplesBlock}

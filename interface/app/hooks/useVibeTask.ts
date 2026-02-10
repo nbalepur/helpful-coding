@@ -73,7 +73,7 @@ export function useVibeTask(args: UseVibeTaskArgs) {
       const cacheKey = numericUserId ? `cached_tasks_${numericUserId}` : "cached_tasks_anonymous";
       if (!forceRefresh && typeof window !== "undefined") {
         try {
-          const cachedData = localStorage.getItem(cacheKey);
+          const cachedData = sessionStorage.getItem(cacheKey);
           if (cachedData) {
             const parsed = JSON.parse(cachedData);
             const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
@@ -98,7 +98,7 @@ export function useVibeTask(args: UseVibeTaskArgs) {
           const tasks = Array.isArray(data.tasks) ? data.tasks : [];
           if (typeof window !== "undefined") {
             try {
-              localStorage.setItem(cacheKey, JSON.stringify({ tasks }));
+              sessionStorage.setItem(cacheKey, JSON.stringify({ tasks }));
             } catch {
               // ignore
             }

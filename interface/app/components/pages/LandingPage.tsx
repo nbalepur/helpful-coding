@@ -155,10 +155,10 @@ export default function LandingPage() {
                 <img
                   src="/toast.png"
                   alt=""
-                  className="h-20 sm:h-24 md:h-28 w-auto object-contain flex-shrink-0 drop-shadow-lg"
+                  className="h-14 sm:h-16 md:h-20 w-auto object-contain flex-shrink-0 drop-shadow-lg"
                   aria-hidden
                 />
-                <h1 className="text-6xl sm:text-7xl md:text-8xl font-light text-center leading-tight">
+                <h1 className="text-4xl sm:text-5xl md:text-6xl font-light text-center leading-tight">
                   <span
                     className="font-bold tracking-tight"
                     style={{
@@ -171,11 +171,11 @@ export default function LandingPage() {
                       animation: "gradient-shift 3s ease infinite",
                     }}
                   >
-                    VibeJam
+                    Vibe Jam
                   </span>
                 </h1>
               </div>
-              <p className="text-xl sm:text-2xl text-gray-400 mb-4 max-w-2xl mx-auto">
+              <p className="text-xl sm:text-2xl text-gray-400 mb-4 max-w-4xl mx-auto">
                 Build fun projects, win prizes, and show off your AI-assisted coding skills
               </p>
             </div>

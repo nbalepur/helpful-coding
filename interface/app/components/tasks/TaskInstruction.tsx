@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import { marked } from "marked";
 import { BsBoxArrowUpRight, BsX } from "react-icons/bs";
 import { Video, List } from "lucide-react";
 import { ENV } from "@/app/config/env";
@@ -52,39 +53,24 @@ const TaskInstruction: React.FC<TaskInstructionProps> = ({
   // Check if content is HTML (starts with <!DOCTYPE, <html, or HTML tags like <p>, <div>, etc.)
   const raw = taskDescription || "";
   const trimmed = raw.trim();
-  const isHTML = trimmed.startsWith('<!DOCTYPE') || 
-                 trimmed.startsWith('<html') || 
+  const isHTML = trimmed.startsWith('<!DOCTYPE') ||
+                 trimmed.startsWith('<html') ||
                  /^<[a-z][\s\S]*>/.test(trimmed); // Check if starts with HTML tag
 
-  // Extract content from HTML, handling various formats
-  const extractDescriptionContent = (html: string): string => {
-    // If it's a full HTML document, extract body content
-    if (html.includes('<body>')) {
-      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if (bodyMatch && bodyMatch[1]) {
-        let content = bodyMatch[1];
-        // Remove wrapper divs but keep the actual content
-        content = content.replace(/<div[^>]*class="ti-root"[^>]*>|<\/div>/gi, '').trim();
-        if (content) return content;
+  // If description contains <markdown>...</markdown>, parse inner content as markdown
+  const descriptionForIframe = (() => {
+    if (!trimmed) return "";
+    if (!/<markdown>/i.test(trimmed)) return trimmed;
+    const markdownTagRegex = /<markdown>([\s\S]*?)<\/markdown>/gi;
+    return trimmed.replace(markdownTagRegex, (_, inner) => {
+      try {
+        const html = (marked.parse(inner.trim(), { async: false }) as string) || inner;
+        return html;
+      } catch {
+        return inner;
       }
-    }
-    
-    // If it's wrapped in HTML document tags, try to extract
-    if (html.includes('<!DOCTYPE') || html.includes('<html')) {
-      // Remove HTML structure but keep content
-      let content = html
-        .replace(/<!DOCTYPE[^>]*>/gi, '')
-        .replace(/<html[^>]*>|<\/html>/gi, '')
-        .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
-        .replace(/<body[^>]*>|<\/body>/gi, '')
-        .replace(/<div[^>]*class="ti-root"[^>]*>|<\/div>/gi, '')
-        .trim();
-      if (content) return content;
-    }
-    
-    // Otherwise, return as-is (HTML fragments like <p>...</p> are fine as-is)
-    return html.trim();
-  };
+    });
+  })();
 
   // If HTML, prepare an iframe document that wraps the raw content and applies
   // a minimal stylesheet (accent is handled by outer container)
@@ -92,9 +78,8 @@ const TaskInstruction: React.FC<TaskInstructionProps> = ({
     let content = html;
     
     if (useStructured) {
-      const descriptionContent = extractDescriptionContent(html);
       content = buildStructuredContent({
-        descriptionHtml: descriptionContent,
+        descriptionHtml: descriptionForIframe,
         exampleHtml: example,
         label: taskLabel,
         taskName,

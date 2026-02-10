@@ -16,6 +16,34 @@ import {
 const MIN_TOP_PX = 120;
 const MIN_BOTTOM_PX = 160;
 
+/** One test case result for run_all log metadata (matches UI: input, expected, actual). */
+export type TestRunCaseResult = {
+  input: unknown;
+  expected: unknown;
+  actual: unknown;
+  passed: boolean;
+};
+
+/** Metadata for test-run code log. Passed to onAfterRunTests when a run finishes. */
+export type TestRunLogMetadata =
+  | {
+      runType: "custom";
+      success: boolean;
+      hasErrorOutput?: boolean;
+      /** Custom input that was run */
+      input: unknown;
+      /** What was shown in the terminal (output or error message) */
+      output: string;
+    }
+  | {
+      runType: "run_all";
+      total: number;
+      passed: number;
+      allPassed: boolean;
+      /** Per-case results: input, expected, actual, passed (like the UI) */
+      results: TestRunCaseResult[];
+    };
+
 export interface UseTestCasesPanelProps {
   currentFiles: any[];
   actualEditorRef: React.RefObject<any>;
@@ -24,6 +52,8 @@ export interface UseTestCasesPanelProps {
   initialFiles?: any[] | null;
   /** Called when batch test results change. allPassed is true when all test cases passed. */
   onAllTestsPassedChange?: (allPassed: boolean) => void;
+  /** Called after a test run finishes (custom input or run all). Use to save/log code with run metadata. */
+  onAfterRunTests?: (metadata: TestRunLogMetadata) => void;
 }
 
 export function useTestCasesPanel({
@@ -33,6 +63,7 @@ export function useTestCasesPanel({
   entryPoint,
   initialFiles,
   onAllTestsPassedChange,
+  onAfterRunTests,
 }: UseTestCasesPanelProps) {
   const [runState, setRunState] = useState<RunState>("idle");
   const [output, setOutput] = useState("");
@@ -174,30 +205,38 @@ export function useTestCasesPanel({
   };
 
   const handleRun = async () => {
+    const inputPayload = buildInputPayload();
     const codeToRun = getCurrentPythonCode(actualEditorRef, currentFiles);
     if (!codeToRun.trim()) {
+      const msg = "No Python code found to execute.";
       setRunState("error");
-      setOutput("No Python code found to execute.");
+      setOutput(msg);
+      onAfterRunTests?.({ runType: "custom", success: false, input: inputPayload, output: msg });
       return;
     }
     setRunState("running");
     setOutput("");
-    const result = await executeFunction(buildInputPayload());
+    const result = await executeFunction(inputPayload);
     if (!result.success) {
+      const msg = result.error || "Execution failed.";
       setRunState("error");
-      setOutput(result.error || "Execution failed.");
+      setOutput(msg);
+      onAfterRunTests?.({ runType: "custom", success: false, input: inputPayload, output: msg });
       return;
     }
     const hasErrorOutput =
       (result.stderr?.trim().length ?? 0) > 0 ||
       /Traceback \(most recent call last\)|Error:|Exception:/.test(result.output);
     if (hasErrorOutput) {
+      const msg = (result.stderr || result.output).trim();
       setRunState("error");
-      setOutput((result.stderr || result.output).trim());
+      setOutput(msg);
+      onAfterRunTests?.({ runType: "custom", success: false, hasErrorOutput: true, input: inputPayload, output: msg });
       return;
     }
     setRunState("done");
     setOutput(result.output);
+    onAfterRunTests?.({ runType: "custom", success: true, input: inputPayload, output: result.output });
   };
 
   const handleRunAllTestCases = async () => {
@@ -205,17 +244,20 @@ export function useTestCasesPanel({
     if (!codeToRun.trim()) {
       setBatchRunState("error");
       setBatchSummary("No Python code found to execute.");
+      onAfterRunTests?.({ runType: "run_all", total: 0, passed: 0, allPassed: false, results: [] });
       return;
     }
     if (!Array.isArray(testCases) || testCases.length === 0) {
       setBatchRunState("error");
       setBatchSummary("No Test Cases available for this task.");
+      onAfterRunTests?.({ runType: "run_all", total: 0, passed: 0, allPassed: false, results: [] });
       return;
     }
     setBatchRunState("running");
     setBatchSummary("Running...");
     setBatchResults(Array.from({ length: testCases.length }, () => ({ status: "queued" as const })));
     let passedCount = 0;
+    const runAllResults: Array<{ input: unknown; expected: unknown; actual: unknown; passed: boolean }> = [];
 
     for (let i = 0; i < testCases.length; i++) {
       const tc = testCases[i];
@@ -226,15 +268,17 @@ export function useTestCasesPanel({
       const result = await executeFunction(inputVal);
 
       if (!result.success) {
+        const actual = result.error || "Execution failed.";
+        runAllResults.push({ input: inputVal, expected, actual, passed: false });
         setBatchResults((prev) =>
           prev.map((item, idx) =>
             idx === i
               ? {
                   status: "failed",
-                  summary: result.error || "Execution failed.",
+                  summary: actual,
                   input: inputVal,
                   expected,
-                  actual: result.error || "Execution failed.",
+                  actual,
                 }
               : item
           )
@@ -246,6 +290,7 @@ export function useTestCasesPanel({
       const actualOutput = (result.output ?? "").trim();
       const passed = outputsMatch(expected, actualOutput);
       if (passed) passedCount += 1;
+      runAllResults.push({ input: inputVal, expected, actual: actualOutput, passed });
       setBatchResults((prev) =>
         prev.map((item, idx) =>
           idx === i
@@ -268,6 +313,7 @@ export function useTestCasesPanel({
       allPassed ? `All ${testCases.length} Test Cases passed.` : `${passedCount}/${testCases.length} Test Cases passed.`
     );
     onAllTestsPassedChange?.(allPassed);
+    onAfterRunTests?.({ runType: "run_all", total: testCases.length, passed: passedCount, allPassed, results: runAllResults });
   };
 
   const runButtonLabel = runState === "running" ? "Running..." : "Run";
