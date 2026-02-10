@@ -20,6 +20,7 @@ analysis/.ipynb_checkpoints
 /coverage
 
 *.csv
+data/function_tasks.json
 
 # next.js
 /.next/

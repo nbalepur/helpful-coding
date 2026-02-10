@@ -12,24 +12,24 @@ Users code with an AI assistant to build websites or complete LeetCode-style fun
 
 ## ✨ Key features
 
-> **Browser-based coding.** Participants use a task browser, multi-file editor (HTML/CSS/JS or Python), and live preview—all in the browser, with no IDE or local installation. Everything runs on your deployed website so you can recruit widely without asking people to install anything.
+**Browser-based coding.** Participants use a task browser, multi-file editor (HTML/CSS/JS or Python), and live preview—all in the browser, with no IDE or local installation. Everything runs on your deployed website so you can recruit widely without asking people to install anything.
 
 
-> **AI coding agent.** The in-task chat is powered by [Aider](https://github.com/Aider-AI/aider), an open-source coding agent. Like Cursor or Copilot, users describe what they want and the agent edits code and streams progress back. After each run, a short summary and follow-up suggestions (e.g. “Add keyboard controls”) keep the vibe going and give you rich interaction data.
+**AI coding agent.** The in-task chat is powered by [Aider](https://github.com/Aider-AI/aider), an open-source coding agent. Like Cursor or Copilot, users describe what they want and the agent edits code and streams progress back. After each run, a short summary and follow-up suggestions (e.g. “Add keyboard controls”) keep the vibe going and give you rich interaction data.
 
 
-> **Dataset logging.** We log the human–AI collaboration signals that matter for research: agent traces, which suggestions users accept or reject, and responses to post-submission questions. You get structured data ready for analysis without building your own instrumentation.
+**Dataset logging.** We log the human–AI collaboration signals that matter for research: agent traces, which suggestions users accept or reject, and responses to post-submission questions. You get structured data ready for analysis without building your own instrumentation.
 
 
-> **Two diverse task types.** VibeJam supports both **web-development** tasks (build a game or UI from a prompt) and **function-completion** tasks (e.g. LeetCode-style Python with test cases). You can run studies that mix creativity-focused and correctness-focused coding, or focus on one.
+**Two diverse task types.** VibeJam supports both **web-development** tasks (build a game or UI from a prompt) and **function-completion** tasks (e.g. LeetCode-style Python with test cases). You can run studies that mix creativity-focused and correctness-focused coding, or focus on one.
 
 
-> **User authentication and onboarding.** Users sign up, consent via an IRB form, log in, and can reset their password. Progress is **automatically saved** mid-task so they can leave and come back. We also provide a tutorial video and in-app instructions so participants can get started quickly.
+**User authentication and onboarding.** Users sign up, consent via an IRB form, log in, and can reset their password. Progress is **automatically saved** mid-task so they can leave and come back. We also provide a tutorial video and in-app instructions so participants can get started quickly.
 
-> **Post-submission questions.** After a website submission, you can either define questions manually or use our prompts to **generate questions from the participant’s code** (e.g. comprehension checks, "which features exist in your code?"). That lets you measure understanding and attention without writing task-specific questions by hand.
+**Post-submission questions.** After a website submission, you can either define questions manually or use our prompts to **generate questions from the participant’s code** (e.g. comprehension checks, "which features exist in your code?"). That lets you measure understanding and attention without writing task-specific questions by hand.
 
 
-> **Gamification.** We ship with 55 game-based web development tasks that were crowdsourced and selected for being engaging. Submissions can optionally be viewed and voted on by other users, so you can add a lightweight competitive or social layer to your study.
+**Gamification.** We ship with 55 game-based web development tasks that were crowdsourced and selected for being engaging. Submissions can optionally be viewed and voted on by other users, so you can add a lightweight competitive or social layer to your study.
 
 ---
 
@@ -90,7 +90,7 @@ The **About** page shows study instructions (Markdown from `public/instruction_a
 
 ## 🛠️ Setup
 
-> **Quick start:** `git clone https://github.com/nbalepur/vibe-jam && cd vibe-jam && ./scripts/setup.sh` — then add your `.env` and run `./scripts/start-all.sh`.
+**Quick start:** `git clone https://github.com/nbalepur/vibe-jam && cd vibe-jam && ./scripts/setup.sh` — then add your `.env` and run `./scripts/start-all.sh`.
 
 ### 1. Clone and install
 
