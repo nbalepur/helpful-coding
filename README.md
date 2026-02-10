@@ -79,15 +79,24 @@ VibeJam is a full-stack application. The frontend is **Next.js**: participants s
 
 **Function execution.** For function completion tasks, the participant can test their Python with a test case panel (the "Test Cases" tab). The UI shows test results (pass/fail and output) so participants can fix their code before submitting. Test cases support an `is_public` flag: only public test cases (`is_public: true`) are shown to participants during coding; private test cases remain hidden and are only revealed to judges when they view submissions.
 
-### Submissions and questions
+#### Security and sandboxing
+
+We use safeguards so that participant code does not run unsandboxed on your infrastructure:
+
+- **Function tasks.** When using **OneCompiler** (RapidAPI), Python is executed on OneCompiler’s remote service, not on your server. Your backend only sends code and receives results; participant code is effectively sandboxed from your host. An optional **local execution** mode (e.g. `USE_LOCAL_EXECUTION`) runs code in a subprocess on your machine—intended for development only; the codebase warns against using it in production.
+- **Website tasks.** Code edited by participants (and by Aider) is rendered in an **iframe** (the "My Preview" tab). The iframe uses the `sandbox` attribute (e.g. `allow-scripts`, `allow-same-origin`), injected **Content-Security-Policy** headers in the document, and JS sanitization that strips `window.parent` / `window.top` access. That isolates the preview from the rest of the app; we rely on this iframe sandbox as the primary safeguard, with sanitization and CSP as defense-in-depth.
+
+**Caveats.** OneCompiler is a third-party service—execution and any limits are under their control, and code is sent off your system. For the in-browser preview, HTML/CSS sanitization is minimal (iframe sandbox and CSP carry most of the security). Deployers should use OneCompiler (or another remote sandbox) for function tasks in production and avoid running untrusted code locally.
+
+### Submissions and Questions
 
 **What happens when someone submits.** Participants enter a title and description for their project, then submit. For website tasks, the backend can then generate follow-up questions from the submitted code. There are three kinds. *Self-report* questions are fixed Likert items (e.g. “I understand how my code works”, “I could explain my code to someone else”). *Code-based* questions are generated from the code: one type asks “which of these features exist in your UI?” (the LLM infers real vs. plausible-fake features from the HTML/CSS/JS), and another asks “which of these JavaScript functions exist?” (real function names vs. LLM-generated distractors). For some tasks you can also insert an optional attention-check question. All of this lives in `backend/routers/submission_questions.py`. Tutorial submissions use a fixed list of questions defined in the frontend (`interface/app/constants/tutorialSubmissionQuestions.ts`), with no code-based generation.
 
-**Rating others’ work.** If you enable it, participants can view and rate other submissions on dimensions you define (e.g. Task Fulfillment, Style, Enjoyment, Creativity). The scale and dimension names are set in `interface/app/constants/submissionRatingCriteria.ts`.
+**Rating others’ work.** If you enable it, participants can view and rate other submissions on dimensions you define (e.g. Task Fulfillment, Style, Enjoyment, Creativity). The scale and dimension names are set in `interface/app/constants/submissionRatingCriteria.ts`. Thus, you can allow certain users to rate participant's code on customized dimensions!
 
-### Instructions and consent
+### Instructions and Consent
 
-The **About** page shows study instructions (Markdown from `public/instruction_assets/user_instructions.md`), compensation, contact info, and an optional IRB consent form (iframe + PDF download). Contact name and email come from env (`FROM_CONTACT_EMAIL`, `FROM_CONTACT_NAME`) so you can point participants to your team.
+The **About** page shows study instructions (Markdown from `public/instruction_assets/user_instructions.md`), compensation, contact info, and an optional IRB consent form (iframe + PDF download). Contact name and email come from env (`FROM_CONTACT_EMAIL`, `FROM_CONTACT_NAME`) so you can point participants to your team. These fields should be modified before deploying a study.
 
 ---
 
@@ -276,6 +285,7 @@ You can view the tasks in `data/*_tasks.json` to get a better idea of our task f
 
 Some constraints of the current platform:
 
+- **Sandboxing and security.** Function tasks use OneCompiler (or optional local execution); website previews run in a sandboxed iframe. See [Security and sandboxing](#security-and-sandboxing) under Detailed features for how this works and important caveats.
 - **Web tasks can’t use a backend.** Website tasks run as static HTML/CSS/JS in the browser; there’s no way to hook up a server (e.g., Python/Flask) or call APIs from the preview.
 - **External assets are limited.** Loading images, fonts, or other resources from CDNs or external URLs is restricted or awkward in the in-browser preview sandbox.
 - **No creating or adding new files.** Participants work within the fixed set of starter files for a task; the editor doesn’t support creating new files or a full project tree.
@@ -301,4 +311,4 @@ See [LICENSE](LICENSE).
 
 ---
 
-> Thanks for checking out VibeJam and happy vibe-coding!
+> Thanks for checking out VibeJam and happy vibe-coding! 🍞🪼
