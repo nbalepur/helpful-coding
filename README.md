@@ -300,7 +300,7 @@ If you’re interested in tackling any of these, we’d love to see a PR!
 If you used VibeJam for your own research, give us a citation PLEASE:
 
 ```bibtex
-doesn't exist yet
+D: (coming soon!)
 ```
 
 ---
