@@ -1,4 +1,4 @@
-# <img src="interface/public/toast.png" alt="VibeJam" width="48" height="48" /> Welcome to VibeJam!
+# <img src="interface/public/toast.png" alt="VibeJam" width="24" height="24" /> Welcome to VibeJam!
 
 [![License: CC0 1.0](https://img.shields.io/badge/License-CC0%201.0-lightgrey.svg)](http://creativecommons.org/publicdomain/zero/1.0/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
@@ -311,4 +311,4 @@ See [LICENSE](LICENSE).
 
 ---
 
-> Thanks for checking out VibeJam and happy vibe-coding! 🍞🪼
+*Thanks for checking out VibeJam and happy vibe-coding! 🍞🪼*
