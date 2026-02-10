@@ -90,9 +90,11 @@ We use safeguards so that participant code does not run unsandboxed on your infr
 
 ### Submissions and Questions
 
-**What happens when someone submits.** Participants enter a title and description for their project, then submit. For website tasks, the backend can then generate follow-up questions from the submitted code. There are three kinds. *Self-report* questions are fixed Likert items (e.g. “I understand how my code works”, “I could explain my code to someone else”). *Code-based* questions are generated from the code: one type asks “which of these features exist in your UI?” (the LLM infers real vs. plausible-fake features from the HTML/CSS/JS), and another asks “which of these JavaScript functions exist?” (real function names vs. LLM-generated distractors). For some tasks you can also insert an optional attention-check question. All of this lives in `backend/routers/submission_questions.py`. Tutorial submissions use a fixed list of questions defined in the frontend (`interface/app/constants/tutorialSubmissionQuestions.ts`), with no code-based generation.
+**What happens when someone submits.** Participants enter a title and description for their project, then submit. For website tasks, the backend can then generate follow-up questions from the submitted code. We support multiple-choice, multiple-select, and free-response questions. Our current implementation also shows that LLMs (GPT-5.2) can generate high-quality questions tailored to a participant's code!
 
-**Rating others’ work.** If you enable it, participants can view and rate other submissions on dimensions you define (e.g. Task Fulfillment, Style, Enjoyment, Creativity). The scale and dimension names are set in `interface/app/constants/submissionRatingCriteria.ts`. Thus, you can allow certain users to rate participant's code on customized dimensions!
+ All of this lives in `backend/routers/submission_questions.py`. Tutorial submissions use a fixed list of questions defined in the frontend (`interface/app/constants/tutorialSubmissionQuestions.ts`), with no code-based generation.
+
+**Rating others’ work.** If you enable it, participants can view and rate other submissions on dimensions you define (e.g. Task Fulfillment, Style, Enjoyment, Creativity). The scale and dimension names are set in `interface/app/constants/submissionRatingCriteria.ts`. This feature can allow certain users to rate participant's code on customized dimensions!
 
 ### Instructions and Consent
 
