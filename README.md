@@ -238,16 +238,10 @@ Or run backend and frontend separately: `./scripts/start-backend.sh` and `./scri
 
 ## 📝 Citation
 
-If you used VibeJam for your own research, we’d love a citation! Use the BibTeX below (fill in your paper details when you have them):
+If you used VibeJam for your own research, give us a citation PLEASE:
 
 ```bibtex
-@misc{vibejam2025,
-  title        = {VibeJam: A Platform for Studying AI-Assisted (Vibe) Coding},
-  author       = {},
-  year         = {},
-  howpublished = {},
-  note         = {}
-}
+doesn't exist yet
 ```
 
 ---
