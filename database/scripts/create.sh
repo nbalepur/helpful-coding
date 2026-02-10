@@ -16,6 +16,26 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+usage() {
+    echo -e "${BLUE}Usage:${NC} $0"
+    echo -e "${BLUE}Options:${NC}"
+    echo -e "  -h, --help              Show this help message"
+}
+
+if [ "$#" -gt 0 ]; then
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo -e "${YELLOW}Unknown argument:${NC} $1"
+            usage
+            exit 1
+            ;;
+    esac
+fi
+
 echo -e "${BLUE}🚀 Database Creation Script${NC}"
 echo -e "${BLUE}===========================${NC}"
 

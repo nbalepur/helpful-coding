@@ -20,10 +20,17 @@ fi
 
 # Sync environment variables from backend to frontend
 echo "🔄 Syncing environment variables..."
-if [ -f "$PROJECT_ROOT/backend/.env" ]; then
+if [ -f "$PROJECT_ROOT/.env" ]; then
     node "$SCRIPT_DIR/sync-env.js"
+    ENV_FILE="$PROJECT_ROOT/.env"
+    FRONTEND_URL=$(grep -E "^NEXT_PUBLIC_FRONTEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || grep -E "^FRONTEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+    BACKEND_URL=$(grep -E "^NEXT_PUBLIC_BACKEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || grep -E "^BACKEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+    FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    BACKEND_URL=${BACKEND_URL:-http://localhost:4828}
 else
-    echo "⚠️  Warning: backend/.env not found, using default environment"
+    echo "⚠️  Warning: .env not found at project root, using default environment"
+    FRONTEND_URL="http://localhost:3000"
+    BACKEND_URL="http://localhost:4828"
 fi
 echo ""
 
@@ -56,9 +63,8 @@ FRONTEND_PID=$!
 
 echo ""
 echo "✅ Both servers are starting up!"
-echo "🌐 Frontend: http://localhost:4827"
-echo "🔧 Backend: http://localhost:4828"
-echo "📡 WebSocket: ws://localhost:4828/ws/chat"
+echo "🌐 Frontend: $FRONTEND_URL"
+echo "🔧 Backend: $BACKEND_URL"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 echo ""

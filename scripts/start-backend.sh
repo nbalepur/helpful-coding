@@ -5,10 +5,13 @@
 
 set -e  # Exit on any error
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
 echo "🚀 Starting AI Coding Assistant Backend..."
 
 # Change to the backend directory
-cd "$(dirname "$0")/../backend"
+cd "$PROJECT_ROOT/backend"
 
 # Check if conda is installed
 if ! command -v conda &> /dev/null; then
@@ -31,16 +34,17 @@ fi
 echo "📥 Installing dependencies..."
 pip install -r requirements.txt
 
-# Check if .env file exists, create if not
-if [ ! -f ".env" ]; then
-    echo "🔑 No .env file found. Creating one..."
+# Check if .env file exists at project root, create if not
+ROOT_ENV="$PROJECT_ROOT/.env"
+if [ ! -f "$ROOT_ENV" ]; then
+    echo "🔑 No .env file found at project root. Creating one..."
     echo "Please enter your OpenAI API key:"
     read -r api_key
     if [ -z "$api_key" ]; then
         echo "❌ No API key provided. Exiting."
         exit 1
     fi
-    cat > .env << EOF
+    cat > "$ROOT_ENV" << EOF
 # OpenAI API Configuration
 OPENAI_API_KEY=$api_key
 
@@ -52,10 +56,14 @@ EOF
     echo "✅ .env file created!"
 fi
 
+# Get backend URL from root .env (port derived from NEXT_PUBLIC_BACKEND_URL or BACKEND_URL)
+ENV_FILE="$PROJECT_ROOT/.env"
+BACKEND_URL=$(grep -E "^NEXT_PUBLIC_BACKEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || grep -E "^BACKEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+BACKEND_URL=${BACKEND_URL:-http://localhost:4828}
+
 # Start the server
-echo "🌟 Starting FastAPI server on http://localhost:4828"
-echo "📡 WebSocket endpoint: ws://localhost:4828/ws/chat"
-echo "🏥 Health check: http://localhost:4828/health"
+echo "🌟 Starting FastAPI server on $BACKEND_URL"
+echo "🏥 Health check: $BACKEND_URL/health"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""

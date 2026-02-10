@@ -1,7 +1,7 @@
 
 # RealHumanEval Interface
 
-This is a local version of RealHumanEval, however, by replacing the API calls to be non-local in [app/functions/cloud_functions_helper.js](app/functions/cloud_functions_helper.js) and task loading in [app/functions/task_logic.js](app/functions/task_logic.js) and [app/vibe/page.tsx](app/vibe/page.tsx) you can host this with Firebase as we did for the actual user study.
+This is a local version of RealHumanEval. Task loading and API calls live in [app/utils/task_logic.ts](app/utils/task_logic.ts); [app/vibe/page.tsx](app/vibe/page.tsx) uses them. To host with non-local APIs (e.g. Firebase), replace or configure those call sites and env as needed.
 
 The repo is organized as follows:
 
@@ -9,7 +9,7 @@ The repo is organized as follows:
 
 - [app/components](app/components): Contains the React components for the project.
 
-- [app/functions](app/functions): Contains the helper functions for the project.
+- [app/utils](app/utils): Contains helper functions (e.g. task loading in `task_logic.ts`).
 
 - The main page is [app/vibe/page.tsx](app/vibe/page.tsx).
 
@@ -26,7 +26,7 @@ npm install openai
 ```
 
 
-You need to your API keys to [app/components/settings.tsx](app/components/settings.tsx) file. For now this is well tested with OpenAI API and OneCompiler API. 
+You need to your API keys to [app/config/settings.tsx](app/config/settings.tsx) file. For now this is well tested with OpenAI API and OneCompiler API. 
 
 
 First, run the development server:

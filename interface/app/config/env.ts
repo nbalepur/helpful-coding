@@ -1,122 +1,63 @@
 /**
  * Environment configuration
- * Centralized access to environment variables
+ * Centralized access to environment variables.
+ * Values come from .env.local (synced from root .env via npm run sync-env).
  */
 
+function normalizeUrl(raw: string | undefined, fallback: string): string {
+  const value = (raw || '').trim().replace(/\/$/, '');
+  if (!value || value === 'undefined') return fallback;
+  try {
+    const u = new URL(value);
+    // Normalize localhost to 127.0.0.1 for consistency
+    if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return value.replace(/\/$/, '');
+  }
+}
+
 export const ENV = {
-  // Backend API URL
-  // In production, use relative URL to proxy through Next.js API routes
-  // In development, use direct connection to backend
+  // Backend API URL - from NEXT_PUBLIC_BACKEND_URL in .env.local
   get BACKEND_URL(): string {
-    // Check if we're in browser and not on localhost (runtime check)
-    // This takes precedence over build-time env vars for production hosts
-    const isProductionHost = typeof window !== 'undefined' && 
-                             window.location.hostname !== 'localhost' && 
-                             window.location.hostname !== '127.0.0.1';
-    
-    // Check if we should use proxy mode
-    const useProxy = process.env.NEXT_PUBLIC_USE_PROXY === 'true' || 
-                     process.env.NODE_ENV === 'production';
-    
-    // Use proxy if explicitly enabled, or in production build, or on production host
-    if (useProxy || isProductionHost) {
-      // Use relative URL to proxy through Next.js
-      // Code uses ${BACKEND_URL}/login or ${BACKEND_URL}/api/...
-      // So: /api/backend-proxy + /login = /api/backend-proxy/login (proxy forwards to /login)
-      // And: /api/backend-proxy + /api/execute-endpoint = /api/backend-proxy/api/execute-endpoint (proxy forwards to /api/execute-endpoint)
-      return '/api/backend-proxy';
-    }
-    
-    // If NEXT_PUBLIC_BACKEND_URL is explicitly set, use it (for development/localhost)
-    if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-      const raw = process.env.NEXT_PUBLIC_BACKEND_URL;
-      try {
-        const u = new URL(raw);
-        if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
-        return u.toString().replace(/\/$/, '');
-      } catch {
-        // If it's not a full URL, assume it's a relative path or proxy route
-        return raw.replace(/\/$/, '');
-      }
-    }
-    
-    // In development, use direct connection
-    const raw = 'http://127.0.0.1:4828';
-    try {
-      const u = new URL(raw);
-      if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
-      return u.toString().replace(/\/$/, '');
-    } catch {
-      return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
-    }
+    return normalizeUrl(
+      process.env.NEXT_PUBLIC_BACKEND_URL,
+      'http://127.0.0.1:4828'
+    );
   },
-  
-  // Backend WebSocket URL
-  // Note: WebSockets cannot be proxied through Next.js API routes
-  // Use nginx reverse proxy or expose port 4828 publicly - see PRODUCTION_SETUP.md
-  BACKEND_WS_URL: ((): string => {
-    // If NEXT_PUBLIC_BACKEND_WS_URL is explicitly set, use it (highest priority)
-    if (process.env.NEXT_PUBLIC_BACKEND_WS_URL) {
-      const raw = process.env.NEXT_PUBLIC_BACKEND_WS_URL;
-      try {
-        const u = new URL(raw);
-        if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
-        return u.toString().replace(/\/$/, '');
-      } catch {
-        return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
-      }
-    }
-    
-    // Check if we're in browser and not on localhost (runtime check)
-    const isProductionHost = typeof window !== 'undefined' && 
-                             window.location.hostname !== 'localhost' && 
-                             window.location.hostname !== '127.0.0.1';
-    
-    // In production, use wss:// with the same hostname (requires reverse proxy or exposed port)
-    if ((process.env.NODE_ENV === 'production' || isProductionHost) && typeof window !== 'undefined') {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const hostname = window.location.hostname;
-      // Use port 4828 or configured port (requires public routing or reverse proxy)
-      const port = process.env.NEXT_PUBLIC_BACKEND_WS_PORT || '4828';
-      return `${protocol}//${hostname}:${port}`;
-    }
-    
-    // In development, use direct connection
-    const raw = 'ws://127.0.0.1:4828';
-    try {
-      const u = new URL(raw);
-      if (u.hostname === 'localhost') u.hostname = '127.0.0.1';
-      return u.toString().replace(/\/$/, '');
-    } catch {
-      return raw.replace('localhost', '127.0.0.1').replace(/\/$/, '');
-    }
-  })(),
-  
-  // Frontend URL
-  FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://127.0.0.1:4827',
-  
-  // Default backend port for user code execution
-  DEFAULT_BACKEND_PORT: parseInt(process.env.NEXT_PUBLIC_DEFAULT_BACKEND_PORT || '5000', 10),
-  
-  // Test cases configuration - whether to show only public tests (default: true)
-  SHOW_PUBLIC_TESTS_ONLY: process.env.NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY !== 'false',
+
+  // Frontend URL - from NEXT_PUBLIC_FRONTEND_URL in .env.local
+  get FRONTEND_URL(): string {
+    return normalizeUrl(
+      process.env.NEXT_PUBLIC_FRONTEND_URL,
+      'http://127.0.0.1:3000'
+    );
+  },
   
   // Helper to get the execute endpoint URL
   get EXECUTE_ENDPOINT_URL() {
     return `${this.BACKEND_URL}/api/execute-endpoint`;
   },
   
-  // Helper to get the test cases endpoint URL
-  get TEST_CASES_ENDPOINT_URL() {
-    return `${this.BACKEND_URL}/api/execute-test-cases`;
-  },
-  
-  // Helper to get the WebSocket URL
-  get WS_CHAT_URL() {
-    return `${this.BACKEND_WS_URL}/ws/chat`;
-  },
-
   // Cookie prefix to namespace app cookies and avoid collisions with user code
   COOKIE_PREFIX: process.env.NEXT_PUBLIC_COOKIE_PREFIX || 'vca_',
+
+  // Contact email (e.g. for study contact) - from FROM_CONTACT_EMAIL in .env, synced as NEXT_PUBLIC_FROM_CONTACT_EMAIL
+  get FROM_CONTACT_EMAIL(): string {
+    return process.env.NEXT_PUBLIC_FROM_CONTACT_EMAIL || '[add your email here]';
+  },
+
+  // Contact name (e.g. project lead) - from FROM_CONTACT_NAME in .env, synced as NEXT_PUBLIC_FROM_CONTACT_NAME
+  get FROM_CONTACT_NAME(): string {
+    return process.env.NEXT_PUBLIC_FROM_CONTACT_NAME || '[add your name here]';
+  },
+
+  // Function tasks: seconds after which Submit is enabled even if not all tests pass
+  get GIVE_UP_SECONDS(): number {
+    const raw = process.env.NEXT_PUBLIC_GIVE_UP_SECONDS;
+    if (raw == null || raw === '') return 600;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 600;
+  },
 } as const;
 

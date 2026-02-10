@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Sync environment variables from backend/.env to interface/.env.local
+ * Sync environment variables from root .env to interface/.env.local
  * This ensures both frontend and backend use the same configuration
  */
 
@@ -9,21 +9,21 @@ const fs = require('fs');
 const path = require('path');
 
 // Paths
-const backendEnvPath = path.join(__dirname, '../backend/.env');
+const rootEnvPath = path.join(__dirname, '../.env');
 const frontendEnvPath = path.join(__dirname, '../interface/.env.local');
 
-// Check if backend/.env exists
-if (!fs.existsSync(backendEnvPath)) {
-  console.error('❌ Error: backend/.env not found!');
+// Check if root .env exists
+if (!fs.existsSync(rootEnvPath)) {
+  console.error('❌ Error: .env not found at project root!');
   process.exit(1);
 }
 
-// Read backend .env file
-const backendEnvContent = fs.readFileSync(backendEnvPath, 'utf8');
+// Read root .env file
+const rootEnvContent = fs.readFileSync(rootEnvPath, 'utf8');
 
 // Parse environment variables
 const envVars = {};
-backendEnvContent.split('\n').forEach(line => {
+rootEnvContent.split('\n').forEach(line => {
   line = line.trim();
   
   // Skip comments and empty lines
@@ -36,14 +36,34 @@ backendEnvContent.split('\n').forEach(line => {
   }
 });
 
-// Map backend variables to frontend variables
+// Map backend variables to frontend variables (only vars the frontend actually uses)
+// Support both BACKEND_URL/FRONTEND_URL and NEXT_PUBLIC_* names in root .env
+const backendUrl = envVars.BACKEND_URL || envVars.NEXT_PUBLIC_BACKEND_URL;
+const frontendUrl = envVars.FRONTEND_URL || envVars.NEXT_PUBLIC_FRONTEND_URL;
+
+function parsePortFromUrl(urlStr) {
+  if (!urlStr || urlStr === 'undefined') return null;
+  try {
+    const u = new URL(urlStr.trim());
+    return u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+  } catch {
+    return null;
+  }
+}
+
+const fromContactEmail = envVars.FROM_CONTACT_EMAIL || envVars.NEXT_PUBLIC_FROM_CONTACT_EMAIL || '';
+const fromContactName = envVars.FROM_CONTACT_NAME || envVars.NEXT_PUBLIC_FROM_CONTACT_NAME || '';
+const giveUpSeconds = envVars.NEXT_PUBLIC_GIVE_UP_SECONDS != null && envVars.NEXT_PUBLIC_GIVE_UP_SECONDS !== ''
+  ? envVars.NEXT_PUBLIC_GIVE_UP_SECONDS
+  : null;
+const frontendPort = parsePortFromUrl(frontendUrl) || 3000;
 const frontendEnvVars = {
-  NEXT_PUBLIC_BACKEND_URL: envVars.BACKEND_URL || 'http://localhost:4828',
-  NEXT_PUBLIC_BACKEND_WS_URL: envVars.BACKEND_WS_URL || 'ws://localhost:4828',
-  NEXT_PUBLIC_FRONTEND_URL: envVars.FRONTEND_URL || 'http://localhost:4827',
-  NEXT_PUBLIC_DEFAULT_BACKEND_PORT: envVars.DEFAULT_BACKEND_PORT || '5000',
-  NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY: envVars.SHOW_PUBLIC_TESTS_ONLY || 'true',
-  USE_LOCAL_EXECUTION: envVars.USE_LOCAL_EXECUTION || 'false',
+  NEXT_PUBLIC_BACKEND_URL: backendUrl,
+  NEXT_PUBLIC_FRONTEND_URL: frontendUrl,
+  ...(fromContactEmail && { NEXT_PUBLIC_FROM_CONTACT_EMAIL: fromContactEmail }),
+  ...(fromContactName && { NEXT_PUBLIC_FROM_CONTACT_NAME: fromContactName }),
+  ...(giveUpSeconds != null && { NEXT_PUBLIC_GIVE_UP_SECONDS: giveUpSeconds }),
+  PORT: String(frontendPort), // Next.js uses PORT for dev/start
 };
 
 // List of variables that are synced from backend (these will be overwritten)
@@ -72,25 +92,35 @@ if (fs.existsSync(frontendEnvPath)) {
 }
 
 // Create frontend .env.local content
-let frontendEnvContent = `# Auto-generated from backend/.env
-# Synced variables: edit backend/.env and run 'npm run sync-env'
+let frontendEnvContent = `# Auto-generated from root .env
+# Synced variables: edit .env at project root and run 'npm run sync-env'
 # Additional variables below are preserved and can be edited directly
 
 # Backend API Configuration
 NEXT_PUBLIC_BACKEND_URL=${frontendEnvVars.NEXT_PUBLIC_BACKEND_URL}
-NEXT_PUBLIC_BACKEND_WS_URL=${frontendEnvVars.NEXT_PUBLIC_BACKEND_WS_URL}
 
-# Frontend Configuration  
+# Frontend Configuration (PORT parsed from NEXT_PUBLIC_FRONTEND_URL)
 NEXT_PUBLIC_FRONTEND_URL=${frontendEnvVars.NEXT_PUBLIC_FRONTEND_URL}
-
-# Default backend port for user code execution
-NEXT_PUBLIC_DEFAULT_BACKEND_PORT=${frontendEnvVars.NEXT_PUBLIC_DEFAULT_BACKEND_PORT}
-
-# Test Cases Configuration
-# Set to 'false' to show ALL test cases (including private/hidden tests)
-# Set to 'true' (or omit) to show only public test cases
-NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY=${frontendEnvVars.NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY}
+PORT=${frontendEnvVars.PORT}
 `;
+if (frontendEnvVars.NEXT_PUBLIC_FROM_CONTACT_EMAIL) {
+  frontendEnvContent += `
+# Contact email (from FROM_CONTACT_EMAIL)
+NEXT_PUBLIC_FROM_CONTACT_EMAIL=${frontendEnvVars.NEXT_PUBLIC_FROM_CONTACT_EMAIL}
+`;
+}
+if (frontendEnvVars.NEXT_PUBLIC_FROM_CONTACT_NAME) {
+  frontendEnvContent += `
+# Contact name (from FROM_CONTACT_NAME)
+NEXT_PUBLIC_FROM_CONTACT_NAME=${frontendEnvVars.NEXT_PUBLIC_FROM_CONTACT_NAME}
+`;
+}
+if (frontendEnvVars.NEXT_PUBLIC_GIVE_UP_SECONDS !== undefined) {
+  frontendEnvContent += `
+# Function tasks: seconds after which Submit is enabled even if tests don't pass
+NEXT_PUBLIC_GIVE_UP_SECONDS=${frontendEnvVars.NEXT_PUBLIC_GIVE_UP_SECONDS}
+`;
+}
 
 // Append preserved variables
 if (Object.keys(preservedVars).length > 0) {
@@ -103,7 +133,7 @@ if (Object.keys(preservedVars).length > 0) {
 // Write to frontend .env.local
 fs.writeFileSync(frontendEnvPath, frontendEnvContent);
 
-console.log('✅ Synced environment variables from backend/.env to interface/.env.local');
+console.log('✅ Synced environment variables from root .env to interface/.env.local');
 if (Object.keys(preservedVars).length > 0) {
   console.log(`   Preserved ${Object.keys(preservedVars).length} additional variable(s)`);
 }

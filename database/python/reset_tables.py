@@ -1,70 +1,38 @@
-#!/usr/bin/env python3
-"""
-Database reset script - drops and recreates all tables.
-"""
-
+import argparse
 import sys
-import os
 from pathlib import Path
 
-# Add the repository root to sys.path so we can import the package 'database'
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
 
-# Import via the package to enable relative imports inside modules
-from database import config, sqlalchemy_models
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+def _ensure_repo_on_path() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
 
-def reset_database():
-    """Drop all tables and recreate them"""
-    try:
-        logger.info("Dropping all database tables...")
-        
-        # Drop all tables
-        sqlalchemy_models.Base.metadata.drop_all(bind=config.engine)
-        logger.info("✅ All tables dropped successfully!")
-        
-        logger.info("Creating fresh database tables from SQLAlchemy models...")
-        # Create all tables from the current model definitions
-        sqlalchemy_models.Base.metadata.create_all(bind=config.engine)
-        logger.info("✅ All tables created successfully!")
-        
-        return True
-    except Exception as e:
-        logger.error(f"❌ Error resetting database: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Drop and recreate all database tables")
+    parser.parse_args()
 
+    _ensure_repo_on_path()
+    from sqlalchemy import MetaData, text
+    from database.config import Base, engine
+    import database.sqlalchemy_models  # noqa: F401
 
-def check_database_connection():
-    """Check if database connection is working"""
-    try:
-        with config.engine.connect() as conn:
-            logger.info("✅ Database connection successful!")
-            return True
-    except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
-        return False
+    # Drop everything in the current schema, not just known models.
+    if engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.commit()
+    else:
+        reflected = MetaData()
+        reflected.reflect(bind=engine)
+        reflected.drop_all(bind=engine)
+
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables dropped and recreated.")
+    return 0
 
 
 if __name__ == "__main__":
-    logger.info("Starting database reset...")
-    
-    # Check database connection first
-    if not check_database_connection():
-        sys.exit(1)
-    
-    # Reset database
-    if reset_database():
-        logger.info("Database reset completed successfully!")
-        sys.exit(0)
-    else:
-        logger.error("Database reset failed!")
-        sys.exit(1)
+    raise SystemExit(main())

@@ -115,11 +115,11 @@ else
     exit 1
 fi
 
-# Check for .env file
-if [ ! -f ".env" ]; then
+# Check for .env file at project root
+if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo ""
-    echo "🔑 Backend environment setup required:"
-    echo "   Please create a .env file in the backend directory with your OpenAI API key"
+    echo "🔑 Environment setup required:"
+    echo "   Please create a .env file at the project root with your OpenAI API key"
     echo "   Example:"
     echo "   OPENAI_API_KEY=your_api_key_here"
     echo "   HOST=0.0.0.0"
@@ -134,7 +134,7 @@ if [ ! -f ".env" ]; then
         if [ -z "$api_key" ]; then
             echo "❌ No API key provided. You can create the .env file manually later."
         else
-            cat > .env << EOF
+            cat > "$PROJECT_ROOT/.env" << EOF
 # OpenAI API Configuration
 OPENAI_API_KEY=$api_key
 
@@ -147,7 +147,7 @@ EOF
         fi
     fi
 else
-    echo "✅ Backend .env file already exists"
+    echo "✅ .env file already exists at project root"
 fi
 
 echo ""

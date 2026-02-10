@@ -41,6 +41,15 @@ export async function GET(request: NextRequest) {
     return jsonResponse;
   } catch (error) {
     console.error('Error proxying task files:', error);
-    return NextResponse.json({ files: [] }, { status: 200 });
+    const cause = error instanceof Error ? error.cause : null;
+    const code = cause && typeof cause === 'object' && 'code' in cause ? (cause as { code: string }).code : null;
+    const isUnreachable = code === 'ECONNREFUSED';
+    if (isUnreachable) {
+      return NextResponse.json(
+        { error: 'Backend unavailable', code: 'BACKEND_UNREACHABLE', files: [] },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ error: 'Failed to load task files', files: [] }, { status: 502 });
   }
 }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, ForeignKey, JSON, Float
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .config import Base
@@ -13,14 +13,15 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)  # Should be hashed
     settings = Column(JSON, default=dict)
+    can_view_submissions = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    codes = relationship("Code", back_populates="user")
-    assistant_logs = relationship("AssistantLog", back_populates="user")
+    code_logs = relationship("Code", back_populates="user")
+    ai_trace_logs = relationship("AssistantLog", back_populates="user")
     submissions = relationship("Submission", back_populates="user")
-    code_preferences = relationship("CodePreference", back_populates="user")
+    ai_suggestions = relationship("CodePreference", back_populates="user")
     submission_feedback = relationship("SubmissionFeedback", back_populates="voter")
 
 
@@ -33,25 +34,24 @@ class Project(Base):
     title = Column(String(255), nullable=True)
     label = Column(String(255), nullable=True, index=True)
     description = Column(Text)
-    # Store raw files array from tasks.json (names, languages, content paths/inline)
+    # Store raw files array (names, languages, content paths/inline)
     files = Column(JSON)
-    code_start_date = Column(Date, nullable=True)
-    voting_start_date = Column(Date, nullable=True)
-    voting_end_date = Column(Date, nullable=True)
+    examples = Column(Text, nullable=True)  # HTML or plain text examples for task instructions
+    test_cases = Column(JSON, nullable=True)  # For completion tasks: array of test case definitions
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    codes = relationship("Code", back_populates="project")
-    assistant_logs = relationship("AssistantLog", back_populates="project")
+    code_logs = relationship("Code", back_populates="project")
+    ai_trace_logs = relationship("AssistantLog", back_populates="project")
     submissions = relationship("Submission", back_populates="project")
-    code_preferences = relationship("CodePreference", back_populates="project")
+    ai_suggestions = relationship("CodePreference", back_populates="project")
     submission_feedback = relationship("SubmissionFeedback", back_populates="project")
 
 
 class Code(Base):
-    """Code table"""
-    __tablename__ = "codes"
+    """Code table (code snapshots / logs)"""
+    __tablename__ = "code_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -63,8 +63,8 @@ class Code(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    user = relationship("User", back_populates="codes")
-    project = relationship("Project", back_populates="codes")
+    user = relationship("User", back_populates="code_logs")
+    project = relationship("Project", back_populates="code_logs")
 
 
 class Submission(Base):
@@ -85,7 +85,6 @@ class Submission(Base):
     user = relationship("User", back_populates="submissions")
     project = relationship("Project", back_populates="submissions")
     feedback_entries = relationship("SubmissionFeedback", back_populates="submission")
-    evaluation = relationship("SubmissionEvaluation", back_populates="submission", uselist=False)
 
 
 class SubmissionFeedback(Base):
@@ -110,27 +109,9 @@ class SubmissionFeedback(Base):
     voter = relationship("User", back_populates="submission_feedback")
 
 
-class SubmissionEvaluation(Base):
-    """Submission evaluation table for LLM-as-a-judge results"""
-    __tablename__ = "submission_evaluations"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True, index=True)
-    evaluation_data = Column(JSON, nullable=False)
-    is_valid = Column(Boolean, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    user = relationship("User")
-    project = relationship("Project")
-    submission = relationship("Submission", back_populates="evaluation")
-
-
 class CodePreference(Base):
-    """CodePreference table"""
-    __tablename__ = "code_preferences"
+    """AI suggestions (user selections from AI suggestions)"""
+    __tablename__ = "ai_suggestions"
 
     id = Column(Integer, primary_key=True, index=True)
     suggestion_id = Column(String(255), nullable=False, index=True)
@@ -142,27 +123,27 @@ class CodePreference(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    user = relationship("User", back_populates="code_preferences")
-    project = relationship("Project", back_populates="code_preferences")
+    user = relationship("User", back_populates="ai_suggestions")
+    project = relationship("Project", back_populates="ai_suggestions")
 
 
 class AssistantLog(Base):
-    """Assistant log table"""
-    __tablename__ = "assistant_logs"
+    """AI trace logs (streamed assistant interactions)"""
+    __tablename__ = "ai_trace_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
     query = Column(Text)
-    generated_code = Column(JSON, nullable=False)
+    trace = Column(JSON, nullable=False)  # list of streamed events (text, tool_call, suggestions) sent to frontend
     summary = Column(Text, nullable=False)
     suggestions = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    user = relationship("User", back_populates="assistant_logs")
-    project = relationship("Project", back_populates="assistant_logs")
+    user = relationship("User", back_populates="ai_trace_logs")
+    project = relationship("Project", back_populates="ai_trace_logs")
 
 
 class PasswordResetToken(Base):
@@ -180,151 +161,9 @@ class PasswordResetToken(Base):
     user = relationship("User")
 
 
-class CodeData(Base):
-    """Code data table for storing code_data.jsonl entries"""
-    __tablename__ = "code_data"
-
-    id = Column(Integer, primary_key=True, index=True)
-    task_name = Column(String(255), nullable=False, index=True)
-    test_cases_py = Column(Text, nullable=False)
-    test_cases_js = Column(Text, nullable=False)
-    blank_code_py = Column(Text, nullable=False)
-    blank_code_js = Column(Text, nullable=False)
-    model_code_py = Column(Text, nullable=False)
-    model_code_js = Column(Text, nullable=False)
-    docstring_py = Column(Text, nullable=True)
-    docstring_js = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class ExperienceData(Base):
-    """Experience data table for storing experience_data.jsonl entries"""
-    __tablename__ = "experience_data"
-
-    id = Column(Integer, primary_key=True, index=True)
-    question = Column(Text, nullable=False)
-    choices = Column(JSON, nullable=False)  # List of strings
-    type = Column(String(50), nullable=False, index=True)  # e.g., "mcqa", "multi_select"
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class MCQAData(Base):
-    """MCQA data table for storing mcqa_data.jsonl entries"""
-    __tablename__ = "mcqa_data"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=True, index=True)  # Unique identifier (e.g., 'choices_1', 'memory_2')
-    question = Column(Text, nullable=False)
-    choices = Column(JSON, nullable=False)  # List of strings
-    answer = Column(String(10), nullable=True)  # e.g., "B", "C"
-    type = Column(String(50), nullable=False, index=True)  # e.g., "ux"
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class NasaTLIData(Base):
-    """NASA Task Load Index data table for storing nasa_tli_data.jsonl entries"""
-    __tablename__ = "nasa_tli_data"
-
-    id = Column(Integer, primary_key=True, index=True)
-    question = Column(Text, nullable=False)
-    choices = Column(JSON, nullable=False)  # List of strings
-    type = Column(String(50), nullable=False, index=True)  # e.g., "mcqa"
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class UserMCQASkillResponse(Base):
-    """User MCQA skill response table for storing user answers to MCQA, experience, and NASA TLI questions"""
-    __tablename__ = "user_mcqa_skill_responses"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    question_id = Column(String(255), nullable=False, index=True)  # Can be "experience_1", "nasa_1", or MCQA id
-    question_type = Column(String(50), nullable=False, index=True)  # 'experience', 'nasa_tli', 'ux', 'frontend'
-    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
-    answer_text = Column(JSON, nullable=False)  # List of answer texts
-    answer_letter = Column(JSON, nullable=False)  # List of answer letters (e.g., ['A', 'B'])
-    gold_answer_text = Column(JSON, nullable=True)  # List of correct answer texts (for MCQA questions)
-    gold_answer_letter = Column(JSON, nullable=True)  # List of correct answer letters (e.g., ['A', 'B'])
-    correct = Column(Boolean, nullable=False)  # True if correct, always True for experience/nasa_tli
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    user = relationship("User")
-
-
-class UserCodeSkillResponse(Base):
-    """User code skill response table for storing user code submissions and test results"""
-    __tablename__ = "user_code_skill_responses"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    question_id = Column(String(255), nullable=False, index=True)  # ID of the code question
-    question_type = Column(String(50), nullable=False, index=True)  # 'normal' or 'debug'
-    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
-    py_code = Column(Text, nullable=True)  # User's Python code
-    js_code = Column(Text, nullable=True)  # User's JavaScript code
-    submitted_language = Column(String(20), nullable=False)  # 'python' or 'javascript'
-    state = Column(String(20), nullable=False, index=True)  # 'started', 'failed', 'passed'
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    user = relationship("User")
-
-
-class SkillCheckAssignment(Base):
-    """Skill check assignment table for storing per-user question assignments for pre/post tests"""
-    __tablename__ = "skill_check_assignments"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
-
-    # MCQA question ID assignments (MCQAData IDs)
-    frontend_pre_test = Column(JSON, nullable=True)   # List of MCQAData IDs for frontend pre-test
-    frontend_post_test = Column(JSON, nullable=True)  # List of MCQAData IDs for frontend post-test
-    ux_pre_test = Column(JSON, nullable=True)        # List of MCQAData IDs for UX pre-test
-    ux_post_test = Column(JSON, nullable=True)       # List of MCQAData IDs for UX post-test
-
-    # Coding question assignments (CodeData.task_name values)
-    code_pre_test = Column(JSON, nullable=True)      # List of CodeData.task_name for normal coding pre-test
-    code_post_test = Column(JSON, nullable=True)     # List of CodeData.task_name for normal coding post-test
-    debug_pre_test = Column(JSON, nullable=True)     # List of CodeData.task_name for debug coding pre-test
-    debug_post_test = Column(JSON, nullable=True)    # List of CodeData.task_name for debug coding post-test
-
-    # Sanity check question assignments
-    sanity_ux_phase = Column(String(20), nullable=True)  # 'pre-test' or 'post-test' - which phase gets sanity_ux
-    sanity_frontend_phase = Column(String(20), nullable=True)  # 'pre-test' or 'post-test' - which phase gets sanity_frontend
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    user = relationship("User")
-
-
-class ReportSkillCheckQuestion(Base):
-    """Report skill check question table for storing user reports about skill check questions"""
-    __tablename__ = "report_skill_check_questions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    question_id = Column(String(255), nullable=False, index=True)  # ID of the reported question
-    question_type = Column(String(50), nullable=False, index=True)  # 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'
-    phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
-    report_type = Column(String(100), nullable=False)  # 'issue_stops_solving' or 'frustrated_unable_to_solve'
-    rationale = Column(Text, nullable=False)  # Required rationale from user
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    user = relationship("User")
-
-
-class ComprehensionQuestion(Base):
-    """Comprehension questions table for auto-generated questions about submissions"""
-    __tablename__ = "comprehension_questions"
+class SubmissionQuestion(Base):
+    """Submission questions (auto-generated questions about submissions)"""
+    __tablename__ = "submission_questions"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -342,18 +181,3 @@ class ComprehensionQuestion(Base):
     # Relationships
     user = relationship("User")
     project = relationship("Project")
-
-
-class NavigationEvent(Base):
-    """Navigation events table for tracking tab/window navigation during skill checks"""
-    __tablename__ = "navigation_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    question_id = Column(String(255), nullable=True, index=True)
-    test_type = Column(String(100), nullable=False, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
-    time_away_ms = Column(Integer, nullable=True)  # Time away in milliseconds
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    user = relationship("User")

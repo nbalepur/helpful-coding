@@ -246,6 +246,8 @@ export interface UserSettings {
   leftPaneWidthPercent: number; // Percentage width of left pane (0-100)
   sidebarOpen: boolean; // true = sidebar is open, false = sidebar is closed
   iframeLightMode: boolean; // true = light mode for iframes (white bg, black text), false = dark mode
+  /** If true, user has dismissed the first-time instructions modal; don't show it again. */
+  instructionsSeen?: boolean;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -256,6 +258,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   leftPaneWidthPercent: 33.33, // Default to 1/3 of container width
   sidebarOpen: false, // Default to closed
   iframeLightMode: false, // Default to dark mode
+  instructionsSeen: false,
 };
 
 /**

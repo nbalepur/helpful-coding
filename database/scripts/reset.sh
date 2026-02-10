@@ -16,34 +16,67 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Check if we're using a non-default database (production)
+usage() {
+  echo -e "${BLUE}Usage:${NC} $0"
+  echo -e "${BLUE}Options:${NC}"
+  echo -e "  -h, --help              Show this help message"
+}
+
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo -e "${YELLOW}Unknown argument:${NC} $1"
+      usage
+      exit 1
+      ;;
+  esac
+fi
+
+# BEGIN OPTIONAL PRODUCTION GUARD (easy to remove)
 DEFAULT_DB_URL="postgresql://postgres:password@localhost:5432/helpful_coding"
 DEFAULT_ASYNC_DB_URL="postgresql+asyncpg://postgres:password@localhost:5432/helpful_coding"
 
-# Load DATABASE_URL from backend/.env if it exists
-# PROJECT_ROOT is database/, so backend is ../backend/
-BACKEND_ENV_FILE="$(dirname "$PROJECT_ROOT")/backend/.env"
-if [ -f "$BACKEND_ENV_FILE" ]; then
-  # Extract DATABASE_URL from .env file
-  DB_URL=$(grep "^DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
-  ASYNC_DB_URL=$(grep "^ASYNC_DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+ROOT_ENV_FILE="$(dirname "$PROJECT_ROOT")/.env"
+if [ -f "$ROOT_ENV_FILE" ]; then
+  DB_URL=$(grep "^DATABASE_URL=" "$ROOT_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+  ASYNC_DB_URL=$(grep "^ASYNC_DATABASE_URL=" "$ROOT_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
 else
-  # Try to get from environment
   DB_URL="${DATABASE_URL:-}"
   ASYNC_DB_URL="${ASYNC_DATABASE_URL:-}"
 fi
 
-# Check if database URL is not the default (production database)
+is_production_db() {
+  local url="$1"
+  if [ -z "$url" ]; then
+    return 1
+  fi
+  if [[ "$url" == *"supabase"* ]]; then
+    return 0
+  fi
+  if [[ "$url" == *"localhost"* ]] || [[ "$url" == *"127.0.0.1"* ]] || [[ "$url" == "$DEFAULT_DB_URL" ]] || [[ "$url" == "$DEFAULT_ASYNC_DB_URL" ]]; then
+    return 1
+  fi
+  return 0
+}
+
 IS_PRODUCTION=false
-if [ -n "$DB_URL" ] && [ "$DB_URL" != "$DEFAULT_DB_URL" ]; then
+if is_production_db "$DB_URL" || is_production_db "$ASYNC_DB_URL"; then
   IS_PRODUCTION=true
 fi
-if [ -n "$ASYNC_DB_URL" ] && [ "$ASYNC_DB_URL" != "$DEFAULT_ASYNC_DB_URL" ]; then
-  IS_PRODUCTION=true
+# END OPTIONAL PRODUCTION GUARD
+
+if [ "$IS_PRODUCTION" = true ]; then
+  ENV_LABEL="prod"
+else
+  ENV_LABEL="local"
 fi
 
-echo -e "${RED}⚠️  DATABASE RESET SCRIPT ⚠️${NC}"
-echo -e "${RED}===========================${NC}"
+echo -e "${RED}⚠️  DATABASE RESET SCRIPT (${ENV_LABEL}) ⚠️${NC}"
+echo -e "${RED}===========================================${NC}"
 echo -e "${YELLOW}This will DROP ALL TABLES and recreate them!${NC}"
 echo -e "${YELLOW}ALL DATA WILL BE LOST!${NC}"
 echo ""

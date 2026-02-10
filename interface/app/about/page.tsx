@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import PageScaffold from "../components/PageScaffold";
-import AboutPage from "../pages/AboutPage";
-import LoadingSpinner from "../components/LoadingSpinner";
+import PageScaffold from "../components/layout/PageScaffold";
+import AboutPage from "../components/pages/AboutPage";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
 
 // Disable static prerender to avoid CSR bailout issues
 export const dynamic = 'force-dynamic';

@@ -6,12 +6,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from dotenv import load_dotenv
 
-# Load environment variables from backend directory
-backend_env_path = Path(__file__).parent.parent / "backend" / ".env"
-if backend_env_path.exists():
-    load_dotenv(backend_env_path)
+# Load environment variables from project root
+root_env_path = Path(__file__).parent.parent / ".env"
+if root_env_path.exists():
+    load_dotenv(root_env_path)
 else:
-    # Fallback to current directory if backend .env doesn't exist
+    # Fallback to current directory if root .env doesn't exist
     load_dotenv()
 
 # Database configuration

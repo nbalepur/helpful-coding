@@ -1,11 +1,11 @@
 {
-  "name": "code-llm",
+  "name": "vibejam",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start -p 4827",
+    "start": "next start",
     "lint": "next lint",
     "sync-env": "node ../scripts/sync-env.js"
   },
@@ -13,11 +13,8 @@
     "@mantine/core": "^6.0.19",
     "@monaco-editor/react": "^4.6.0",
     "ace-builds": "^1.32.7",
-    "axios": "^1.7.7",
     "classnames": "^2.3.2",
     "cors": "^2.8.5",
-    "firebase": "^10.14.1",
-    "firebase-functions": "^4.8.0",
     "framer-motion": "^11.0.0",
     "fs": "^0.0.1-security",
     "html2canvas": "^1.4.1",

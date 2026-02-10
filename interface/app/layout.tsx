@@ -1,11 +1,10 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import './globals.css'
-import { AuthProvider } from './utils/auth'
-import { SnackbarProvider } from './components/SnackbarProvider'
-import UserStudyPopupProvider from './components/UserStudyPopupProvider'
-import { IframeThemeProvider } from './utils/IframeThemeContext'
-import AppLayout from './components/AppLayout'
+import './styles/globals.css'
+import { AuthProvider } from './context/auth'
+import { SnackbarProvider } from './components/ui/SnackbarProvider'
+import { IframeThemeProvider } from './context/IframeThemeContext'
+import AppLayout from './components/layout/AppLayout'
 import { Suspense } from 'react'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -27,11 +26,9 @@ export default function RootLayout({
           <SnackbarProvider>
             <IframeThemeProvider>
               <Suspense fallback={null}>
-                <UserStudyPopupProvider>
-                  <AppLayout>
-                    {children}
-                  </AppLayout>
-                </UserStudyPopupProvider>
+                <AppLayout>
+                  {children}
+                </AppLayout>
               </Suspense>
             </IframeThemeProvider>
           </SnackbarProvider>

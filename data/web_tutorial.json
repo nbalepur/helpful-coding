@@ -1,0 +1,31 @@
+{
+  "tasks": [
+    {
+      "name": "Website Tutorial",
+      "title": "Website Tutorial",
+      "description": "<div class='container'>\n  <p>Welcome to the tutorial! This is a task that you can use to practice coding websites with our AI assistant.</p>\n  \n  <p>Try adding the following features manually or with the AI assistant to get more familiar with our interface:</p>\n  \n  <ul>\n    <li>Change the heading text to say 'I love vibe coding'</li>\n    <li>Make the button blue</li>\n    <li>Change the alert message to say a joke.</li>\n    <li>Add an animated shape somewhere on the page.</li>\n  </ul>\n\n  <p>Once you're done, click on the <strong class='text-blue-500'>Submit / Finish Tutorial</strong> button to finish the tutorial. You'll add a project title + description and answer some questions, then you can move on to the main website tasks.</p>\n\n  <p><strong>Note:</strong> If you refresh the page, your changes will be lost. This is <strong>not</strong> the case for the other tasks you will be completing: your work will be saved automatically.</p>\n</div>",
+      "label": "web_tutorial",
+      "example": "",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/blank_site/index.html",
+          "language": "html",
+          "contentType": "path"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/blank_site/styles.css",
+          "language": "css",
+          "contentType": "path"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/blank_site/frontend.js",
+          "language": "javascript",
+          "contentType": "path"
+        }
+      ]
+    }
+  ]
+}

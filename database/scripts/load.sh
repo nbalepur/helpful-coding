@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Load dummy tasks into the database
+# Load tasks into the database
 # Optionally drop/recreate tables before loading
 
 set -e  # Exit on any error
@@ -17,37 +17,98 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 RESET=false
-AUTO_YES=false
-TUTORIAL=false
+TASKS_PATH=""
+
+usage() {
+  echo -e "${BLUE}Usage:${NC} $0 --tasks-path <path> [--reset]"
+  echo -e "${BLUE}Options:${NC}"
+  echo -e "  --tasks-path <path>     Path to tasks JSON (e.g. ../data/web_tasks.json or ../data/function_tasks.json)"
+  echo -e "  --reset                 Drop and recreate tables first"
+  echo -e "  -h, --help              Show this help message"
+}
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --reset)
       RESET=true
       shift
       ;;
-    -y|--yes)
-      AUTO_YES=true
-      shift
+    --tasks-path)
+      if [ -z "$2" ]; then
+        echo -e "${YELLOW}Missing value for --tasks-path${NC}"
+        usage
+        exit 1
+      fi
+      TASKS_PATH="$2"
+      shift 2
       ;;
-    --tutorial)
-      TUTORIAL=true
+    --tasks-path=*)
+      TASKS_PATH="${1#*=}"
       shift
       ;;
     *)
       echo -e "${YELLOW}Unknown argument:${NC} $1"
-      echo -e "${BLUE}Usage:${NC} $0 [--reset] [-y|--yes] [--tutorial]"
+      usage
       exit 1
       ;;
   esac
 done
 
-echo -e "${BLUE}📦 Load Dummy Tasks Script${NC}"
-echo -e "${BLUE}==========================${NC}"
+if [ -z "$TASKS_PATH" ]; then
+  echo -e "${RED}❌ Error: --tasks-path is required${NC}"
+  usage
+  exit 1
+fi
+
+# BEGIN OPTIONAL PRODUCTION GUARD (easy to remove)
+DEFAULT_DB_URL="postgresql://postgres:password@localhost:5432/helpful_coding"
+DEFAULT_ASYNC_DB_URL="postgresql+asyncpg://postgres:password@localhost:5432/helpful_coding"
+
+ROOT_ENV_FILE="$(dirname "$PROJECT_ROOT")/.env"
+if [ -f "$ROOT_ENV_FILE" ]; then
+  DB_URL=$(grep "^DATABASE_URL=" "$ROOT_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+  ASYNC_DB_URL=$(grep "^ASYNC_DATABASE_URL=" "$ROOT_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
+else
+  DB_URL="${DATABASE_URL:-}"
+  ASYNC_DB_URL="${ASYNC_DATABASE_URL:-}"
+fi
+
+is_production_db() {
+  local url="$1"
+  if [ -z "$url" ]; then
+    return 1
+  fi
+  if [[ "$url" == *"supabase"* ]]; then
+    return 0
+  fi
+  if [[ "$url" == *"localhost"* ]] || [[ "$url" == *"127.0.0.1"* ]] || [[ "$url" == "$DEFAULT_DB_URL" ]] || [[ "$url" == "$DEFAULT_ASYNC_DB_URL" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+IS_PRODUCTION=false
+if is_production_db "$DB_URL" || is_production_db "$ASYNC_DB_URL"; then
+  IS_PRODUCTION=true
+fi
+
+if [ "$IS_PRODUCTION" = true ]; then
+  ENV_LABEL="prod"
+else
+  ENV_LABEL="local"
+fi
+# END OPTIONAL PRODUCTION GUARD
+
+echo -e "${BLUE}📦 Load Tasks Script (${ENV_LABEL})${NC}"
+echo -e "${BLUE}===============================${NC}"
 
 # Check required files
-if [ ! -f "$SCRIPT_DIR/../python/load_dummy_tasks.py" ]; then
-  echo -e "${RED}❌ Error: load_dummy_tasks.py not found in $SCRIPT_DIR/../python/${NC}"
+if [ ! -f "$PROJECT_ROOT/load_tasks.py" ]; then
+  echo -e "${RED}❌ Error: load_tasks.py not found in $PROJECT_ROOT/${NC}"
   exit 1
 fi
 
@@ -86,32 +147,6 @@ fi
 
 # Optional destructive reset
 if [ "$RESET" = true ]; then
-  # Check if we're using a non-default database (production)
-  DEFAULT_DB_URL="postgresql://postgres:password@localhost:5432/helpful_coding"
-  DEFAULT_ASYNC_DB_URL="postgresql+asyncpg://postgres:password@localhost:5432/helpful_coding"
-  
-  # Load DATABASE_URL from backend/.env if it exists
-  # PROJECT_ROOT is database/, so backend is ../backend/
-  BACKEND_ENV_FILE="$(dirname "$PROJECT_ROOT")/backend/.env"
-  if [ -f "$BACKEND_ENV_FILE" ]; then
-    # Extract DATABASE_URL from .env file
-    DB_URL=$(grep "^DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
-    ASYNC_DB_URL=$(grep "^ASYNC_DATABASE_URL=" "$BACKEND_ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
-  else
-    # Try to get from environment
-    DB_URL="${DATABASE_URL:-}"
-    ASYNC_DB_URL="${ASYNC_DATABASE_URL:-}"
-  fi
-  
-  # Check if database URL is not the default (production database)
-  IS_PRODUCTION=false
-  if [ -n "$DB_URL" ] && [ "$DB_URL" != "$DEFAULT_DB_URL" ]; then
-    IS_PRODUCTION=true
-  fi
-  if [ -n "$ASYNC_DB_URL" ] && [ "$ASYNC_DB_URL" != "$DEFAULT_ASYNC_DB_URL" ]; then
-    IS_PRODUCTION=true
-  fi
-  
   if [ "$IS_PRODUCTION" = true ]; then
     echo ""
     echo -e "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
@@ -130,128 +165,66 @@ if [ "$RESET" = true ]; then
     echo -e "${RED}This will DROP ALL TABLES and DELETE ALL DATA!${NC}"
     echo -e "${RED}This action CANNOT be undone!${NC}"
     echo ""
-    
-    # Require three confirmations in a row, even with --yes flag
+
     echo -e "${RED}To proceed, you must confirm THREE times in a row:${NC}"
     echo ""
-    
-    # First confirmation
+
     read -p "Type 'RESET PRODUCTION DATABASE' to confirm (1/3): " confirm1
     if [ "$confirm1" != "RESET PRODUCTION DATABASE" ]; then
       echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
       exit 0
     fi
-    
-    # Second confirmation
+
     read -p "Type 'I UNDERSTAND THIS WILL DELETE ALL DATA' to confirm (2/3): " confirm2
     if [ "$confirm2" != "I UNDERSTAND THIS WILL DELETE ALL DATA" ]; then
       echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
       exit 0
     fi
-    
-    # Third confirmation
+
     read -p "Type 'YES DELETE EVERYTHING' to confirm (3/3): " confirm3
     if [ "$confirm3" != "YES DELETE EVERYTHING" ]; then
       echo -e "${GREEN}✅ Operation cancelled. Production database is safe.${NC}"
       exit 0
     fi
-    
+
     echo ""
     echo -e "${RED}⚠️  All three confirmations received. Proceeding with production database reset...${NC}"
     echo ""
     sleep 2
   else
-    # Default database - normal warning
     echo -e "${RED}⚠️  RESET MODE: This will DROP ALL TABLES before loading tasks!${NC}"
-    if [ "$AUTO_YES" = false ]; then
-      read -p "Are you sure you want to continue? (yes/no): " confirm
-      if [ "$confirm" != "yes" ]; then
-        echo -e "${BLUE}Operation cancelled.${NC}"
-        exit 0
-      fi
+    read -p "Are you sure you want to continue? (yes/no): " confirm
+    if [ "$confirm" != "yes" ]; then
+      echo -e "${BLUE}Operation cancelled.${NC}"
+      exit 0
     fi
-  fi
-  if [ ! -f "$SCRIPT_DIR/../python/reset_tables.py" ]; then
-    echo -e "${RED}❌ Error: reset_tables.py not found in $SCRIPT_DIR/../python/${NC}"
-    exit 1
   fi
   echo -e "${YELLOW}🗑️  Dropping and recreating tables...${NC}"
-  cd "$SCRIPT_DIR/../python"
-  if command -v conda &> /dev/null; then
-    conda run -n helpful-coding python reset_tables.py
-  else
-    python3 reset_tables.py
-  fi
-  cd - >/dev/null
 fi
 
-# Ensure tables exist if not resetting
-if [ "$RESET" = false ]; then
-  if [ -f "$SCRIPT_DIR/../python/create_tables.py" ]; then
-    echo -e "${YELLOW}🏗️  Ensuring tables exist...${NC}"
-    cd "$SCRIPT_DIR/../python"
-    if command -v conda &> /dev/null; then
-      conda run -n helpful-coding python create_tables.py || true
-    else
-      python3 create_tables.py || true
-    fi
-    cd - >/dev/null
-  fi
-fi
-
-# Load dummy tasks
-echo -e "${YELLOW}📄 Loading dummy tasks into database...${NC}"
-cd "$SCRIPT_DIR/../python"
-
-# Determine data directory based on --tutorial flag
-DATA_DIR="data"
-if [ "$TUTORIAL" = true ]; then
-  DATA_DIR="data_tutorial"
+# Load tasks
+echo -e "${YELLOW}📄 Loading tasks into database...${NC}"
+RESET_ARG=""
+if [ "$RESET" = true ]; then
+  RESET_ARG="--reset"
 fi
 
 if command -v conda &> /dev/null; then
-  conda run -n helpful-coding python load_dummy_tasks.py --data-dir "$DATA_DIR"
+  conda run -n helpful-coding python "$PROJECT_ROOT/load_tasks.py" --tasks-path "$TASKS_PATH" $RESET_ARG
 else
-  python3 load_dummy_tasks.py --data-dir "$DATA_DIR"
+  python3 "$PROJECT_ROOT/load_tasks.py" --tasks-path "$TASKS_PATH" $RESET_ARG
 fi
 
 if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✅ Dummy tasks loaded successfully!${NC}"
+  echo -e "${GREEN}✅ Tasks loaded successfully!${NC}"
 else
-  echo -e "${RED}❌ Failed to load dummy tasks.${NC}"
+  echo -e "${RED}❌ Failed to load tasks.${NC}"
   exit 1
-fi
-
-# Load JSONL data files
-if [ -f "$SCRIPT_DIR/../python/load_jsonl_data.py" ]; then
-  echo -e "${YELLOW}📄 Loading JSONL data files into database...${NC}"
-  cd "$SCRIPT_DIR/../python"
-  
-  # Determine data directory based on --tutorial flag
-  DATA_DIR="data"
-  if [ "$TUTORIAL" = true ]; then
-    DATA_DIR="data_tutorial"
-    echo -e "${BLUE}📚 Using tutorial data from ${DATA_DIR}${NC}"
-  fi
-  
-  if command -v conda &> /dev/null; then
-    conda run -n helpful-coding python load_jsonl_data.py --data-dir "$DATA_DIR"
-  else
-    python3 load_jsonl_data.py --data-dir "$DATA_DIR"
-  fi
-
-  if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ JSONL data loaded successfully!${NC}"
-  else
-    echo -e "${RED}❌ Failed to load JSONL data.${NC}"
-    exit 1
-  fi
-else
-  echo -e "${YELLOW}⚠️  load_jsonl_data.py not found, skipping JSONL data loading${NC}"
 fi
 
 echo -e "${BLUE}📋 Tips:${NC}"
 echo -e "  • Run './download.sh stats' to view database stats"
-echo -e "  • Re-run with '--reset -y' to drop and reload quickly"
+echo -e "  • Re-run with '--reset' to drop and reload"
+echo -e "  • Load another file: pass a different path with --tasks-path"
 
 

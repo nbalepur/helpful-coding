@@ -5,10 +5,13 @@
 
 set -e  # Exit on any error
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
 echo "🚀 Starting AI Coding Assistant Frontend..."
 
 # Change to the interface directory
-cd "$(dirname "$0")/../interface"
+cd "$PROJECT_ROOT/interface"
 
 # Load nvm if it exists (for non-interactive shells)
 export NVM_DIR="$HOME/.nvm"
@@ -58,8 +61,19 @@ fi
 
 npm install
 
+# Sync environment variables from backend to frontend
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    echo "🔄 Syncing environment variables..."
+    node "$SCRIPT_DIR/sync-env.js"
+fi
+
+# Get frontend URL from .env.local (synced from root .env)
+ENV_FILE="$PROJECT_ROOT/interface/.env.local"
+FRONTEND_URL=$(grep -E "^NEXT_PUBLIC_FRONTEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || grep -E "^FRONTEND_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+
 # Start the development server
-echo "🌟 Starting Next.js development server on http://localhost:4827"
+echo "🌟 Starting Next.js development server on $FRONTEND_URL"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""

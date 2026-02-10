@@ -19,6 +19,15 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 echo -e "${BLUE}📥 Database Download Script${NC}"
 echo -e "${BLUE}===========================${NC}"
 
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    echo -e "${BLUE}Usage: $0 <command> [options]${NC}"
+    echo -e "${BLUE}Commands:${NC}"
+    echo -e "  json [file]             - Export to JSON file (default: data_export.json)"
+    echo -e "  csv [dir]               - Export to CSV files (default: data_export/)"
+    echo -e "  stats                   - Show database statistics"
+    exit 0
+fi
+
 # Check if we're in the right directory
 if [ ! -f "$SCRIPT_DIR/../python/download.py" ]; then
     echo -e "${RED}❌ Error: download.py not found in $SCRIPT_DIR/../python/${NC}"

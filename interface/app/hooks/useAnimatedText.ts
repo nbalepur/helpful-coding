@@ -54,4 +54,3 @@ export function useAnimatedText(text: string, options: UseAnimatedTextOptions = 
 
   return segments.slice(0, cursor).join(delimiter);
 }
-

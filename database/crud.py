@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
-from .sqlalchemy_models import User, Project, Code, Submission, SubmissionFeedback, CodePreference, AssistantLog, UserMCQASkillResponse, UserCodeSkillResponse, ReportSkillCheckQuestion, NavigationEvent
+from .sqlalchemy_models import User, Project, Code, Submission, SubmissionFeedback, CodePreference, AssistantLog
 from .models import (
     UserCreate, UserUpdate, User as UserPydantic,
     ProjectCreate, ProjectUpdate, Project as ProjectPydantic,
@@ -12,10 +12,6 @@ from .models import (
     SubmissionFeedbackCreate, SubmissionFeedbackUpdate,
     CodePreferenceCreate, CodePreferenceUpdate, CodePreference as CodePreferencePydantic,
     AssistantLogCreate, AssistantLogUpdate, AssistantLog as AssistantLogPydantic,
-    UserMCQASkillResponseCreate, UserMCQASkillResponseUpdate, UserMCQASkillResponse as UserMCQASkillResponsePydantic,
-    UserCodeSkillResponseCreate, UserCodeSkillResponseUpdate, UserCodeSkillResponse as UserCodeSkillResponsePydantic,
-    ReportSkillCheckQuestionCreate, ReportSkillCheckQuestionUpdate, ReportSkillCheckQuestion as ReportSkillCheckQuestionPydantic,
-    NavigationEventCreate, NavigationEventUpdate, NavigationEvent as NavigationEventPydantic,
 )
 
 
@@ -28,8 +24,9 @@ class UserCRUD:
         db_user = User(
             username=user.username,
             email=user.email,
-            password=user.password,  # Should be hashed before saving
-            settings=user.settings
+            password=user.password,
+            settings=user.settings,
+            can_view_submissions=user.can_view_submissions,
         )
         db.add(db_user)
         db.commit()
@@ -63,7 +60,7 @@ class UserCRUD:
         if not db_user:
             return None
         
-        update_data = user_update.dict(exclude_unset=True)
+        update_data = user_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_user, field, value)
         
@@ -93,9 +90,8 @@ class ProjectCRUD:
             name=project.name,
             description=project.description,
             files=project.files,
-            code_start_date=project.code_start_date,
-            voting_start_date=project.voting_start_date,
-            voting_end_date=project.voting_end_date,
+            examples=project.examples,
+            test_cases=project.test_cases,
         )
         db.add(db_project)
         db.commit()
@@ -119,7 +115,7 @@ class ProjectCRUD:
         if not db_project:
             return None
         
-        update_data = project_update.dict(exclude_unset=True)
+        update_data = project_update.model_dump(exclude_unset=True)
         if "frontend_starter_file" in update_data:
             update_data.pop("frontend_starter_file")
         if "html_starter_file" in update_data:
@@ -201,7 +197,7 @@ class CodeCRUD:
         if not db_code:
             return None
         
-        update_data = code_update.dict(exclude_unset=True)
+        update_data = code_update.model_dump(exclude_unset=True)
         if "metadata" in update_data:
             setattr(db_code, "code_metadata", update_data.pop("metadata"))
         for field, value in update_data.items():
@@ -272,7 +268,7 @@ class SubmissionCRUD:
         if not db_submission:
             return None
         
-        update_data = submission_update.dict(exclude_unset=True)
+        update_data = submission_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_submission, field, value)
         
@@ -290,53 +286,6 @@ class SubmissionCRUD:
         db.delete(db_submission)
         db.commit()
         return True
-
-
-class SubmissionEvaluationCRUD:
-    """CRUD operations for SubmissionEvaluation"""
-    
-    @staticmethod
-    def create(db: Session, evaluation: "SubmissionEvaluationCreate") -> "SubmissionEvaluation":
-        """Create new submission evaluation"""
-        from database.sqlalchemy_models import SubmissionEvaluation
-        db_evaluation = SubmissionEvaluation(
-            user_id=evaluation.user_id,
-            project_id=evaluation.project_id,
-            submission_id=evaluation.submission_id,
-            evaluation_data=evaluation.evaluation_data,
-            is_valid=evaluation.is_valid,
-        )
-        db.add(db_evaluation)
-        db.commit()
-        db.refresh(db_evaluation)
-        return db_evaluation
-    
-    @staticmethod
-    def get_by_id(db: Session, evaluation_id: int) -> Optional["SubmissionEvaluation"]:
-        """Get evaluation by ID"""
-        from database.sqlalchemy_models import SubmissionEvaluation
-        return db.query(SubmissionEvaluation).filter(SubmissionEvaluation.id == evaluation_id).first()
-    
-    @staticmethod
-    def get_latest_by_user_and_project(db: Session, user_id: int, project_id: int) -> Optional["SubmissionEvaluation"]:
-        """Get the most recent evaluation for a user and project"""
-        from database.sqlalchemy_models import SubmissionEvaluation
-        return db.query(SubmissionEvaluation).filter(
-            SubmissionEvaluation.user_id == user_id,
-            SubmissionEvaluation.project_id == project_id
-        ).order_by(SubmissionEvaluation.created_at.desc()).first()
-    
-    @staticmethod
-    def link_to_submission(db: Session, evaluation_id: int, submission_id: int) -> Optional["SubmissionEvaluation"]:
-        """Link an evaluation to a submission"""
-        from database.sqlalchemy_models import SubmissionEvaluation
-        evaluation = db.query(SubmissionEvaluation).filter(SubmissionEvaluation.id == evaluation_id).first()
-        if not evaluation:
-            return None
-        evaluation.submission_id = submission_id
-        db.commit()
-        db.refresh(evaluation)
-        return evaluation
 
 
 class SubmissionFeedbackCRUD:
@@ -450,7 +399,7 @@ class SubmissionFeedbackCRUD:
         if not db_feedback:
             return None
 
-        update_data = feedback_update.dict(exclude_unset=True)
+        update_data = feedback_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_feedback, field, value)
 
@@ -555,7 +504,7 @@ class CodePreferenceCRUD:
         if not db_preference:
             return None
 
-        update_data = preference_update.dict(exclude_unset=True)
+        update_data = preference_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_preference, field, value)
 
@@ -586,7 +535,7 @@ class AssistantLogCRUD:
             user_id=log.user_id,
             project_id=log.project_id,
             query=log.query,
-            generated_code=log.generated_code,
+            trace=log.trace,
             summary=log.summary,
             suggestions=log.suggestions,
         )
@@ -601,7 +550,7 @@ class AssistantLogCRUD:
         if not db_log:
             return None
 
-        update_data = log_update.dict(exclude_unset=True)
+        update_data = log_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_log, field, value)
 
@@ -647,7 +596,8 @@ class AsyncUserCRUD:
             username=user.username,
             email=user.email,
             password=user.password,  # Should be hashed before saving
-            settings=user.settings
+            settings=user.settings,
+            can_view_submissions=user.can_view_submissions,
         )
         db.add(db_user)
         await db.commit()
@@ -685,7 +635,7 @@ class AsyncUserCRUD:
         if not db_user:
             return None
         
-        update_data = user_update.dict(exclude_unset=True)
+        update_data = user_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_user, field, value)
         
@@ -703,329 +653,3 @@ class AsyncUserCRUD:
         await db.delete(db_user)
         await db.commit()
         return True
-
-
-class UserMCQASkillResponseCRUD:
-    """CRUD operations for UserMCQASkillResponse"""
-    
-    @staticmethod
-    def create(db: Session, response: UserMCQASkillResponseCreate) -> UserMCQASkillResponse:
-        """Create a new user MCQA skill response"""
-        db_response = UserMCQASkillResponse(
-            user_id=response.user_id,
-            question_id=response.question_id,
-            question_type=response.question_type,
-            phase=response.phase,
-            answer_text=response.answer_text,
-            answer_letter=response.answer_letter,
-            gold_answer_text=response.gold_answer_text,
-            gold_answer_letter=response.gold_answer_letter,
-            correct=response.correct,
-        )
-        db.add(db_response)
-        db.commit()
-        db.refresh(db_response)
-        return db_response
-
-    @staticmethod
-    def get_by_id(db: Session, response_id: int) -> Optional[UserMCQASkillResponse]:
-        """Get response by ID"""
-        return db.query(UserMCQASkillResponse).filter(UserMCQASkillResponse.id == response_id).first()
-
-    @staticmethod
-    def get_by_user(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[UserMCQASkillResponse]:
-        """Get all responses for a user"""
-        return (
-            db.query(UserMCQASkillResponse)
-            .filter(UserMCQASkillResponse.user_id == user_id)
-            .order_by(UserMCQASkillResponse.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-
-    @staticmethod
-    def get_by_user_and_question(db: Session, user_id: int, question_id: str) -> List[UserMCQASkillResponse]:
-        """Get all responses for a user and question"""
-        return (
-            db.query(UserMCQASkillResponse)
-            .filter(
-                UserMCQASkillResponse.user_id == user_id,
-                UserMCQASkillResponse.question_id == question_id
-            )
-            .order_by(UserMCQASkillResponse.created_at.desc())
-            .all()
-        )
-
-    @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[UserMCQASkillResponse]:
-        """Get all responses with pagination"""
-        return (
-            db.query(UserMCQASkillResponse)
-            .order_by(UserMCQASkillResponse.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-
-    @staticmethod
-    def update(db: Session, response_id: int, response_update: UserMCQASkillResponseUpdate) -> Optional[UserMCQASkillResponse]:
-        """Update response"""
-        db_response = db.query(UserMCQASkillResponse).filter(UserMCQASkillResponse.id == response_id).first()
-        if not db_response:
-            return None
-        
-        update_data = response_update.dict(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(db_response, field, value)
-        
-        db.commit()
-        db.refresh(db_response)
-        return db_response
-
-    @staticmethod
-    def delete(db: Session, response_id: int) -> bool:
-        """Delete response"""
-        db_response = db.query(UserMCQASkillResponse).filter(UserMCQASkillResponse.id == response_id).first()
-        if not db_response:
-            return False
-        
-        db.delete(db_response)
-        db.commit()
-        return True
-
-
-class UserCodeSkillResponseCRUD:
-    """CRUD operations for UserCodeSkillResponse"""
-    
-    @staticmethod
-    def create(db: Session, response: UserCodeSkillResponseCreate) -> UserCodeSkillResponse:
-        """Create a new user code skill response"""
-        db_response = UserCodeSkillResponse(
-            user_id=response.user_id,
-            question_id=response.question_id,
-            question_type=response.question_type,
-            phase=response.phase,
-            py_code=response.py_code,
-            js_code=response.js_code,
-            submitted_language=response.submitted_language,
-            state=response.state,
-        )
-        db.add(db_response)
-        db.commit()
-        db.refresh(db_response)
-        return db_response
-
-    @staticmethod
-    def get_by_id(db: Session, response_id: int) -> Optional[UserCodeSkillResponse]:
-        """Get response by ID"""
-        return db.query(UserCodeSkillResponse).filter(UserCodeSkillResponse.id == response_id).first()
-
-    @staticmethod
-    def get_by_user(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[UserCodeSkillResponse]:
-        """Get all responses for a user"""
-        return (
-            db.query(UserCodeSkillResponse)
-            .filter(UserCodeSkillResponse.user_id == user_id)
-            .order_by(UserCodeSkillResponse.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-
-    @staticmethod
-    def get_by_user_and_question(db: Session, user_id: int, question_id: str) -> List[UserCodeSkillResponse]:
-        """Get all responses for a user and question"""
-        return (
-            db.query(UserCodeSkillResponse)
-            .filter(
-                UserCodeSkillResponse.user_id == user_id,
-                UserCodeSkillResponse.question_id == question_id
-            )
-            .order_by(UserCodeSkillResponse.created_at.desc())
-            .all()
-        )
-
-    @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[UserCodeSkillResponse]:
-        """Get all responses with pagination"""
-        return (
-            db.query(UserCodeSkillResponse)
-            .order_by(UserCodeSkillResponse.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-
-    @staticmethod
-    def update(db: Session, response_id: int, response_update: UserCodeSkillResponseUpdate) -> Optional[UserCodeSkillResponse]:
-        """Update response"""
-        db_response = db.query(UserCodeSkillResponse).filter(UserCodeSkillResponse.id == response_id).first()
-        if not db_response:
-            return None
-        
-        update_data = response_update.dict(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(db_response, field, value)
-        
-        db.commit()
-        db.refresh(db_response)
-        return db_response
-
-    @staticmethod
-    def delete(db: Session, response_id: int) -> bool:
-        """Delete response"""
-        db_response = db.query(UserCodeSkillResponse).filter(UserCodeSkillResponse.id == response_id).first()
-        if not db_response:
-            return False
-        
-        db.delete(db_response)
-        db.commit()
-        return True
-
-
-class ReportSkillCheckQuestionCRUD:
-    """CRUD operations for ReportSkillCheckQuestion"""
-    
-    @staticmethod
-    def create(db: Session, report: ReportSkillCheckQuestionCreate) -> ReportSkillCheckQuestion:
-        """Create a new report"""
-        db_report = ReportSkillCheckQuestion(
-            user_id=report.user_id,
-            question_id=report.question_id,
-            question_type=report.question_type,
-            phase=report.phase,
-            report_type=report.report_type,
-            rationale=report.rationale,
-        )
-        db.add(db_report)
-        db.commit()
-        db.refresh(db_report)
-        return db_report
-    
-    @staticmethod
-    def get_by_id(db: Session, report_id: int) -> Optional[ReportSkillCheckQuestion]:
-        """Get report by ID"""
-        return db.query(ReportSkillCheckQuestion).filter(ReportSkillCheckQuestion.id == report_id).first()
-    
-    @staticmethod
-    def get_by_user(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[ReportSkillCheckQuestion]:
-        """Get all reports by user"""
-        return (
-            db.query(ReportSkillCheckQuestion)
-            .filter(ReportSkillCheckQuestion.user_id == user_id)
-            .order_by(ReportSkillCheckQuestion.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-    
-    @staticmethod
-    def get_by_question(db: Session, question_id: str, skip: int = 0, limit: int = 100) -> List[ReportSkillCheckQuestion]:
-        """Get all reports for a specific question"""
-        return (
-            db.query(ReportSkillCheckQuestion)
-            .filter(ReportSkillCheckQuestion.question_id == question_id)
-            .order_by(ReportSkillCheckQuestion.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-    
-    @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[ReportSkillCheckQuestion]:
-        """Get all reports"""
-        return (
-            db.query(ReportSkillCheckQuestion)
-            .order_by(ReportSkillCheckQuestion.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-    
-    @staticmethod
-    def update(db: Session, report_id: int, report_update: ReportSkillCheckQuestionUpdate) -> Optional[ReportSkillCheckQuestion]:
-        """Update report"""
-        db_report = db.query(ReportSkillCheckQuestion).filter(ReportSkillCheckQuestion.id == report_id).first()
-        if not db_report:
-            return None
-        
-        update_data = report_update.model_dump(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_report, key, value)
-        
-        db.commit()
-        db.refresh(db_report)
-        return db_report
-    
-    @staticmethod
-    def delete(db: Session, report_id: int) -> bool:
-        """Delete report"""
-        db_report = db.query(ReportSkillCheckQuestion).filter(ReportSkillCheckQuestion.id == report_id).first()
-        if not db_report:
-            return False
-        
-        db.delete(db_report)
-        db.commit()
-        return True
-
-
-class NavigationEventCRUD:
-    """CRUD operations for NavigationEvent"""
-    
-    @staticmethod
-    def create(db: Session, event: NavigationEventCreate) -> NavigationEvent:
-        """Create a new navigation event"""
-        db_event = NavigationEvent(
-            user_id=event.user_id,
-            question_id=event.question_id,
-            test_type=event.test_type,
-            time_away_ms=event.time_away_ms,
-        )
-        db.add(db_event)
-        db.commit()
-        db.refresh(db_event)
-        return db_event
-    
-    @staticmethod
-    def get_by_id(db: Session, event_id: int) -> Optional[NavigationEvent]:
-        """Get navigation event by ID"""
-        return db.query(NavigationEvent).filter(NavigationEvent.id == event_id).first()
-    
-    @staticmethod
-    def get_by_user(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[NavigationEvent]:
-        """Get all navigation events for a user"""
-        return (
-            db.query(NavigationEvent)
-            .filter(NavigationEvent.user_id == user_id)
-            .order_by(NavigationEvent.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-    
-    @staticmethod
-    def get_by_user_and_test_type(db: Session, user_id: int, test_type: str, skip: int = 0, limit: int = 100) -> List[NavigationEvent]:
-        """Get all navigation events for a user and test type"""
-        return (
-            db.query(NavigationEvent)
-            .filter(
-                NavigationEvent.user_id == user_id,
-                NavigationEvent.test_type == test_type
-            )
-            .order_by(NavigationEvent.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-    
-    @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[NavigationEvent]:
-        """Get all navigation events with pagination"""
-        return (
-            db.query(NavigationEvent)
-            .order_by(NavigationEvent.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )

@@ -37,24 +37,25 @@ export async function updateUserSettings(
 }
 
 /**
- * Check if playground is completed from user settings
+ * Check if tutorial is completed from user settings
  */
-export function isPlaygroundCompletedFromSettings(userSettings?: Record<string, any>): boolean {
+export function isTutorialCompletedFromSettings(userSettings?: Record<string, any>): boolean {
   if (!userSettings) return false;
-  return userSettings.playgroundCompleted === true;
+  // Support legacy playgroundCompleted key for backward compatibility
+  return userSettings.tutorialCompleted === true || userSettings.playgroundCompleted === true;
 }
 
 /**
- * Set playground as completed in user settings
+ * Set tutorial as completed in user settings
  */
-export async function setPlaygroundCompletedInSettings(
+export async function setTutorialCompletedInSettings(
   userId: number,
   currentSettings?: Record<string, any>,
   token?: string
 ): Promise<void> {
   const updatedSettings = {
     ...(currentSettings || {}),
-    playgroundCompleted: true,
+    tutorialCompleted: true,
   };
   await updateUserSettings(userId, updatedSettings, token);
 }

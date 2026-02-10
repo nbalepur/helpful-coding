@@ -1,5 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    webpack(config) {
+        // Import .md files as raw text with ?raw query (e.g. import x from './file.md?raw')
+        config.module.rules.push({
+            test: /\.md$/,
+            resourceQuery: /raw/,
+            type: 'asset/source',
+        });
+        return config;
+    },
     // Static export disabled because we have API routes that need a server
     // ...(process.env.NODE_ENV === 'production' && { output: 'export' }),
     images: {
