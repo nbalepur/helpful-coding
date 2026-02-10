@@ -1,10 +1,10 @@
-# <img src="interface/public/toast.png" alt="VibeJam" width="24" height="24" /> Welcome to VibeJam!
+# <img src="interface/public/toast.png" alt="VibeJam" width="28" height="28" /> Welcome to VibeJam!
 
 [![License: CC0 1.0](https://img.shields.io/badge/License-CC0%201.0-lightgrey.svg)](http://creativecommons.org/publicdomain/zero/1.0/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 
-The first platform for researchers to run user studies on **vibe-coding**—without any local setup required from participants.
+A platform for researchers to run user studies on **vibe-coding** without any local setup required from participants.
 
 Users code with an AI assistant to build websites or complete LeetCode-style functions, and all data is logged for research.
 
@@ -311,4 +311,4 @@ See [LICENSE](LICENSE).
 
 ---
 
-*Thanks for checking out VibeJam and happy vibe-coding! 🍞🪼*
+**Thanks for checking out VibeJam and happy vibe-coding! 🍞🪼🧑‍💻🎉**
