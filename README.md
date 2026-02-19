@@ -38,7 +38,7 @@ Users code with an AI assistant to build websites or complete LeetCode-style fun
 
 Curious what it looks like? Watch the walkthrough below!
 
-[![Watch the VibeJam tutorial](https://img.youtube.com/vi/eJ2dppIxG60/maxresdefault.jpg)](https://www.youtube.com/watch?v=eJ2dppIxG60)
+[![Watch the VibeJam tutorial](https://img.youtube.com/vi/eJ2dppIxG60/maxresdefault.jpg)](https://www.youtube.com/watch?v=HQD2FS-qJ44)
 
 *(Click the image to open the video on YouTube. The same video is also in the app under **Instructions**.)*
 

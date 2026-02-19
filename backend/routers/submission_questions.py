@@ -24,12 +24,8 @@ router = APIRouter(prefix="/api", tags=["Submission Questions"])
 
 def generate_distractor_functions(function_names: list) -> list:
     """Generate plausible function names that don't exist in the code."""
-    random_model = random.choice([
-        "openai/gpt-5.1-2025-11-13",
-        "anthropic/claude-sonnet-4-5-20250929",
-        "gemini/gemini-3-pro-preview",
-    ])
-    backup_model = "gemini/gemini-3-pro-preview"
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
     prompt = """
 <task>
 You are an expert at generating function names that do not exist in a user's code but plausibly could.
@@ -277,16 +273,16 @@ async def _generate_submission_questions(
     ]
     questions.extend([
         {"question_name": "self_report_understanding", "question": "I understand how my code works.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
-        {"question_name": "self_report_review", "question": "I read and reviewed all of the AI-generated code.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
-        {"question_name": "self_report_explain", "question": "I could explain how my code works to someone else while looking at it.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
-        {"question_name": "self_report_modify", "question": "I could easily add new features to my code without using AI tools.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
+        # {"question_name": "self_report_review", "question": "I read and reviewed all of the AI-generated code.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
+        # {"question_name": "self_report_explain", "question": "I could explain how my code works to someone else while looking at it.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
+        # {"question_name": "self_report_modify", "question": "I could easily add new features to my code without using AI tools.", "question_type": "mcqa", "choices": self_report_options, "answer": ""},
     ])
     num_self_report_questions = len(questions)
     code_questions, ui_questions = await asyncio.gather(
         asyncio.to_thread(generate_js_questions, submission_code),
         asyncio.to_thread(generate_ui_questions, submission_code),
     )
-    questions.extend(ui_questions)
+    # questions.extend(ui_questions)
     questions.extend(code_questions)
     should_add_sanity_check = project_name and project_name in ALWAYS_ATTENTION_CHECK_TASKS
     if should_add_sanity_check:

@@ -192,7 +192,7 @@ export default function AboutPage() {
           <UserInstructionsContent
             isLightMode={isLightMode}
             showToc={true}
-            youtubeInstructionsVideoId={studyEnded ? 'eJ2dppIxG60' : 'cMGgMO6DttE'}
+            youtubeInstructionsVideoId="HQD2FS-qJ44"
             contentHeight="600px"
             className="w-full"
           />

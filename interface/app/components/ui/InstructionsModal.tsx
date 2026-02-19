@@ -50,7 +50,7 @@ export default function InstructionsModal({ open, onDismiss }: InstructionsModal
           <UserInstructionsContent
             isLightMode={false}
             showToc={true}
-            youtubeInstructionsVideoId="eJ2dppIxG60"
+            youtubeInstructionsVideoId="HQD2FS-qJ44"
             className="flex-1 min-h-0"
           />
         </div>
