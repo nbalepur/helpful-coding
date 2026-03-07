@@ -4,6 +4,7 @@ import threading
 import subprocess
 import tempfile
 import signal
+from concurrent.futures import ThreadPoolExecutor
 import psutil
 import json
 from pathlib import Path
@@ -33,7 +34,7 @@ from agent import OpenAIAgent
 
 from pydantic import BaseModel, Field, AliasChoices
 from database.config import get_db
-from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, SubmissionEvaluation, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent, AssistantLog, CodePreference
+from database.sqlalchemy_models import User, PasswordResetToken, Project, Code, Submission, SubmissionFeedback, SubmissionEvaluation, CodeData, ExperienceData, MCQAData, NasaTLIData, UserMCQASkillResponse, UserCodeSkillResponse, SkillCheckAssignment, ReportSkillCheckQuestion, ComprehensionQuestion, NavigationEvent, AssistantLog, CodePreference, TaskEvent
 from database.models import (
     UserCreate,
     UserResponse,
@@ -55,9 +56,10 @@ from database.models import (
     SaveTutorialQuestionsRequest,
     EvaluateSubmissionRequest,
     NavigationEventCreate,
+    TaskEventCreate,
     ProjectCreate,
 )
-from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, SubmissionEvaluationCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, ProjectCRUD
+from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, SubmissionEvaluationCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, TaskEventCRUD, ProjectCRUD
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
@@ -324,7 +326,7 @@ def _resolve_project_from_task_id(db: Session, task_id: str) -> Optional[Project
 
 
 @lru_cache(maxsize=1)
-def _load_dummy_task_metadata() -> Dict[str, Dict[str, Optional[str]]]:
+def _load_dummy_task_metadata() -> Dict[str, Dict[str, Any]]:
     """
     Load fallback metadata from data/tasks.json keyed by slugified name.
     Ensures we preserve important dates if legacy DB rows are missing them.
@@ -338,7 +340,7 @@ def _load_dummy_task_metadata() -> Dict[str, Dict[str, Optional[str]]]:
 
         payload = json.loads(data_path.read_text(encoding="utf-8"))
         tasks = payload.get("tasks", [])
-        lookup: Dict[str, Dict[str, Optional[str]]] = {}
+        lookup: Dict[str, Dict[str, Any]] = {}
 
         for task in tasks:
             name = task.get("name")
@@ -349,7 +351,9 @@ def _load_dummy_task_metadata() -> Dict[str, Dict[str, Optional[str]]]:
                 "code_start_date": task.get("code_start_date"),
                 "voting_start_date": task.get("voting_start_date"),
                 "voting_end_date": task.get("voting_end_date"),
+                "description": task.get("description", ""),
                 "example": task.get("example", ""),
+                "requirements": task.get("requirements", []),
             }
         return lookup
     except Exception as exc:
@@ -530,6 +534,7 @@ class SubmissionRequest(BaseModel):
     image: Optional[str] = None
     comprehension_answers: Optional[Dict[str, Any]] = Field(None, alias="comprehensionAnswers")
     evaluation_id: Optional[int] = Field(None, alias="evaluationId")
+    forced_timeout: bool = Field(False, alias="forcedTimeout")
 
     class Config:
         populate_by_name = True
@@ -608,10 +613,14 @@ async def list_tasks_from_db(
             
             # Get example from dummy metadata if available
             task_meta = dummy_meta.get(_slugify(p.name), {})
-            example = task_meta.get("example", "")
+            example = p.example if p.example is not None else task_meta.get("example", "")
+            requirements = p.requirements if isinstance(p.requirements, list) else task_meta.get("requirements", [])
+            if not isinstance(requirements, list):
+                requirements = []
             
-            # For replication tasks, prepend the prefix to the description
-            description = p.description or ""
+            # Prefer tasks.json description when present so content updates are reflected
+            # without requiring manual DB row edits for every wording change.
+            description = task_meta.get("description") or p.description or ""
             task_title = p.title or p.name
             if p.label and p.label.lower() == "replication" and task_title:
                 prefix = f"Create your own version of {task_title}: "
@@ -641,7 +650,7 @@ async def list_tasks_from_db(
                 "votingStartDate": p.voting_start_date.isoformat() if p.voting_start_date else None,
                 "votingEndDate": p.voting_end_date.isoformat() if p.voting_end_date else None,
                 # Optional fields to keep UI happy with defaults
-                "requirements": [],
+                "requirements": requirements,
                 "videoDemo": None,
                 "tags": [],
                 "difficulty": "Beginner",
@@ -687,9 +696,10 @@ SKILL_CHECK_QUESTION_IDS = {
         "ux": list(range(1, 11)),        # IDs 1-10
     },
     "post_test": {
-        "nasa_tli": list(range(1, 7)),    # IDs 1-6 (all nasa_tli questions)
-        "frontend": list(range(129, 139)),  # IDs 129-138 (10 questions)
-        "ux": list(range(11, 21)),        # IDs 11-20
+        # Post-test mirrors pre-test except experience questions are omitted.
+        "experience": [],
+        "frontend": list(range(119, 129)),  # IDs 119-128 (10 questions)
+        "ux": list(range(1, 11)),        # IDs 1-10
     }
 }
 
@@ -874,6 +884,60 @@ def _select_frontend_questions_for_assignment(db: Session) -> tuple[list[str], l
             frontend_post.append(variants[1])
     
     return frontend_pre, frontend_post
+
+
+def _build_identical_skill_check_assignment_names(db: Session) -> tuple[list[str], list[str], list[str], list[str]]:
+    """
+    Build deterministic question names for both pre-test and post-test.
+
+    - Frontend and UX always use `_1` variants.
+    - Coding uses fixed tasks:
+      - normal/from-scratch: paren_1
+      - debug: string_shift_2, prefix_2
+    """
+    frontend_base_tags = [
+        "html_knowledge", "html_recall", "html_trace_code", "html_change_code",
+        "css_knowledge", "css_recall", "css_trace_code", "css_change_code",
+        "js_knowledge", "js_recall", "js_trace_code", "js_change_code"
+    ]
+    ux_base_tags = [
+        "choices", "memory", "mobile", "design_protocol", "error",
+        "aesthetics", "object", "cognitive_ease", "visual_order", "excitement"
+    ]
+
+    questions_for_two = [
+        "html_knowledge", "html_recall", "html_change_code", "css_knowledge", "css_change_code", "js_knowledge", "js_trace_code", "js_change_code", "choices", "mobile", "design_protocol", "excitement"
+    ]
+
+    desired_frontend_names = [f"{base_tag}_2" if base_tag in questions_for_two else f"{base_tag}_1" for base_tag in frontend_base_tags]
+    desired_ux_names = [f"{base_tag}_2" if base_tag in questions_for_two else f"{base_tag}_1" for base_tag in ux_base_tags]
+
+    frontend_rows = db.query(MCQAData.name).filter(
+        MCQAData.type == "frontend",
+        MCQAData.name.in_(desired_frontend_names)
+    ).all()
+    ux_rows = db.query(MCQAData.name).filter(
+        MCQAData.type == "ux",
+        MCQAData.name.in_(desired_ux_names)
+    ).all()
+
+    frontend_existing = {name for (name,) in frontend_rows if name}
+    ux_existing = {name for (name,) in ux_rows if name}
+
+    frontend_names = [name for name in desired_frontend_names if name in frontend_existing]
+    ux_names = [name for name in desired_ux_names if name in ux_existing]
+
+    desired_code_normal = ["paren_2"]
+    desired_code_debug = ["string_shift_2"]
+    code_rows = db.query(CodeData.task_name).filter(
+        CodeData.task_name.in_(desired_code_normal + desired_code_debug)
+    ).all()
+    code_existing = {task_name for (task_name,) in code_rows if task_name}
+
+    code_normal_names = [task_name for task_name in desired_code_normal if task_name in code_existing]
+    code_debug_names = [task_name for task_name in desired_code_debug if task_name in code_existing]
+
+    return frontend_names, ux_names, code_normal_names, code_debug_names
 
 
 def _load_questions_from_jsonl(
@@ -1194,64 +1258,63 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
         .filter(SkillCheckAssignment.user_id == user_id)
         .first()
     )
+    frontend_names, ux_names, code_normal_names, code_debug_names = _build_identical_skill_check_assignment_names(db)
+
+    def _insert_deterministic(section_names: list[str], question_name: str, preferred_index: int) -> list[str]:
+        updated = list(section_names)
+        insert_position = max(0, min(preferred_index, len(updated)))
+        updated.insert(insert_position, question_name)
+        return updated
+
+    # Deterministic placement for consistency between pre and post.
+    # Keep sanity checks within their respective sections at fixed indices.
+    desired_frontend_with_sanity = _insert_deterministic(frontend_names, "sanity_frontend", preferred_index=3)
+    desired_ux_with_sanity = _insert_deterministic(ux_names, "sanity_ux", preferred_index=7)
+    desired_frontend_pre = desired_frontend_with_sanity
+    desired_ux_pre = desired_ux_with_sanity
+    desired_frontend_post = desired_frontend_with_sanity
+    desired_ux_post = desired_ux_with_sanity
+
     if assignment:
+        needs_update = any([
+            assignment.frontend_pre_test != desired_frontend_pre,
+            assignment.frontend_post_test != desired_frontend_post,
+            assignment.ux_pre_test != desired_ux_pre,
+            assignment.ux_post_test != desired_ux_post,
+            assignment.code_pre_test != code_normal_names,
+            assignment.code_post_test != code_normal_names,
+            assignment.debug_pre_test != code_debug_names,
+            assignment.debug_post_test != code_debug_names,
+            assignment.sanity_ux_phase is not None,
+            assignment.sanity_frontend_phase is not None,
+        ])
+        if needs_update:
+            assignment.frontend_pre_test = desired_frontend_pre
+            assignment.frontend_post_test = desired_frontend_post
+            assignment.ux_pre_test = desired_ux_pre
+            assignment.ux_post_test = desired_ux_post
+            assignment.code_pre_test = code_normal_names
+            assignment.code_post_test = code_normal_names
+            assignment.debug_pre_test = code_debug_names
+            assignment.debug_post_test = code_debug_names
+            assignment.sanity_ux_phase = None
+            assignment.sanity_frontend_phase = None
+            db.commit()
+            db.refresh(assignment)
         return assignment
-
-    # Select questions with variant assignment strategy
-    # UX questions: same base tags, different variants (_1 vs _2) for pre and post
-    ux_pre, ux_post = _select_ux_questions_for_assignment(db)
-    
-    # Frontend questions: same base tags, different variants (_1 vs _2) for pre and post
-    frontend_pre, frontend_post = _select_frontend_questions_for_assignment(db)
-    
-    # Select coding tasks: same base names for pre and post, but different variants
-    code_normal_pre, code_normal_post, code_debug_pre, code_debug_post = _select_code_tasks_for_assignment(db)
-
-    # Randomly assign sanity check questions: one phase gets sanity_ux, the other gets sanity_frontend
-    # Randomly decide which phase gets which sanity question
-    if random.random() < 0.5:
-        # Pre-test gets sanity_ux, post-test gets sanity_frontend
-        sanity_ux_phase = "pre-test"
-        sanity_frontend_phase = "post-test"
-        # Insert sanity questions at random positions in the lists
-        if ux_pre:
-            insert_position = random.randint(0, len(ux_pre))
-            ux_pre.insert(insert_position, "sanity_ux")
-        else:
-            ux_pre.append("sanity_ux")
-        if frontend_post:
-            insert_position = random.randint(0, len(frontend_post))
-            frontend_post.insert(insert_position, "sanity_frontend")
-        else:
-            frontend_post.append("sanity_frontend")
-    else:
-        # Pre-test gets sanity_frontend, post-test gets sanity_ux
-        sanity_ux_phase = "post-test"
-        sanity_frontend_phase = "pre-test"
-        # Insert sanity questions at random positions in the lists
-        if frontend_pre:
-            insert_position = random.randint(0, len(frontend_pre))
-            frontend_pre.insert(insert_position, "sanity_frontend")
-        else:
-            frontend_pre.append("sanity_frontend")
-        if ux_post:
-            insert_position = random.randint(0, len(ux_post))
-            ux_post.insert(insert_position, "sanity_ux")
-        else:
-            ux_post.append("sanity_ux")
 
     assignment = SkillCheckAssignment(
         user_id=user_id,
-        frontend_pre_test=frontend_pre,
-        frontend_post_test=frontend_post,
-        ux_pre_test=ux_pre,
-        ux_post_test=ux_post,
-        code_pre_test=code_normal_pre,
-        code_post_test=code_normal_post,
-        debug_pre_test=code_debug_pre,
-        debug_post_test=code_debug_post,
-        sanity_ux_phase=sanity_ux_phase,
-        sanity_frontend_phase=sanity_frontend_phase,
+        frontend_pre_test=desired_frontend_pre,
+        frontend_post_test=desired_frontend_post,
+        ux_pre_test=desired_ux_pre,
+        ux_post_test=desired_ux_post,
+        code_pre_test=code_normal_names,
+        code_post_test=code_normal_names,
+        debug_pre_test=code_debug_names,
+        debug_post_test=code_debug_names,
+        sanity_ux_phase=None,
+        sanity_frontend_phase=None,
     )
     db.add(assignment)
     db.commit()
@@ -1268,7 +1331,7 @@ def _build_ordered_question_ids(
     Build the ordered list of question IDs in the exact same order as get_skill_check_questions.
     
     Order:
-    1. Experience (pre-test) or NASA TLI (post-test) questions
+    1. Experience questions (pre-test only)
     2. Frontend questions from assignment
     3. UX questions from assignment
     4. Normal coding questions from assignment
@@ -1281,32 +1344,21 @@ def _build_ordered_question_ids(
     question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
     ordered_question_ids = []
     
-    # Section 1: Experience/NASA TLI questions
+    # Section 1: Experience questions (pre-test only)
     if phase == "pre-test":
         experience_questions = db.query(ExperienceData).filter(
             ExperienceData.id.in_(question_ids_config["experience"])
         ).order_by(ExperienceData.id).all()
         for q in experience_questions:
             ordered_question_ids.append(f"exp_{q.id}")
-    else:
-        nasa_questions = db.query(NasaTLIData).filter(
-            NasaTLIData.id.in_(question_ids_config["nasa_tli"])
-        ).order_by(NasaTLIData.id).all()
-        for q in nasa_questions:
-            ordered_question_ids.append(f"nasa_{q.id}")
     
     # Section 2: Frontend questions (from assignment, in assignment order)
     if assignment:
         frontend_names = assignment.frontend_pre_test if phase == "pre-test" else assignment.frontend_post_test
         frontend_names = frontend_names or []
     else:
-        # Fallback: use configured IDs and look up names (backward compatibility)
-        frontend_ids = question_ids_config["frontend"]
-        frontend_questions_by_id = db.query(MCQAData).filter(
-            MCQAData.type == "frontend",
-            MCQAData.id.in_(frontend_ids)
-        ).all()
-        frontend_names = [q.name for q in frontend_questions_by_id if q.name]
+        # Fallback: deterministic fixed selection
+        frontend_names, _, _, _ = _build_identical_skill_check_assignment_names(db)
     
     if frontend_names:
         frontend_questions_raw = db.query(MCQAData).filter(
@@ -1342,13 +1394,8 @@ def _build_ordered_question_ids(
         ux_names = assignment.ux_pre_test if phase == "pre-test" else assignment.ux_post_test
         ux_names = ux_names or []
     else:
-        # Fallback: use configured IDs and look up names (backward compatibility)
-        ux_ids = question_ids_config["ux"]
-        ux_questions_by_id = db.query(MCQAData).filter(
-            MCQAData.type == "ux",
-            MCQAData.id.in_(ux_ids)
-        ).all()
-        ux_names = [q.name for q in ux_questions_by_id if q.name]
+        # Fallback: deterministic fixed selection
+        _, ux_names, _, _ = _build_identical_skill_check_assignment_names(db)
     
     if ux_names:
         ux_questions_raw = db.query(MCQAData).filter(
@@ -1388,14 +1435,8 @@ def _build_ordered_question_ids(
             code_normal_names = assignment.code_post_test or []
             code_debug_names = assignment.debug_post_test or []
     else:
-        # Fallback: random selection logic (no persistent assignment)
-        code_normal_pre, code_normal_post, code_debug_pre, code_debug_post = _select_code_tasks_for_assignment(db)
-        if phase == "pre-test":
-            code_normal_names = code_normal_pre
-            code_debug_names = code_debug_pre
-        else:
-            code_normal_names = code_normal_post
-            code_debug_names = code_debug_post
+        # Fallback: deterministic fixed selection (no persistent assignment)
+        _, _, code_normal_names, code_debug_names = _build_identical_skill_check_assignment_names(db)
     
     # Load all code tasks that actually exist
     selected_task_names = list(set(code_normal_names + code_debug_names))
@@ -1431,19 +1472,11 @@ async def get_skill_check_questions(
     """
     Load skill check questions based on mode.
     
-    Pre-test:
-    - All questions from experience_data
-    - 10 questions from mcqa_data where type == 'frontend'
-    - 10 questions from mcqa_data where type == 'ux'
-    - 3 coding questions from code_data where type == 'normal'
-    - 3 coding questions from code_data where type == 'debug'
-    
-    Post-test:
-    - All questions from nasa_tli_data
-    - 10 questions from mcqa_data where type == 'frontend'
-    - 10 questions from mcqa_data where type == 'ux'
-    - 3 coding questions from code_data where type == 'normal'
-    - 3 coding questions from code_data where type == 'debug'
+    Pre-test and Post-test:
+    - Pre-test includes configured questions from experience_data
+    - Post-test excludes experience questions
+    - Fixed frontend/UX question names (same in both phases)
+    - Fixed coding set: normal `paren_1`; debug `string_shift_2`, `prefix_2`
     
     Retake:
     - 10 randomly sampled frontend questions (no sanity questions)
@@ -1548,8 +1581,8 @@ async def get_skill_check_questions(
 
         questions = []
         
+        # Load experience questions only for pre-test
         if mode == "pre-test":
-            # Load experience questions
             experience_questions = db.query(ExperienceData).filter(
                 ExperienceData.id.in_(question_ids["experience"])
             ).order_by(ExperienceData.id).all()  # Explicit ordering for consistency
@@ -1562,20 +1595,6 @@ async def get_skill_check_questions(
                     "question": q.question,
                     "choices": q.choices,
                 })
-        else:
-            # Load NASA TLI questions
-            nasa_questions = db.query(NasaTLIData).filter(
-                NasaTLIData.id.in_(question_ids["nasa_tli"])
-            ).order_by(NasaTLIData.id).all()  # Explicit ordering for consistency
-            
-            for q in nasa_questions:
-                questions.append({
-                    "id": f"nasa_{q.id}",
-                    "type": "nasa_tli",
-                    "question_type": q.type,  # 'mcqa' or 'multi_select'
-                    "question": q.question,
-                    "choices": q.choices,
-                })
         
         # Determine frontend question names based on assignment (if available)
         if assignment is not None:
@@ -1584,13 +1603,8 @@ async def get_skill_check_questions(
             else:
                 frontend_names = assignment.frontend_post_test or []
         else:
-            # Fallback: use configured IDs and look up names (backward compatibility)
-            frontend_ids = question_ids["frontend"]
-            frontend_questions_by_id = db.query(MCQAData).filter(
-                MCQAData.type == "frontend",
-                MCQAData.id.in_(frontend_ids)
-            ).all()
-            frontend_names = [q.name for q in frontend_questions_by_id if q.name]
+            # Fallback: deterministic fixed selection
+            frontend_names, _, _, _ = _build_identical_skill_check_assignment_names(db)
 
         # Load frontend questions by name
         frontend_questions_raw = db.query(MCQAData).filter(
@@ -1654,13 +1668,8 @@ async def get_skill_check_questions(
             else:
                 ux_names = assignment.ux_post_test or []
         else:
-            # Fallback: use configured IDs and look up names (backward compatibility)
-            ux_ids = question_ids["ux"]
-            ux_questions_by_id = db.query(MCQAData).filter(
-                MCQAData.type == "ux",
-                MCQAData.id.in_(ux_ids)
-            ).all()
-            ux_names = [q.name for q in ux_questions_by_id if q.name]
+            # Fallback: deterministic fixed selection
+            _, ux_names, _, _ = _build_identical_skill_check_assignment_names(db)
 
         # Load UX questions by name
         ux_questions_raw = db.query(MCQAData).filter(
@@ -1729,8 +1738,8 @@ async def get_skill_check_questions(
             selected_tasks.extend((name, "normal") for name in code_normal_names)
             selected_tasks.extend((name, "debug") for name in code_debug_names)
         else:
-            # Fallback: random selection logic (no persistent assignment)
-            code_normal_names, code_debug_names = _select_code_tasks_for_assignment(db)
+            # Fallback: deterministic fixed selection (no persistent assignment)
+            _, _, code_normal_names, code_debug_names = _build_identical_skill_check_assignment_names(db)
             selected_tasks.extend((name, "normal") for name in code_normal_names)
             selected_tasks.extend((name, "debug") for name in code_debug_names)
 
@@ -2375,7 +2384,7 @@ async def report_skill_check_question(request: dict, db: Session = Depends(get_d
         "question_id": str,  # ID of the reported question
         "question_type": str,  # 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'
         "phase": str | null,  # 'pre-test', 'post-test', or 'retake_{uuid}'
-        "report_type": str,  # 'issue_stops_solving', 'frustrated_unable_to_solve', or 'other'
+        "report_type": str,  # 'issue_stops_solving', 'frustrated_unable_to_solve', 'insufficient_programming_experience', or 'other'
         "rationale": str,  # Required rationale explaining the report
     }
     """
@@ -2393,10 +2402,10 @@ async def report_skill_check_question(request: dict, db: Session = Depends(get_d
                 content={"error": "user_id, question_id, question_type, report_type, and rationale are required"}
             )
         
-        if report_type not in ['issue_stops_solving', 'frustrated_unable_to_solve', 'other']:
+        if report_type not in ['issue_stops_solving', 'frustrated_unable_to_solve', 'insufficient_programming_experience', 'other']:
             return JSONResponse(
                 status_code=400,
-                content={"error": "report_type must be 'issue_stops_solving', 'frustrated_unable_to_solve', or 'other'"}
+                content={"error": "report_type must be 'issue_stops_solving', 'frustrated_unable_to_solve', 'insufficient_programming_experience', or 'other'"}
             )
         
         trimmed_rationale = rationale.strip()
@@ -2491,8 +2500,7 @@ def _get_completion_status_for_phase(
             "current_question_index": 0
         }
     
-    # Determine expected question IDs based on phase
-    # Use the same SKILL_CHECK_QUESTION_IDS config as get_skill_check_questions
+    # Determine expected question IDs based on phase.
     config_key = "pre_test" if phase == "pre-test" else "post_test"
     question_ids_config = SKILL_CHECK_QUESTION_IDS[config_key]
     
@@ -2601,16 +2609,7 @@ def _get_completion_status_for_phase(
             for task_name in code_debug_names:
                 if task_name in code_data_map:
                     expected_code_question_ids.add(f"code_debug_{task_name}")
-    else:  # post-test
-        # NASA TLI questions: query database to get actual count (not all IDs in config may exist)
-        nasa_questions = db.query(NasaTLIData).filter(
-            NasaTLIData.id.in_(question_ids_config["nasa_tli"])
-        ).all()
-        nasa_count = len(nasa_questions)
-        total_expected_mcqa += nasa_count
-        for q in nasa_questions:
-            expected_mcqa_question_ids.add(f"nasa_{q.id}")
-        
+    else:  # post-test (no experience section)
         # Frontend questions from assignment (now stored as names)
         # Only count questions that actually exist in the database (matching questions endpoint logic)
         if assignment.frontend_post_test:
@@ -2905,6 +2904,119 @@ async def log_navigation_event(request: dict, db: Session = Depends(get_db)):
         )
 
 
+@app.post("/api/task-events", tags=["Tasks"])
+async def log_task_event(payload: TaskEventCreate, db: Session = Depends(get_db)):
+    """Log website requirement task lifecycle events."""
+    try:
+        allowed_event_names = {
+            "loaded_in",
+            "timer_started",
+            "left_page",
+            "started_edits",
+            "started_ai_query",
+            "questions_generation_started",
+            "questions_generation_completed",
+            "continued_to_questions",
+            "timer_paused",
+            "timer_resumed",
+            "submitted",
+        }
+
+        if payload.event_name not in allowed_event_names:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "event_name must be one of loaded_in, timer_started, left_page, started_edits, started_ai_query, questions_generation_started, questions_generation_completed, continued_to_questions, timer_paused, timer_resumed, submitted"
+                },
+            )
+
+        user = db.query(User).filter(User.id == payload.user_id).first()
+        if not user:
+            return JSONResponse(status_code=404, content={"error": "User not found"})
+
+        project = db.query(Project).filter(Project.id == payload.project_id).first()
+        if not project:
+            return JSONResponse(status_code=404, content={"error": "Project not found"})
+
+        event = TaskEventCRUD.create(db, payload)
+        return {"success": True, "event_id": event.id}
+
+    except Exception as e:
+        print(f"Error logging task event: {e}")
+        return JSONResponse(status_code=500, content={"error": "Failed to log task event"})
+
+
+@app.get("/api/task-events/timer-state", tags=["Tasks"])
+async def get_task_timer_state(
+    user_id: int = Query(..., description="User ID"),
+    project_id: int = Query(..., description="Project ID"),
+    duration_seconds: int = Query(30 * 60, ge=1, description="Timer duration in seconds"),
+    db: Session = Depends(get_db),
+):
+    """Return remaining timer seconds based on first timer_started and pause/resume events."""
+    try:
+        relevant_events = (
+            db.query(TaskEvent)
+            .filter(
+                TaskEvent.user_id == user_id,
+                TaskEvent.project_id == project_id,
+                TaskEvent.event_name.in_(["timer_started", "timer_paused", "timer_resumed"]),
+            )
+            .order_by(TaskEvent.created_at.asc())
+            .all()
+        )
+
+        first_timer_started_event = next((event for event in relevant_events if event.event_name == "timer_started"), None)
+
+        if not first_timer_started_event:
+            return {
+                "has_started": False,
+                "remaining_seconds": duration_seconds,
+                "duration_seconds": duration_seconds,
+                "started_at": None,
+                "is_paused": False,
+                "paused_seconds": 0,
+            }
+
+        started_at = first_timer_started_event.created_at
+        now = datetime.now(started_at.tzinfo) if started_at.tzinfo else datetime.utcnow()
+        total_elapsed_seconds = max(0, (now - started_at).total_seconds())
+
+        paused_total_seconds = 0.0
+        pause_started_at = None
+
+        for event in relevant_events:
+            if event.created_at < started_at:
+                continue
+
+            if event.event_name == "timer_paused":
+                if pause_started_at is None:
+                    pause_started_at = event.created_at
+            elif event.event_name == "timer_resumed":
+                if pause_started_at is not None:
+                    paused_total_seconds += max(0.0, (event.created_at - pause_started_at).total_seconds())
+                    pause_started_at = None
+
+        is_paused = pause_started_at is not None
+        if is_paused and pause_started_at is not None:
+            paused_total_seconds += max(0.0, (now - pause_started_at).total_seconds())
+
+        elapsed_active_seconds = max(0, int(total_elapsed_seconds - paused_total_seconds))
+        remaining_seconds = max(0, duration_seconds - elapsed_active_seconds)
+
+        return {
+            "has_started": True,
+            "remaining_seconds": remaining_seconds,
+            "duration_seconds": duration_seconds,
+            "started_at": started_at.isoformat(),
+            "is_paused": is_paused,
+            "paused_seconds": int(paused_total_seconds),
+        }
+    except Exception as e:
+        print(f"Error fetching task timer state: {e}")
+        return JSONResponse(status_code=500, content={"error": "Failed to fetch task timer state"})
+
+
 @app.get("/api/task-files-db", tags=["Tasks"])
 async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: Session = Depends(get_db)):
     try:
@@ -2948,6 +3060,7 @@ async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: 
 
         files: List[Dict[str, Any]] = []
         user_code = None
+        initial_code_payload: Optional[Dict[str, Any]] = None
         project_files: List[Dict[str, Any]] = []
 
         if project:
@@ -2962,20 +3075,49 @@ async def get_task_files_from_db(taskId: str, userId: Optional[int] = None, db: 
         if userId and project:
             # Verify we're loading code for the correct project
             user_code = CodeCRUD.get_latest_by_user_and_project(db, user_id=userId, project_id=project.id)
-        
-        # If user has saved code, use it; otherwise use project starter files
+
+        # Prefer latest saved editor code for this task.
         if user_code and user_code.code:
-            # Use saved user code, mapping language keys to file names
-            saved_code = user_code.code
+            initial_code_payload = user_code.code
+        # Special-case follow-up task: seed from latest zic-zac-zoe submission.
+        elif userId and project and normalized_task_id == "zic-zac-zoe-follow-up":
+            previous_project = _resolve_project_from_task_id(db, "zic-zac-zoe")
+            if previous_project:
+                previous_submission = (
+                    db.query(Submission)
+                    .filter(
+                        Submission.user_id == userId,
+                        Submission.project_id == previous_project.id,
+                    )
+                    .order_by(Submission.created_at.desc())
+                    .first()
+                )
+                if previous_submission and previous_submission.code:
+                    initial_code_payload = previous_submission.code
+
+        def _resolve_saved_content(saved_code: Dict[str, Any], file_name: str) -> Optional[str]:
+            if file_name in saved_code:
+                value = saved_code.get(file_name)
+                return "" if value is None else str(value)
+            lang_key = get_language_key_from_filename(file_name)
+            if lang_key and lang_key in saved_code:
+                value = saved_code.get(lang_key)
+                return "" if value is None else str(value)
+            return None
+
+        # If user has saved code (or follow-up seed code), use it; otherwise use project starter files
+        if initial_code_payload:
+            saved_code = initial_code_payload
             for fileConfig in project_files:
                 try:
                     name = fileConfig.get("name")
                     language = fileConfig.get("language", "plaintext")
-                    lang_key = get_language_key_from_filename(name)
-                    
-                    # If we have saved code for this language, use it; otherwise use default
-                    if lang_key and lang_key in saved_code:
-                        content = saved_code[lang_key] or ""
+                    if not name:
+                        continue
+
+                    restored_content = _resolve_saved_content(saved_code, name)
+                    if restored_content is not None:
+                        content = restored_content
                     else:
                         # Fall back to project starter file
                         content = resolve_content(fileConfig.get("content", ""))
@@ -3224,13 +3366,34 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
         if not code_payload:
             return JSONResponse(status_code=400, content={"error": "Submission code payload cannot be empty"})
 
+        cleaned_title = (payload.title or "").strip()
+        if not cleaned_title:
+            cleaned_title = "Untitled"
+
+        linked_evaluation: Optional[SubmissionEvaluation] = None
+        if payload.evaluation_id:
+            linked_evaluation = SubmissionEvaluationCRUD.get_by_id(db, payload.evaluation_id)
+            if not linked_evaluation:
+                return JSONResponse(status_code=404, content={"error": "Evaluation not found"})
+            if linked_evaluation.user_id != user.id or linked_evaluation.project_id != project.id:
+                return JSONResponse(status_code=400, content={"error": "Evaluation does not match user/project"})
+
+        is_forced_timeout_submission = bool(payload.forced_timeout)
+        is_disqualified = bool(
+            is_forced_timeout_submission and linked_evaluation is not None and not bool(linked_evaluation.is_valid)
+        )
+        disqualification_reason = "timeout_invalid_evaluation" if is_disqualified else None
+
         submission_create = SubmissionCreate(
             user_id=user.id,
             project_id=project.id,
             code=code_payload,
-            title=payload.title.strip(),
+            title=cleaned_title,
             description=(payload.description or "").strip() or None,
             image=payload.image,
+            is_forced_timeout_submission=is_forced_timeout_submission,
+            is_disqualified=is_disqualified,
+            disqualification_reason=disqualification_reason,
         )
 
         submission_record = SubmissionCRUD.create(db, submission_create)
@@ -3342,7 +3505,7 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                             print(f"  Question {question_name} has no answer field, skipping score calculation")
                     
                     # Calculate score for MCQA questions that have an answer field (e.g., sanity_check)
-                    elif question.question_type == 'mcqa' and question.answer is not None:
+                    elif question.question_type in ('mcqa', 'code_compare') and question.answer is not None:
                         print(f"Processing MCQA question: {question_name}")
                         print(f"  question.answer: {question.answer}, type: {type(question.answer)}, user_answer: {parsed_user_answer}")
                         try:
@@ -3386,7 +3549,12 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
             
             db.commit()
         
-        return {"success": True, "submissionId": submission_record.id}
+        return {
+            "success": True,
+            "submissionId": submission_record.id,
+            "isDisqualified": is_disqualified,
+            "disqualificationReason": disqualification_reason,
+        }
     except Exception as e:
         print(f"Error creating submission: {e}")
         return JSONResponse(status_code=500, content={"error": "Failed to create submission"})
@@ -3402,6 +3570,7 @@ async def list_submissions(
     filter_unseen: Optional[str] = Query(default=None, alias="filterUnseen"),
     filter_saved: Optional[str] = Query(default=None, alias="filterSaved"),
     filter_not_reported: Optional[str] = Query(default=None, alias="filterNotReported"),
+    include_disqualified: Optional[str] = Query(default=None, alias="includeDisqualified"),
     db: Session = Depends(get_db),
 ):
     try:
@@ -3418,6 +3587,10 @@ async def list_submissions(
             query = query.filter(Submission.project_id == project.id)
         elif project_id is not None:
             query = query.filter(Submission.project_id == project_id)
+
+        include_disqualified_bool = include_disqualified is not None and str(include_disqualified).lower() == "true"
+        if not include_disqualified_bool:
+            query = query.filter(Submission.is_disqualified == False)
 
         # Convert string query params to booleans - handle None and empty strings
         filter_unseen_bool = filter_unseen is not None and str(filter_unseen).lower() == "true"
@@ -3555,6 +3728,8 @@ async def list_submissions(
                     "userId": submission.user_id,
                     "createdAt": submission.created_at.isoformat() if submission.created_at else None,
                     "updatedAt": submission.updated_at.isoformat() if submission.updated_at else None,
+                    "isDisqualified": bool(submission.is_disqualified),
+                    "disqualificationReason": submission.disqualification_reason,
                     "ratingSummary": rating_summary,
                 }
             )
@@ -3581,6 +3756,8 @@ async def get_submission_detail(submission_id: int, db: Session = Depends(get_db
             "userId": submission.user_id,
             "createdAt": submission.created_at.isoformat() if submission.created_at else None,
             "updatedAt": submission.updated_at.isoformat() if submission.updated_at else None,
+            "isDisqualified": bool(submission.is_disqualified),
+            "disqualificationReason": submission.disqualification_reason,
             "code": submission.code or {},
             "ratingSummary": build_rating_summary(
                 db.query(SubmissionFeedback)
@@ -3672,6 +3849,10 @@ async def generate_comprehension_questions(
     This endpoint will auto-generate questions based on the submission content.
     """
     try:
+        print(
+            f"[comprehension/generate] start user_id={payload.user_id} project_id={payload.project_id}",
+            flush=True,
+        )
         # Verify user exists
         user = db.query(User).filter(User.id == payload.user_id).first()
         if not user:
@@ -3685,16 +3866,38 @@ async def generate_comprehension_questions(
         # TODO: Implement question generation logic here
         # This is a placeholder - you will fill in the actual generation logic
         # Check if this is a required task (post-test required tasks)
-        REQUIRED_TASK_NAMES = {'connect_four', 'snake', 'platformer'}
+        REQUIRED_TASK_NAMES = {
+            'website_tutorial_intro',
+            'zic_zac_zoe',
+            'website_tutorial_follow_up',
+            'zic_zac_zoe_follow_up',
+        }
         is_required_task = project.name and project.name.lower() in REQUIRED_TASK_NAMES
+        print(
+            f"[comprehension/generate] project_name={project.name} required_task={bool(is_required_task)}",
+            flush=True,
+        )
         
         generated_questions = await _generate_comprehension_questions(
             submission_title=payload.submission_title,
             submission_description=payload.submission_description,
             submission_code=payload.submission_code,
             is_required_task=is_required_task,
-            project_name=project.name.lower() if project.name else None
+            project_name=project.name.lower() if project.name else None,
+            ai_assistant_mode=payload.ai_assistant_mode,
         )
+        print(
+            f"[comprehension/generate] generated_count={len(generated_questions)}",
+            flush=True,
+        )
+        for idx, q in enumerate(generated_questions, start=1):
+            q_name = q.get("question_name", "")
+            q_type = q.get("question_type", "")
+            q_text_preview = str(q.get("question", "")).replace("\n", " ")[:90]
+            print(
+                f"[comprehension/generate] q{idx}: name={q_name} type={q_type} text='{q_text_preview}'",
+                flush=True,
+            )
 
         # Store questions in database
         created_questions = []
@@ -3722,6 +3925,10 @@ async def generate_comprehension_questions(
             })
 
         db.commit()
+        print(
+            f"[comprehension/generate] committed_count={len(created_questions)}",
+            flush=True,
+        )
 
         return {
             "success": True,
@@ -3881,7 +4088,7 @@ async def save_tutorial_questions(
                         question_record.score = None
                 
                 # Calculate score for mcqa questions
-                elif question_type == 'mcqa' and answer:
+                elif question_type in ('mcqa', 'code_compare') and answer:
                     try:
                         correct_answer = int(answer) if isinstance(answer, (int, str)) and str(answer).isdigit() else None
                         user_answer_int = None
@@ -3934,8 +4141,8 @@ def generate_distractor_functions(function_names: list[str]) -> list[str]:
     Generate plausible function names that don't exist in the code.
     """
 
-    random_model = random.choice(["openai/gpt-5.1-2025-11-13", "anthropic/claude-sonnet-4-5-20250929", "gemini/gemini-3-pro-preview"])
-    backup_model = "gemini/gemini-3-pro-preview"
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
 
 
     prompt = """
@@ -4046,6 +4253,133 @@ Do not generate anything else.
             return output["real_features"], output["fake_features"]
     return [], []
 
+
+def _is_code_compare_debug_enabled() -> bool:
+    return os.getenv("DEBUG_CODE_COMPARE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _code_compare_debug_log(message: str) -> None:
+    if _is_code_compare_debug_enabled():
+        print(message)
+
+MAX_CODE_COMPARE_BLOCK_LINES = 20
+
+
+def _count_code_lines(code: str) -> int:
+    if not code or not code.strip():
+        return 0
+    return len(code.strip().splitlines())
+
+
+def generate_distractor_code_block(code: str, context_label: str = "") -> str:
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+    code_line_count = _count_code_lines(code)
+    _code_compare_debug_log(f"[distractor] called | lines={code_line_count}")
+
+    prompt = """
+<task>
+You are an expert at generating **distractor versions** of a user's code (JavaScript, HTML, or CSS).
+
+Your goal is to produce an alternative implementation that is **clearly different when visually scanned**, but still **valid, functional, and realistic** code that a developer might plausibly write.
+
+The distractor should make it difficult for a user who was not paying close attention to immediately recognize which code block was originally theirs.
+
+The distractor does NOT need to implement the exact same internal logic. However, it must remain syntactically correct and usable.
+
+The key objective is to introduce **one meaningful behavioral or structural change** that would noticeably alter how the website behaves or how the rest of the website logic must be implemented to accomdate this change, while keeping the code believable.
+
+The difference should be **noticeable when the site runs**, but **not instantly obvious from a quick glance at the code**.
+
+Avoid subtle micro-changes that only modify small details (such as renaming variables or slightly changing values). The distractor should feel like a **plausible alternate solution**, not a minor variation.
+
+There should be **exactly one main conceptual difference** between the original code and the distractor. Do not introduce multiple independent changes.
+</task>
+
+Here is the user's code block:
+<code>
+{code}
+</code>
+
+<requirements>
+- The distractor must remain **correct and non-buggy**.
+- Maintain roughly the **same length** as the original code. The number of lines should not differ by more than five lines.
+- Preserve the following identifiers exactly:
+  - The function name (if present)
+  - The top-level CSS selector or block name
+  - The highest-level HTML element and its ID
+- The generated code must look **natural and realistic**, as if written by a developer solving the same task in a different way.
+- Do not add explanatory comments unless the original code contains them.
+- Do not introduce multiple major behavioral changes. Focus on **one primary difference**.
+- The generated code should use the same style as the original. Do not introduce stylistic cues that make it obviously different.
+</requirements>
+
+<format>
+Generate your output as a JSON object with exactly one key: "code".
+- "code" must be a single string containing the full distractor code (no Markdown fences or backticks).
+- Do not include any other keys or any other text outside the JSON.
+
+{{
+  "code": "INSERT_DISTRACTOR_CODE_HERE"
+}}
+</format>
+""".format(code=code).strip()
+
+    context_suffix = f" context={context_label}" if context_label else ""
+
+    for num_tries in range(3):
+        model_name = random_model if num_tries == 0 else backup_model
+        _code_compare_debug_log(f"[distractor] attempt={num_tries + 1}/3 model={model_name}")
+        try:
+            response = litellm.completion(
+                model=model_name,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            output = response.choices[0].message.content.replace('`', '').replace('json', '').strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}")+1].strip()
+            output = json.loads(output)
+            candidate = output.get("code", None)
+            if not isinstance(candidate, str):
+                print(
+                    f"[distractor] rejected attempt={num_tries + 1}: invalid 'code' field type="
+                    f"{type(candidate).__name__} (expected str){context_suffix}",
+                    flush=True,
+                )
+                _code_compare_debug_log(
+                    f"[distractor] attempt={num_tries + 1} invalid output type={type(candidate).__name__}"
+                )
+                continue
+
+            candidate_line_count = _count_code_lines(candidate)
+            line_diff = abs(candidate_line_count - code_line_count)
+            if line_diff <= 5:
+                _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1}")
+                return candidate
+            print(
+                f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
+                f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
+                f"(allowed<=2){context_suffix}",
+                flush=True,
+            )
+            _code_compare_debug_log(
+                f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
+            )
+        except Exception as e:
+            print(
+                f"[distractor] rejected attempt={num_tries + 1}: exception={type(e).__name__} "
+                f"details={e}{context_suffix}",
+                flush=True,
+            )
+            _code_compare_debug_log(f"[distractor] attempt={num_tries + 1} failed: {e}")
+            continue
+    print(f"[distractor] exhausted attempts; returning empty string{context_suffix}", flush=True)
+    _code_compare_debug_log("[distractor] exhausted attempts, returning empty string")
+    return ''
+
 def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any]]:
 
     MAX_FEATURES_TO_SHOW = 4
@@ -4116,30 +4450,44 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
     real_function_names = list(functions_map.keys())
     fake_function_names = generate_distractor_functions(real_function_names)
     
-    # Only sample a function for explanation if we're including the explanation question
+    # Only sample code blocks for explanation if we're including explanation questions
     sampled_function_name = None
     sampled_function_code = None
+    sampled_html_component_name = None
+    sampled_html_component_code = None
+    sampled_css_block_name = None
+    sampled_css_block_code = None
     
     if include_explanation:
-        # Filter functions with more than 10 lines of code
-        large_functions = {
-            name: code 
-            for name, code in functions_map.items() 
-            if len(code.split('\n')) > 20
+        eligible_functions = {
+            name: code
+            for name, code in functions_map.items()
+            if _count_code_lines(code) <= MAX_CODE_COMPARE_BLOCK_LINES
         }
-        # Randomly sample one function if any exist
-        if large_functions:
-            sampled_function_name = random.choice(list(large_functions.keys()))
-            sampled_function_code = large_functions[sampled_function_name]
-            print(f"Sampled function '{sampled_function_name}':")
-            print(sampled_function_code)
-        else:
-            # Pick the function with the largest lines
-            function_lengths = {name: len(code.split('\n')) for name, code in functions_map.items()}
-            sampled_function_name = max(function_lengths, key=function_lengths.get)
+        if eligible_functions:
+            sampled_function_name = random.choice(list(eligible_functions.keys()))
+            sampled_function_code = eligible_functions[sampled_function_name]
+            sampled_line_count = _count_code_lines(sampled_function_code)
+            _code_compare_debug_log(
+                f"[code-compare] sampled js function='{sampled_function_name}' lines={sampled_line_count} max_lines={MAX_CODE_COMPARE_BLOCK_LINES}"
+            )
+        elif functions_map:
+            sampled_function_name = random.choice(list(functions_map.keys()))
             sampled_function_code = functions_map[sampled_function_name]
-            print(f"Sampled function '{sampled_function_name}' (largest lines):")
-            print(sampled_function_code)
+            sampled_line_count = _count_code_lines(sampled_function_code)
+            _code_compare_debug_log(
+                f"[code-compare] sampled fallback js function='{sampled_function_name}' lines={sampled_line_count} (no <= {MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
+            )
+
+        sampled_html_component = _sample_html_component_for_explanation(html_code)
+        if sampled_html_component:
+            sampled_html_component_name, sampled_html_component_code = sampled_html_component
+            _code_compare_debug_log(f"[code-compare] sampled html component='{sampled_html_component_name}'")
+
+        sampled_css_block = _sample_css_block_for_explanation(css_code)
+        if sampled_css_block:
+            sampled_css_block_name, sampled_css_block_code = sampled_css_block
+            _code_compare_debug_log(f"[code-compare] sampled css block='{sampled_css_block_name}'")
 
     # For the MCQA question, exclude the sampled function (if any) from the choices
     real_function_names_for_mcqa = [name for name in real_function_names if name != sampled_function_name] if sampled_function_name else real_function_names
@@ -4165,17 +4513,234 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
             "answer": [0 if name in fake_function_names else 1 for name in all_function_names_to_show]
         })
 
-    # Only add explanation question if requested
-    if include_explanation and sampled_function_name and sampled_function_code:
-        questions.append({
-            "question_name": "explain_function",
-            "question": f"Explain how the function {sampled_function_name}() works. Describe the inputs it uses, the steps it takes, what it returns, and how it modifies the interface. You may need to scroll to see the entire function.\n\nIf you're unable to explain how the function works, please say so.\n```{sampled_function_code}```",
-            "question_type": "free_response",
-            "choices": [],
-            "answer": ''
-        })
+    # Add code-comparison questions in explicit display order:
+    # 1) HTML, 2) CSS, 3) JavaScript.
+    # Build these in parallel, then append in deterministic order.
+    compare_specs = [
+        {
+            "question_name": "identify_own_html_component",
+            "code_kind_label": f"HTML component {sampled_html_component_name}" if sampled_html_component_name else "HTML component",
+            "code_language": "html",
+            "original_code": sampled_html_component_code,
+            "has_sampled_name": bool(sampled_html_component_name),
+            "has_sampled_code": bool(sampled_html_component_code),
+            "log_label": "html",
+            "attempt_message": f"[code-compare] attempting html question component='{sampled_html_component_name}'",
+        },
+        {
+            "question_name": "identify_own_css_block",
+            "code_kind_label": f"CSS block {sampled_css_block_name}" if sampled_css_block_name else "CSS block",
+            "code_language": "css",
+            "original_code": sampled_css_block_code,
+            "has_sampled_name": bool(sampled_css_block_name),
+            "has_sampled_code": bool(sampled_css_block_code),
+            "log_label": "css",
+            "attempt_message": f"[code-compare] attempting css question block='{sampled_css_block_name}'",
+        },
+        {
+            "question_name": "identify_own_js_function",
+            "code_kind_label": f"JavaScript function {sampled_function_name}()" if sampled_function_name else "JavaScript function",
+            "code_language": "javascript",
+            "original_code": sampled_function_code,
+            "has_sampled_name": bool(sampled_function_name),
+            "has_sampled_code": bool(sampled_function_code),
+            "log_label": "js",
+            "attempt_message": f"[code-compare] attempting js question function='{sampled_function_name}'",
+        },
+    ]
+
+    pending_specs = []
+    if include_explanation:
+        for spec in compare_specs:
+            if spec["has_sampled_name"] and spec["has_sampled_code"]:
+                _code_compare_debug_log(spec["attempt_message"])
+                pending_specs.append(spec)
+            else:
+                _code_compare_debug_log(
+                    f"[code-compare] skipping {spec['log_label']} compare question "
+                    f"(include_explanation={include_explanation}, "
+                    f"has_sampled_name={spec['has_sampled_name']}, "
+                    f"has_sampled_code={spec['has_sampled_code']})"
+                )
+    else:
+        for spec in compare_specs:
+            _code_compare_debug_log(
+                f"[code-compare] skipping {spec['log_label']} compare question "
+                f"(include_explanation={include_explanation}, "
+                f"has_sampled_name={spec['has_sampled_name']}, "
+                f"has_sampled_code={spec['has_sampled_code']})"
+            )
+
+    compare_results_by_name: Dict[str, Optional[Dict[str, Any]]] = {}
+    if pending_specs:
+        with ThreadPoolExecutor(max_workers=len(pending_specs)) as executor:
+            futures = [
+                executor.submit(
+                    _build_code_compare_question,
+                    question_name=spec["question_name"],
+                    code_kind_label=spec["code_kind_label"],
+                    code_language=spec["code_language"],
+                    original_code=spec["original_code"],
+                )
+                for spec in pending_specs
+            ]
+            for spec, future in zip(pending_specs, futures):
+                compare_results_by_name[spec["question_name"]] = future.result()
+
+    for spec in compare_specs:
+        result = compare_results_by_name.get(spec["question_name"])
+        if result:
+            questions.append(result)
+            _code_compare_debug_log(f"[code-compare] appended {spec['question_name']}")
+        elif spec["question_name"] in compare_results_by_name:
+            _code_compare_debug_log(
+                f"[code-compare] {spec['log_label']} compare question build returned None"
+            )
 
     return questions
+
+
+def generate_single_code_compare_question(
+    submission_code: Dict[str, str],
+    language: str,
+    include_explanation: bool = True,
+    project_name: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Generate one code-compare question for a specific language family.
+    Supported languages: html, css, js/javascript.
+    project_name is passed through for task-specific HTML sampling (e.g. zic_zac_zoe).
+    """
+    if not include_explanation:
+        return None
+
+    js_code = ""
+    html_code = ""
+    css_code = ""
+    for filename, code_content in submission_code.items():
+        if filename.endswith('.js') or filename.endswith('.javascript'):
+            js_code += code_content + "\n\n"
+        elif filename.endswith('.html'):
+            html_code += code_content + "\n\n"
+        elif filename.endswith('.css'):
+            css_code += code_content + "\n\n"
+
+    normalized = (language or "").strip().lower()
+
+    if normalized == "html":
+        sampled_html_component = _sample_html_component_for_explanation(html_code, project_name=project_name)
+        if not sampled_html_component:
+            _code_compare_debug_log("[code-compare] html single compare skipped: no sampled component")
+            return None
+        sampled_name, sampled_code = sampled_html_component
+        return _build_code_compare_question(
+            question_name="identify_own_html_component",
+            code_kind_label=f"HTML component {sampled_name}",
+            code_language="html",
+            original_code=sampled_code,
+        )
+
+    if normalized == "css":
+        sampled_css_block = _sample_css_block_for_explanation(css_code)
+        if not sampled_css_block:
+            _code_compare_debug_log("[code-compare] css single compare skipped: no sampled block")
+            return None
+        sampled_name, sampled_code = sampled_css_block
+        return _build_code_compare_question(
+            question_name="identify_own_css_block",
+            code_kind_label=f"CSS block {sampled_name}",
+            code_language="css",
+            original_code=sampled_code,
+        )
+
+    if normalized in ("js", "javascript"):
+        functions_map = _parse_javascript_functions(js_code)
+        if len(functions_map) == 0:
+            _code_compare_debug_log("[code-compare] js single compare skipped: no functions")
+            return None
+
+        eligible_functions = {
+            name: code
+            for name, code in functions_map.items()
+            if _count_code_lines(code) <= MAX_CODE_COMPARE_BLOCK_LINES
+        }
+        if eligible_functions:
+            sampled_function_name = random.choice(list(eligible_functions.keys()))
+            sampled_function_code = eligible_functions[sampled_function_name]
+            sampled_line_count = _count_code_lines(sampled_function_code)
+            _code_compare_debug_log(
+                f"[code-compare] js single compare sampled function='{sampled_function_name}' lines={sampled_line_count} max_lines={MAX_CODE_COMPARE_BLOCK_LINES}"
+            )
+        else:
+            sampled_function_name = random.choice(list(functions_map.keys()))
+            sampled_function_code = functions_map[sampled_function_name]
+            sampled_line_count = _count_code_lines(sampled_function_code)
+            _code_compare_debug_log(
+                f"[code-compare] js single compare sampled fallback function='{sampled_function_name}' lines={sampled_line_count} (no <= {MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
+            )
+
+        return _build_code_compare_question(
+            question_name="identify_own_js_function",
+            code_kind_label=f"JavaScript function {sampled_function_name}()",
+            code_language="javascript",
+            original_code=sampled_function_code,
+        )
+
+    _code_compare_debug_log(f"[code-compare] unsupported single compare language='{language}'")
+    return None
+
+
+def _build_code_compare_question(
+    question_name: str,
+    code_kind_label: str,
+    code_language: str,
+    original_code: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Build a two-block "which one is yours?" question using a distractor block.
+    """
+    if not original_code or not original_code.strip():
+        _code_compare_debug_log(
+            f"[code-compare] skip question={question_name} language={code_language}: empty original code"
+        )
+        return None
+
+    _code_compare_debug_log(f"[code-compare] building question={question_name} language={code_language}")
+    distractor_code = generate_distractor_code_block(
+        original_code,
+        context_label=f"question={question_name} language={code_language}",
+    )
+    if not distractor_code or not distractor_code.strip():
+        _code_compare_debug_log(
+            f"[code-compare] skip question={question_name} language={code_language}: empty distractor"
+        )
+        return None
+
+    original_on_left = random.choice([True, False])
+    left_code = original_code if original_on_left else distractor_code
+    right_code = distractor_code if original_on_left else original_code
+    answer_index = 1 if original_on_left else 2
+    language_display = {
+        "javascript": "JS",
+        "html": "HTML",
+        "css": "CSS",
+    }.get(code_language.lower(), code_language.upper())
+
+    _code_compare_debug_log(
+        f"[code-compare] built question={question_name} language={code_language} original_on_left={original_on_left}"
+    )
+    return {
+        "question_name": question_name,
+        "question": (
+            f"Exactly one of these two {language_display} code blocks is from your project, while the other is functionally equivalent but not part of your project. "
+            f"Which one is yours?\n\n"
+            f"Left block:\n```{code_language}\n{left_code}\n```\n\n"
+            f"Right block:\n```{code_language}\n{right_code}\n```"
+        ),
+        "question_type": "mcqa",
+        "choices": ["The Left Code is Mine", "The Right Code is Mine"],
+        "answer": answer_index
+    }
 
 
 def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
@@ -4387,6 +4952,172 @@ def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
     return functions_map
 
 
+def _sample_html_component_for_explanation(
+    html_code: str,
+    project_name: Optional[str] = None,
+) -> Optional[tuple[str, str]]:
+    """
+    Extract a non-trivial HTML component with threshold backoff and random sampling.
+    For project_name "zic_zac_zoe", prefers a <p> tag or an element containing the text "Status".
+    """
+    if not html_code or not html_code.strip():
+        return None
+
+    normalized_project_name = (project_name or "").strip().lower()
+    prefer_status_or_p = normalized_project_name == "zic_zac_zoe"
+
+    tag_regex = re.compile(r"<!--.*?-->|</?([a-zA-Z][\w:-]*)\b[^>]*?>", re.DOTALL)
+    void_tags = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"
+    }
+    skip_tags = {"html", "head", "body", "script", "style"}
+    candidates: List[Dict[str, Any]] = []
+
+    matches = list(tag_regex.finditer(html_code))
+    for idx, match in enumerate(matches):
+        token = match.group(0)
+        tag_name = (match.group(1) or "").lower()
+        if not tag_name or token.startswith("</") or token.startswith("<!--"):
+            continue
+        if tag_name in void_tags or tag_name in skip_tags or token.rstrip().endswith("/>"):
+            continue
+
+        depth = 1
+        closing_end = None
+        for inner_match in matches[idx + 1:]:
+            inner_token = inner_match.group(0)
+            inner_tag = (inner_match.group(1) or "").lower()
+            if not inner_tag or inner_token.startswith("<!--"):
+                continue
+            if inner_tag != tag_name:
+                continue
+            if inner_token.startswith("</"):
+                depth -= 1
+                if depth == 0:
+                    closing_end = inner_match.end()
+                    break
+            elif inner_tag not in void_tags and not inner_token.rstrip().endswith("/>"):
+                depth += 1
+
+        if closing_end is None:
+            continue
+
+        component_code = html_code[match.start():closing_end].strip()
+        if not component_code:
+            continue
+
+        line_count = len([line for line in component_code.splitlines() if line.strip()])
+        visible_text = re.sub(r"<[^>]+>", " ", component_code)
+        is_preferred_candidate = (
+            tag_name == "p" or bool(re.search(r"\bstatus\b", visible_text, re.IGNORECASE))
+        )
+        # Keep the original non-triviality filter for all tasks except zic_zac_zoe.
+        # For zic_zac_zoe, allow short preferred candidates (common for status labels).
+        if line_count < 4 and not (prefer_status_or_p and is_preferred_candidate):
+            continue
+
+        open_tag_text = token
+        id_match = re.search(r'id\s*=\s*["\']([^"\']+)["\']', open_tag_text, re.IGNORECASE)
+        class_match = re.search(r'class\s*=\s*["\']([^"\']+)["\']', open_tag_text, re.IGNORECASE)
+        name = tag_name
+        if id_match:
+            name += f"#{id_match.group(1)}"
+        if class_match:
+            first_class = class_match.group(1).strip().split()[0] if class_match.group(1).strip() else ""
+            if first_class:
+                name += f".{first_class}"
+
+        candidates.append({
+            "name": name,
+            "code": component_code,
+            "line_count": line_count,
+            "tag_name": tag_name,
+        })
+
+    if not candidates:
+        return None
+
+    def _is_preferred(c: Dict[str, Any]) -> bool:
+        if not prefer_status_or_p:
+            return False
+        if c["tag_name"] == "p":
+            return True
+        # Strip HTML tags and check for "status" in visible text.
+        text = re.sub(r"<[^>]+>", " ", c["code"])
+        return bool(re.search(r"\bstatus\b", text, re.IGNORECASE))
+
+    eligible = [c for c in candidates if c["line_count"] <= MAX_CODE_COMPARE_BLOCK_LINES]
+    if eligible:
+        preferred = [c for c in eligible if _is_preferred(c)]
+        pool = preferred if preferred else eligible
+        chosen = random.choice(pool)
+        return chosen["name"], chosen["code"]
+
+    preferred = [c for c in candidates if _is_preferred(c)]
+    pool = preferred if preferred else candidates
+    chosen = random.choice(pool)
+    return chosen["name"], chosen["code"]
+
+
+def _sample_css_block_for_explanation(css_code: str) -> Optional[tuple[str, str]]:
+    """
+    Extract a reasonably sized CSS block using simple brace parsing.
+    """
+    if not css_code or not css_code.strip():
+        return None
+
+    blocks: List[str] = []
+    depth = 0
+    token_start = None
+
+    for i, ch in enumerate(css_code):
+        if depth == 0 and token_start is None and not ch.isspace():
+            token_start = i
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+            if depth == 0 and token_start is not None:
+                block = css_code[token_start:i + 1].strip()
+                if block:
+                    blocks.append(block)
+                token_start = None
+        elif ch == ";" and depth == 0 and token_start is not None:
+            # Handles top-level statements such as @import;
+            token_start = None
+
+    if not blocks:
+        return None
+
+    scored: List[Dict[str, Any]] = []
+    for block in blocks:
+        header = block.split("{", 1)[0].strip()
+        declaration_count = block.count(":")
+        line_count = len([line for line in block.splitlines() if line.strip()])
+        if line_count < 3 and declaration_count < 3:
+            continue
+        scored.append({
+            "name": header if header else "CSS block",
+            "code": block,
+            "line_count": line_count,
+            "declaration_count": declaration_count
+        })
+
+    if not scored:
+        return None
+
+    eligible = [b for b in scored if b["line_count"] <= MAX_CODE_COMPARE_BLOCK_LINES]
+    if eligible:
+        chosen = random.choice(eligible)
+        return chosen["name"], chosen["code"]
+
+    chosen = random.choice(scored)
+    return chosen["name"], chosen["code"]
+
+
 def _generate_distractor_functions(existing_functions: List[str]) -> List[str]:
     """
     Generate plausible function names that don't exist in the code.
@@ -4469,7 +5200,8 @@ async def _generate_comprehension_questions(
     submission_description: str,
     submission_code: Dict[str, str],
     is_required_task: bool = True,
-    project_name: Optional[str] = None
+    project_name: Optional[str] = None,
+    ai_assistant_mode: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Generate comprehension questions based on the submission.
@@ -4493,37 +5225,138 @@ async def _generate_comprehension_questions(
         "answer": Optional[str]  # Correct answer for scoring
     }
     """
+    print(
+        f"[comprehension/generate-helper] project_name={project_name} required_task={is_required_task} ai_mode={ai_assistant_mode}",
+        flush=True,
+    )
 
     SANITY_QUESTION_PROBABILITY = 0.5
     # Tasks that should always have attention checks
-    ALWAYS_ATTENTION_CHECK_TASKS = {'snake', 'platformer'}
+    ALWAYS_ATTENTION_CHECK_TASKS = {'platformer'}
+    # Website-requirements tasks that should always include a fixed sanity check.
+    # Warm-up tasks are intentionally excluded.
+    FIXED_SANITY_CHECK_TASKS = {'zic_zac_zoe', 'zic_zac_zoe_follow_up'}
+    # Warm-up tasks should only use fixed agreement prompts.
+    # Do not generate code/UI comprehension items for these tasks.
+    WARM_UP_TASKS = {'website_tutorial_intro', 'website_tutorial_follow_up'}
 
     questions = []
     self_report_options = ["1 - Strongly disagree", "2 - Disagree", "3 - Neither agree nor disagree", "4 - Agree", "5 - Strongly agree"]
     
     # Add self-report questions
     prefix = "How much do you agree with this statement"
+
+    # Warm-up tasks only receive fixed agreement questions.
+    # Intentionally skip all generated comprehension question logic.
+    if project_name and project_name in WARM_UP_TASKS:
+        print(
+            f"[comprehension/generate-helper] warmup task path for {project_name}",
+            flush=True,
+        )
+        questions.extend([
+            {
+                "question_name": "warmup_success",
+                "question": "I successfully completed the task",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "warmup_understand",
+                "question": "I understood the requirements.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            }])
+        print(
+            f"[comprehension/generate-helper] returning warmup_count={len(questions)}",
+            flush=True,
+        )
+        return questions
     
     if is_required_task:
+        print("[comprehension/generate-helper] required-task question set", flush=True)
         # For required tasks, include all self-report questions
+
+        questions = [
+            {
+                "question_name": "self_report_confidence",
+                "question": f"I am confident this submission meets the task requirements.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ]
+
+        agent_mode_questions = [
+            {
+                "question_name": "self_report_easy_with_agent",
+                "question": f"It was easy to complete the task with the AI in Agent Mode (where it directly edited files).",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_demand_with_agent",
+                "question": f"Working with the AI in Agent Mode required a lot of mental effort.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_review_with_agent",
+                "question": f"I read and reviewed the AI-generated code.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_detection_with_agent",
+                "question": f"I could tell when there were errors in the AI-generated code.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ]
+
+        chat_mode_questions = [
+            {
+                "question_name": "self_report_easy_with_chat",
+                "question": f"It was easy to complete the task with the AI in Chat Mode (where it generated code/syntax help).",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_demand_with_chat",
+                "question": f"Working with the AI in Chat Mode required a lot of mental effort.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },    
+            {
+                "question_name": "self_report_review_with_chat",
+                "question": f"I read and reviewed the AI chatbot's responses.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+            {
+                "question_name": "self_report_detection_with_chat",
+                "question": f"I could tell when there were errors in the AI chatbot's responses.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            }     
+        ]
+
+        normalized_mode = (ai_assistant_mode or "").strip().lower()
+        questions.extend(agent_mode_questions if normalized_mode == "agent" else chat_mode_questions)
+
         questions.extend([
             {
                 "question_name": "self_report_understanding",
                 "question": f"I understand how my code works.",
-                "question_type": "mcqa",
-                "choices": self_report_options,
-                "answer": ""
-            },
-            {
-                "question_name": "self_report_review",
-                "question": f"I read and reviewed all of the AI-generated code.",
-                "question_type": "mcqa",
-                "choices": self_report_options,
-                "answer": ""
-            },
-            {
-                "question_name": "self_report_explain",
-                "question": f"I could explain how my code works to someone else while looking at it.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -4537,11 +5370,30 @@ async def _generate_comprehension_questions(
             },
         ])
     else:
+        print("[comprehension/generate-helper] non-required question set", flush=True)
         # For non-required tasks, only include self_report_understanding
         questions.extend([
             {
-                "question_name": "self_report_understanding",
-                "question": f"{prefix}: I understand how my code works.",
+                "question_name": "self_report_happy_game",
+                "question": f"I am happy with the game I created.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ])
+        questions.extend([
+            {
+                "question_name": "self_report_review_game",
+                "question": f"I reviewed the AI-generated code.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
+        ])
+        questions.extend([
+            {
+                "question_name": "self_report_understanding_game",
+                "question": f"I understand how my code works.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -4550,23 +5402,59 @@ async def _generate_comprehension_questions(
 
     num_self_report_questions = len(questions)
     
-    # Add code-based questions (run in parallel)
-    # For non-required tasks, skip the explanation question
-    code_questions, ui_questions = await asyncio.gather(
-        asyncio.to_thread(generate_js_questions, submission_code, include_explanation=is_required_task),
-        asyncio.to_thread(generate_ui_questions, submission_code)
+    # Add code-based questions (run in parallel).
+    # Launch JS/UI generation and the three compare-question generations together.
+    code_questions, ui_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
+        asyncio.to_thread(generate_js_questions, submission_code, include_explanation=False),
+        asyncio.to_thread(generate_ui_questions, submission_code),
+        asyncio.to_thread(
+            generate_single_code_compare_question,
+            submission_code,
+            "html",
+            is_required_task,
+            project_name,
+        ),
+        asyncio.to_thread(generate_single_code_compare_question, submission_code, "css", is_required_task),
+        asyncio.to_thread(generate_single_code_compare_question, submission_code, "js", is_required_task),
+    )
+    print(
+        f"[comprehension/generate-helper] code_questions={len(code_questions)} ui_questions={len(ui_questions)} "
+        f"html_compare={bool(html_compare_question)} css_compare={bool(css_compare_question)} js_compare={bool(js_compare_question)}",
+        flush=True,
     )
     
     questions.extend(ui_questions)
     questions.extend(code_questions)
+    # Deterministic compare question order: html -> css -> js
+    if html_compare_question:
+        questions.append(html_compare_question)
+    if css_compare_question:
+        questions.append(css_compare_question)
+    if js_compare_question:
+        questions.append(js_compare_question)
 
     # Add sanity check question
     # Always add for snake and platformer, otherwise 50% probability for other required tasks
     should_add_sanity_check = False
+    should_add_fixed_sanity_check = False
     if project_name and project_name in ALWAYS_ATTENTION_CHECK_TASKS:
         should_add_sanity_check = True
+    if project_name and project_name in FIXED_SANITY_CHECK_TASKS:
+        should_add_fixed_sanity_check = True
     
-    if should_add_sanity_check:
+    if should_add_fixed_sanity_check:
+        # Keep this sanity check deterministic for website-requirements tasks.
+        fixed_choice = "2 - Disagree"
+        position_to_insert = min(4, len(questions))
+        sanity_question = {
+            "question_name": "sanity_check",
+            "question": f"Attention Check: Please select \"{fixed_choice}\" as your answer",
+            "question_type": "mcqa",
+            "choices": self_report_options,
+            "answer": self_report_options.index(fixed_choice) + 1
+        }
+        questions.insert(position_to_insert, sanity_question)
+    elif should_add_sanity_check:
         position_to_insert = random.randint(0, num_self_report_questions)
         choice_to_select = random.choice(self_report_options)
         sanity_question = {
@@ -4578,7 +5466,11 @@ async def _generate_comprehension_questions(
         }
         questions.insert(position_to_insert, sanity_question)
 
-    print(questions)
+    question_names = [str(q.get("question_name", "")) for q in questions]
+    print(
+        f"[comprehension/generate-helper] final_question_names={question_names}",
+        flush=True,
+    )
 
     return questions
 
@@ -5256,7 +6148,7 @@ async def get_user_stats(
         ).all()
         
         # Separate MCQA and multi-select questions
-        mcqa_questions = [q for q in comprehension_questions if q.question_type == 'mcqa' and q.user_answer is not None]
+        mcqa_questions = [q for q in comprehension_questions if q.question_type in ('mcqa', 'code_compare') and q.user_answer is not None]
         multi_select_questions = [q for q in comprehension_questions if q.question_type == 'multi_select' and q.score is not None]
         
         # For MCQA, extract choice number (1-5) from user_answer instead of using score
@@ -6308,6 +7200,145 @@ Be strict but fair in your evaluation. If the requirement is met, even if not pe
         })
 
 # Authentication endpoints
+SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY = "experiment_group"
+SIGNUP_LEGACY_GROUPS_SETTINGS_KEY = "groups"
+WEBSITE_REQUIREMENTS_SKIPPED_SETTINGS_KEY = "websiteRequirementsSkipped"
+SIGNUP_GROUP_CHAT = "chat"
+SIGNUP_GROUP_AGENT = "agent"
+VALID_SIGNUP_GROUPS = {SIGNUP_GROUP_CHAT, SIGNUP_GROUP_AGENT}
+
+
+def _normalize_experiment_group(group: Any) -> Optional[str]:
+    """Normalize experiment group and return valid value or None."""
+    if not isinstance(group, str):
+        return None
+    normalized = group.strip().lower()
+    if normalized not in VALID_SIGNUP_GROUPS:
+        return None
+    return normalized
+
+
+def _is_eligible_for_experiment_group_sampling(user_settings: Any) -> bool:
+    """Whether a user should be included in experiment group balancing counts."""
+    if not isinstance(user_settings, dict):
+        return False
+    # Exclude users who explicitly chose to skip website requirements tasks.
+    return user_settings.get(WEBSITE_REQUIREMENTS_SKIPPED_SETTINGS_KEY) is not True
+
+
+def _get_experiment_group_counts(db: Session) -> Dict[str, int]:
+    """Count assigned experiment groups across eligible non-skipping users."""
+    counts = {
+        SIGNUP_GROUP_CHAT: 0,
+        SIGNUP_GROUP_AGENT: 0,
+        "unassigned": 0,
+    }
+
+    existing_users = db.query(User.settings).all()
+    for (user_settings,) in existing_users:
+        if not _is_eligible_for_experiment_group_sampling(user_settings):
+            continue
+
+        if not isinstance(user_settings, dict):
+            counts["unassigned"] += 1
+            continue
+
+        group = _normalize_experiment_group(
+            user_settings.get(SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY)
+        )
+        if group == SIGNUP_GROUP_CHAT:
+            counts[SIGNUP_GROUP_CHAT] += 1
+        elif group == SIGNUP_GROUP_AGENT:
+            counts[SIGNUP_GROUP_AGENT] += 1
+        else:
+            counts["unassigned"] += 1
+
+    return counts
+
+
+def _assign_signup_group(
+    username: str,
+    email: str,
+    settings: Dict[str, Any],
+    db: Session,
+) -> str:
+
+    # FOR TESTING: Always return chat mode
+    return SIGNUP_GROUP_CHAT
+
+    """Assign signup to one 50/50 experiment group: 'chat' or 'agent'."""
+    explicit_group = _normalize_experiment_group(
+        settings.get(SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY)
+    )
+    if explicit_group:
+        return explicit_group
+
+    # Backward compatibility for any payloads still sending settings.groups.
+    legacy_groups = settings.get(SIGNUP_LEGACY_GROUPS_SETTINGS_KEY)
+    if isinstance(legacy_groups, list) and legacy_groups:
+        legacy_group = _normalize_experiment_group(legacy_groups[0])
+        if legacy_group:
+            return legacy_group
+
+    _ = (username, email)
+
+    # Counterbalanced assignment: choose the arm with fewer users so far.
+    # If tied, use pure 50/50 random assignment.
+    counts = _get_experiment_group_counts(db)
+    chat_count = counts[SIGNUP_GROUP_CHAT]
+    agent_count = counts[SIGNUP_GROUP_AGENT]
+
+    if chat_count < agent_count:
+        return SIGNUP_GROUP_CHAT
+    if agent_count < chat_count:
+        return SIGNUP_GROUP_AGENT
+    return random.choice([SIGNUP_GROUP_CHAT, SIGNUP_GROUP_AGENT])
+
+
+def _build_signup_settings(
+    username: str,
+    email: str,
+    incoming_settings: Optional[Dict[str, Any]],
+    db: Session,
+) -> Dict[str, Any]:
+    """Create final settings payload for newly created users."""
+    settings = dict(incoming_settings) if isinstance(incoming_settings, dict) else {}
+    settings[SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY] = _assign_signup_group(
+        username=username,
+        email=email,
+        settings=settings,
+        db=db,
+    )
+    # Keep only the canonical experiment key moving forward.
+    settings.pop(SIGNUP_LEGACY_GROUPS_SETTINGS_KEY, None)
+    return settings
+
+
+def _ensure_user_experiment_group(db: Session, user: User) -> str:
+    """Ensure an existing user has a valid experiment_group, assigning if missing."""
+    current_settings = user.settings if isinstance(user.settings, dict) else {}
+    existing_group = _normalize_experiment_group(
+        current_settings.get(SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY)
+    )
+    if existing_group:
+        return existing_group
+
+    updated_settings = dict(current_settings)
+    updated_settings[SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY] = _assign_signup_group(
+        username=user.username,
+        email=user.email,
+        settings=updated_settings,
+        db=db,
+    )
+    updated_settings.pop(SIGNUP_LEGACY_GROUPS_SETTINGS_KEY, None)
+
+    user.settings = updated_settings
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return updated_settings[SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY]
+
+
 @app.post("/signup", tags=["Authentication"])
 async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     """Create a new user account."""
@@ -6333,11 +7364,18 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
         hashed_password = get_password_hash(user_data.password)
         
         # Create new user
+        signup_settings = _build_signup_settings(
+            username=user_data.username,
+            email=user_data.email,
+            incoming_settings=user_data.settings,
+            db=db,
+        )
+
         db_user = User(
             username=user_data.username,
             email=user_data.email,
             password=hashed_password,
-            settings=user_data.settings or {}
+            settings=signup_settings,
         )
         
         db.add(db_user)
@@ -6400,6 +7438,9 @@ async def login(credentials: dict, db: Session = Depends(get_db)):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect password"
             )
+
+        # Backfill assignment for legacy users missing experiment_group.
+        _ensure_user_experiment_group(db, user)
         
         # Create access token
         access_token = create_access_token(data={"sub": str(user.id)})
@@ -6467,6 +7508,9 @@ async def validate_auth_token(request: Request, db: Session = Depends(get_db)):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
             )
+
+        # Backfill assignment for legacy users missing experiment_group.
+        _ensure_user_experiment_group(db, user)
 
         return {
             "valid": True,
@@ -6638,6 +7682,30 @@ async def update_user_settings(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating settings: {str(e)}"
+        )
+
+
+@app.get("/api/admin/experiment-groups", tags=["Users"])
+async def get_experiment_group_counts(db: Session = Depends(get_db)):
+    """Return experiment-group counts for admin/debugging."""
+    try:
+        counts = _get_experiment_group_counts(db)
+        assigned_total = counts[SIGNUP_GROUP_CHAT] + counts[SIGNUP_GROUP_AGENT]
+        total_users = assigned_total + counts["unassigned"]
+        return {
+            "settings_key": SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY,
+            "groups": {
+                SIGNUP_GROUP_CHAT: counts[SIGNUP_GROUP_CHAT],
+                SIGNUP_GROUP_AGENT: counts[SIGNUP_GROUP_AGENT],
+            },
+            "assigned_total": assigned_total,
+            "unassigned": counts["unassigned"],
+            "total_users": total_users,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching experiment-group counts: {str(e)}"
         )
 
 

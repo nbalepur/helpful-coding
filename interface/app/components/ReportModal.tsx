@@ -91,7 +91,7 @@ export default function ReportModal({ show, onClose, onSubmit, isSubmitting = fa
           backgroundColor: '#1f2937',
           borderRadius: '12px',
           width: '90%',
-          maxWidth: '600px',
+          maxWidth: '750px',
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
@@ -259,6 +259,48 @@ export default function ReportModal({ show, onClose, onSubmit, isSubmitting = fa
                   }}
                 />
                 <span>I am frustrated and unable to solve this question</span>
+              </label>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: '2px solid',
+                  borderColor: selectedReportType === 'insufficient_programming_experience' ? '#3b82f6' : '#4b5563',
+                  backgroundColor: selectedReportType === 'insufficient_programming_experience' ? 'rgba(59, 130, 246, 0.1)' : '#1f2937',
+                  color: '#e5e7eb',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  transition: 'border-color 0.2s ease, background-color 0.2s ease',
+                  opacity: isSubmitting ? 0.6 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmitting && selectedReportType !== 'insufficient_programming_experience') {
+                    e.currentTarget.style.borderColor = '#6b7280';
+                    e.currentTarget.style.backgroundColor = '#374151';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSubmitting && selectedReportType !== 'insufficient_programming_experience') {
+                    e.currentTarget.style.borderColor = '#4b5563';
+                    e.currentTarget.style.backgroundColor = '#1f2937';
+                  }
+                }}
+              >
+                <input
+                  type="radio"
+                  name="reportType"
+                  value="insufficient_programming_experience"
+                  checked={selectedReportType === 'insufficient_programming_experience'}
+                  onChange={(e) => setSelectedReportType(e.target.value)}
+                  disabled={isSubmitting}
+                  style={{
+                    marginRight: '12px',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  }}
+                />
+                <span>I don't have enough programming experience to answer this question</span>
               </label>
 
               <label

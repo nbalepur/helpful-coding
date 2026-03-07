@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ENV } from "../config/env";
 import { setUserIdCookie, setAuthTokenCookie, generateUuidV4 } from "../utils/cookies";
 import LoadingSpinner from "./LoadingSpinner";
@@ -19,6 +19,7 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const submittingRef = useRef(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -56,18 +57,50 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
     return true;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Prevent duplicate submissions
-    if (isLoading) {
-      return;
-    }
-    
-    if (!validateForm()) {
-      return;
+  const completeAuthSuccess = (user: any, accessToken: string) => {
+    setUserIdCookie(generateUuidV4());
+    setAuthTokenCookie(accessToken);
+    onSuccess(user, accessToken);
+  };
+
+  const attemptLoginFallback = async (): Promise<boolean> => {
+    try {
+      const loginResponse = await fetch(`${ENV.BACKEND_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username_or_email: formData.email || formData.username,
+          password: formData.password,
+        }),
+      });
+
+      if (!loginResponse.ok) {
+        return false;
+      }
+
+      const loginData = await loginResponse.json();
+      if (loginData?.user && loginData?.access_token) {
+        completeAuthSuccess(loginData.user, loginData.access_token);
+        return true;
+      }
+    } catch (error) {
+      console.error("Signup fallback login failed:", error);
     }
 
+    return false;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Synchronous guard so double submit (e.g. double-click or Strict Mode) only sends one request
+    if (submittingRef.current) return;
+    if (isLoading) return;
+    if (!validateForm()) return;
+
+    submittingRef.current = true;
     setIsLoading(true);
     setError("");
 
@@ -86,29 +119,42 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
 
       const data = await response.json();
 
-      if (response.ok) {
-        // Store token in localStorage
-        localStorage.setItem('auth_token', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Store in cookies for persistence (use UUID for user_id cookie)
-        setUserIdCookie(generateUuidV4());
-        setAuthTokenCookie(data.access_token);
-        
-        // Call success callback
-        onSuccess(data.user, data.access_token);
+      if (response.ok && data?.user && data?.access_token) {
+        completeAuthSuccess(data.user, data.access_token);
+      } else if (response.ok) {
+        // Backend returned 200 but missing token/user: account may still exist, so try login once.
+        const loggedIn = await attemptLoginFallback();
+        if (!loggedIn) {
+          setError("Signup succeeded but something went wrong. Please try logging in.");
+        }
       } else {
         // Handle validation errors (array) or regular errors (string)
         let errorMessage = "Signup failed. Please try again.";
+        let shouldAttemptLoginFallback = false;
         if (data.detail) {
           if (Array.isArray(data.detail)) {
             // Format Pydantic validation errors
             errorMessage = data.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
           } else {
             errorMessage = data.detail;
+            const normalizedDetail = String(data.detail).toLowerCase();
+            if (
+              normalizedDetail.includes("already registered") ||
+              normalizedDetail.includes("already exists")
+            ) {
+              // If account was created by an earlier request, this can happen on retried submits.
+              shouldAttemptLoginFallback = true;
+            }
           }
         }
-        setError(errorMessage);
+        if (shouldAttemptLoginFallback) {
+          const loggedIn = await attemptLoginFallback();
+          if (!loggedIn) {
+            setError(errorMessage);
+          }
+        } else {
+          setError(errorMessage);
+        }
       }
     } catch (err: any) {
       console.error('Signup error:', err);
@@ -127,6 +173,7 @@ export default function SignupForm({ onSuccess, onSwitchToLogin, onCancel }: Sig
       }
       setError(errorMessage);
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   };

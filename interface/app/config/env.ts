@@ -3,7 +3,17 @@
  * Centralized access to environment variables
  */
 
+const parsePositiveIntOrDefault = (value: string | undefined, fallback: number): number => {
+  const parsed = Number.parseInt(value || '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
 export const ENV = {
+
+
   // Backend API URL
   // In production, use relative URL to proxy through Next.js API routes
   // In development, use direct connection to backend
@@ -100,6 +110,26 @@ export const ENV = {
   
   // Test cases configuration - whether to show only public tests (default: true)
   SHOW_PUBLIC_TESTS_ONLY: process.env.NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY !== 'false',
+
+  // Number of submitted game tasks required before prompting post-test
+  NUM_TASKS_REQUIRED_UNTIL_POSTTEST: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST,
+    10
+  ),
+
+  // Timed task durations (in minutes)
+  RECREATION_TASK_ONE_MINUTES: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES,
+    40
+  ),
+  RECREATION_TASK_TWO_MINUTES: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES,
+    20
+  ),
+  GAME_TASK_ONE_MINUTES: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_GAME_TASK_ONE_MINUTES,
+    75
+  ),
   
   // Helper to get the execute endpoint URL
   get EXECUTE_ENDPOINT_URL() {

@@ -101,6 +101,10 @@ def main() -> int:
             title = task.get("title")
             label = task.get("label")
             description_text = load_description(task)
+            requirements = task.get("requirements", [])
+            if not isinstance(requirements, list):
+                requirements = []
+            example = task.get("example", "")
             files_json = extract_files_json(task)
             code_start = parse_date_field(task, "code_start_date")
             voting_start = parse_date_field(task, "voting_start_date")
@@ -110,6 +114,8 @@ def main() -> int:
                 existing.title = title
                 existing.label = label
                 existing.description = description_text
+                existing.requirements = requirements
+                existing.example = example
                 existing.files = files_json
                 existing.code_start_date = code_start
                 existing.voting_start_date = voting_start
@@ -121,6 +127,8 @@ def main() -> int:
                     title=title,
                     label=label,
                     description=description_text,
+                    requirements=requirements,
+                    example=example,
                     files=files_json,
                     code_start_date=code_start,
                     voting_start_date=voting_start,

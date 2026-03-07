@@ -22,11 +22,18 @@ export interface PreviewTabRef {
 }
 
 const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh }, ref) => {
+  const DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY = 'vibecode.preview.debugConsoleVisible';
   const previewRef = useRef<any>(null);
   const debugPanelRef = useRef<PreviewDebugPanelRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [internalRefreshKey, setInternalRefreshKey] = useState(0);
-  const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [isDebugOpen, setIsDebugOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const storedValue = window.localStorage.getItem(DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY);
+    if (storedValue === 'true') return true;
+    if (storedValue === 'false') return false;
+    return true;
+  });
   const [url, setUrl] = useState(`https://vibecode.io/${taskName.toLowerCase().replace(/\s+/g, '-')}`);
   
   // Console placement and dragging state - load from cookies
@@ -71,6 +78,12 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
       updateUserSetting('debugConsolePlacement', consolePlacement);
     }
   }, [consolePlacement]);
+
+  // Persist whether the debug console pane is open across reloads.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY, String(isDebugOpen));
+  }, [isDebugOpen, DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY]);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({

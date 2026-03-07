@@ -112,22 +112,13 @@ export default function LoginForm({ onSuccess, onSwitchToSignup, onCancel }: Log
         return;
       }
       
-      // Store token in localStorage
-      try {
-        localStorage.setItem('auth_token', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      } catch (storageError) {
-        console.error('[LoginForm] Failed to store auth in localStorage:', storageError);
-        // Continue anyway - cookies will still work
-      }
-      
       // Store in cookies for persistence (use UUID for user_id cookie)
       try {
         setUserIdCookie(generateUuidV4());
         setAuthTokenCookie(data.access_token);
       } catch (cookieError) {
         console.error('[LoginForm] Failed to set auth cookies:', cookieError);
-        // Continue anyway - localStorage will still work
+        // Continue anyway - callback will still update in-memory auth state
       }
       // Call success callback
       onSuccess(data.user, data.access_token);

@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, ReactNode } from "react";
 import { useAuth } from "../utils/auth";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { ENV } from "../config/env";
-import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
+import { WEBSITE_REQUIREMENT_TASKS, GAME_REQUIRED_TASKS, isWebsiteRequirementTask } from "../config/tasks";
+import { isWebsiteRequirementsSkippedFromSettings } from "../utils/userSettings";
 import LoadingSpinner from "../components/LoadingSpinner";
-import { Trophy, Code, CheckCircle, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle } from "lucide-react";
+import { Trophy, Code, DollarSign, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle, CheckCircle2, Circle, CircleSlash, Lock, AlertTriangle } from "lucide-react";
 import { LineChart, Line, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 // Tooltip descriptions for each plot - edit these to update the info bubble text
@@ -21,9 +20,27 @@ const PLOT_DESCRIPTIONS = {
   trueComprehension: "Based on your answers to questions generated from your code during submission",
 } as const;
 
+const formatDateOnly = (dateString?: string): string => {
+  if (!dateString) {
+    return "the announced study end date";
+  }
+  const parsedDate = new Date(dateString);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return dateString;
+  }
+  return parsedDate.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
 interface UserStats {
   totalSubmissions: number;
   completedRequiredTasks: number;
+  completedGameRequiredTasks: number;
+  completedAdditionalWebsiteTasks: number;
+  totalAdditionalWebsiteTasks: number;
   averageRating: number;
   numVotes: number;
   votesPerProject: Array<{
@@ -162,15 +179,15 @@ function convertCodingPerformanceToTimeBased(
   // Convert each phase group to a data point
   const result: Array<{ timeLabel: string; value: number; timestamp: string; phase: string }> = [];
   
-  for (const [phase, items] of phaseGroups.entries()) {
+  for (const [phase, items] of Array.from(phaseGroups.entries())) {
     // Calculate average value for this phase
-    const avgValue = items.reduce((sum, item) => sum + getValue(item), 0) / items.length;
+    const avgValue = items.reduce((sum: number, item) => sum + getValue(item), 0) / items.length;
     
     // Find earliest timestamp for this phase
     const timestamps = items
-      .map(item => item.timestamp)
-      .filter(ts => ts && ts !== "")
-      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      .map((item) => item.timestamp)
+      .filter((ts): ts is string => Boolean(ts && ts !== ""))
+      .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime());
     
     // For pass rate, we should plot even if there are no timestamps (use phase as fallback)
     // For time, we need timestamps (only passed questions have them)
@@ -227,6 +244,51 @@ function InfoBubble({ text }: { text: string }) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function LabeledInfoBubble({
+  title = "How do I complete this?",
+  text,
+  disabled = false,
+}: {
+  title?: string;
+  text: ReactNode;
+  disabled?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (disabled && isOpen) {
+      setIsOpen(false);
+    }
+  }, [disabled, isOpen]);
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium shadow-none hover:shadow-none ${
+          disabled
+            ? "border-gray-700 bg-gray-900/60 text-gray-500 cursor-not-allowed transition-none hover:bg-gray-900/60 hover:text-gray-500 hover:border-gray-700"
+            : "border-blue-500/60 bg-blue-500/10 text-blue-200 hover:bg-blue-500/20"
+        }`}
+        onClick={() => {
+          if (disabled) return;
+          setIsOpen((prev) => !prev);
+        }}
+        disabled={disabled}
+        aria-disabled={disabled}
+      >
+        <HelpCircle className="w-3.5 h-3.5" />
+        {title}
+      </button>
+      {isOpen && (
+        <p className="mt-3 rounded-md border border-gray-700 bg-gray-900/70 px-3 py-2 text-sm text-gray-300 leading-relaxed">
+          {text}
+        </p>
       )}
     </div>
   );
@@ -548,15 +610,16 @@ function ProjectBarChart({ data, label, color = "#3b82f6", overallAverage = null
   );
 }
 
-export default function StatsPage() {
-  const router = useRouter();
+export default function CompensationPage() {
   const { user } = useAuth();
-  const { statsAccessible, isCalculating } = useUserStudyPopup();
+  const { preTestCompleted, postTestCompleted, allRequiredTasksCompleted } = useUserStudyPopup();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
 
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedPreTestCompleted, setFetchedPreTestCompleted] = useState<boolean | null>(null);
+  const [fetchedPostTestCompleted, setFetchedPostTestCompleted] = useState<boolean | null>(null);
   const [frontendTopic, setFrontendTopic] = useState<"all" | "html" | "css" | "js">("all");
   const [codingTypePassRate, setCodingTypePassRate] = useState<"combined" | "from_scratch" | "debug">("combined");
   const [codingTypeTimeTaken, setCodingTypeTimeTaken] = useState<"combined" | "from_scratch" | "debug">("combined");
@@ -570,13 +633,6 @@ export default function StatsPage() {
     direction: 'left-to-right' | 'right-to-left';
     opacity: number;
   }>>([]);
-
-  // Redirect if user hasn't completed study and we're not past the study end date
-  useEffect(() => {
-    if (!isCalculating && statsAccessible === false) {
-      router.replace("/browse");
-    }
-  }, [isCalculating, statsAccessible, router]);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -615,6 +671,15 @@ export default function StatsPage() {
           tasks = tasksData.tasks || [];
         }
 
+        if (skillCheckResponse.ok) {
+          const skillCheckData = await skillCheckResponse.json();
+          setFetchedPreTestCompleted(skillCheckData.pre_test?.completed ?? false);
+          setFetchedPostTestCompleted(skillCheckData.post_test?.completed ?? false);
+        } else {
+          setFetchedPreTestCompleted(null);
+          setFetchedPostTestCompleted(null);
+        }
+
         // Create mapping of projectId to task name
         const projectIdToTaskName = new Map<number, string>();
         tasks.forEach((task: any) => {
@@ -632,7 +697,29 @@ export default function StatsPage() {
           }
         });
 
-        const completedRequiredTasks = POST_TEST_REQUIRED_TASKS.filter((taskName) =>
+        const completedRequiredTasks = WEBSITE_REQUIREMENT_TASKS.filter((taskName) =>
+          completedTaskNames.has(taskName)
+        ).length;
+        const completedGameRequiredTasks = GAME_REQUIRED_TASKS.filter((taskName) =>
+          completedTaskNames.has(taskName)
+        ).length;
+
+        const additionalWebsiteTaskNames = tasks
+          .filter((task: any) => {
+            if (!task?.name || task.id === "playground") {
+              return false;
+            }
+            if (task.category === "tutorial" || task.tags?.includes("tutorial")) {
+              return false;
+            }
+            if (WEBSITE_REQUIREMENT_TASKS.includes(task.name) || GAME_REQUIRED_TASKS.includes(task.name)) {
+              return false;
+            }
+            return !isWebsiteRequirementTask(task) && (task.label || "open-ended").toLowerCase().replace(/_/g, "-") === "open-ended";
+          })
+          .map((task: any) => task.name as string);
+        const totalAdditionalWebsiteTasks = additionalWebsiteTaskNames.length;
+        const completedAdditionalWebsiteTasks = additionalWebsiteTaskNames.filter((taskName) =>
           completedTaskNames.has(taskName)
         ).length;
 
@@ -697,6 +784,9 @@ export default function StatsPage() {
         setStats({
           totalSubmissions: submissions.length,
           completedRequiredTasks,
+          completedGameRequiredTasks,
+          completedAdditionalWebsiteTasks,
+          totalAdditionalWebsiteTasks,
           averageRating,
           numVotes: totalVotes,
           votesPerProject,
@@ -733,24 +823,12 @@ export default function StatsPage() {
     setAnimatedDots(dots);
   }, []);
 
-  // Don't render stats content when redirecting (user hasn't completed study)
-  if (!isCalculating && statsAccessible === false) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
-        <div className="flex items-center justify-center space-x-3">
-          <LoadingSpinner size="lg" color="white" />
-          <p className="text-gray-400 text-lg">Redirecting...</p>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
         <div className="flex items-center justify-center space-x-3">
           <LoadingSpinner size="lg" color="blue" />
-          <p className="text-gray-400 text-lg">Loading your stats...</p>
+          <p className="text-gray-400 text-lg">Loading your compensation tracker...</p>
         </div>
       </div>
     );
@@ -769,6 +847,33 @@ export default function StatsPage() {
   if (!stats) {
     return null;
   }
+
+  const completedWebsiteRequirementTasks =
+    allRequiredTasksCompleted ?? stats.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
+  const completedPreTest = fetchedPreTestCompleted ?? preTestCompleted ?? false;
+  const completedPostTest = fetchedPostTestCompleted ?? postTestCompleted ?? false;
+  const requiredTaskCount = WEBSITE_REQUIREMENT_TASKS.length;
+  const gameRequiredTaskCount = GAME_REQUIRED_TASKS.length;
+  const completedGameRequiredTasks = stats.completedGameRequiredTasks;
+  const completedAdditionalWebsiteTasks = stats.completedAdditionalWebsiteTasks;
+  const totalAdditionalWebsiteTasks = stats.totalAdditionalWebsiteTasks;
+  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+
+  const stage1Completed = completedWebsiteRequirementTasks;
+  const stage1Skipped = websiteRequirementsSkipped;
+  const stage2Unlocked = stage1Completed;
+  const stage2Completed = stage2Unlocked && completedGameRequiredTasks >= gameRequiredTaskCount;
+  const stage3Unlocked = stage2Completed;
+  const stage3RewardBlocks = Math.floor(completedAdditionalWebsiteTasks / 5);
+  const stage3RewardDollars = stage3RewardBlocks * 20;
+  const stage3ProgressInCurrentBlock = completedAdditionalWebsiteTasks % 5;
+  const stage3Completed =
+    totalAdditionalWebsiteTasks > 0 && completedAdditionalWebsiteTasks >= totalAdditionalWebsiteTasks;
+  const numTasksRequiredUntilPostTest = ENV.NUM_TASKS_REQUIRED_UNTIL_POSTTEST;
+  const stage4Unlocked = stage3Unlocked && completedAdditionalWebsiteTasks >= numTasksRequiredUntilPostTest;
+  const stage4Completed = stage4Unlocked && completedPostTest;
+  const gameBonusTopN = process.env.NEXT_PUBLIC_GAME_TASK_BONUS_TOP_N ?? "N";
+  const bonusRewardsEndDate = 'June 1, 2026';
 
   const pillBase =
     "px-3 py-1 text-xs rounded-full border transition-colors focus:outline-none";
@@ -916,27 +1021,248 @@ export default function StatsPage() {
       </div>
       
       <div className="relative z-10 w-full flex flex-col items-center">
-        <h1 className="text-3xl font-semibold text-white mb-6 mt-4 text-center w-full">Your Stats 🤓☝️</h1>
-        
-        <div className="mb-6 text-center">
-          <p className="text-gray-300 text-base">
-            Want to see if your skills have improved?{" "}
-            <Link 
-              href="/skill-check" 
-              className="text-blue-400 hover:text-blue-300 underline transition-colors"
-            >
-              Retake our skill check!
-            </Link>
+        <h1 className="text-3xl font-semibold text-white mb-6 mt-4 text-center w-full">Compensation Tracker</h1>
+
+      <div className="w-full max-w-4xl space-y-6 pb-12">
+        {/* Description Section */}
+        <div className="bg-gray-800/60 rounded-lg border border-gray-700/60 p-5 space-y-3">
+          <h2 className="text-lg font-semibold text-white">How compensation works</h2>
+          <p className="text-gray-300 text-sm leading-relaxed">
+            Compensation is staggered by stage. Later payments unlock only after earlier stages are complete.
           </p>
+          <div className="space-y-2 text-sm text-gray-300">
+            <ul className="list-disc list-outside pl-5 space-y-1">
+              <li>
+                <span className="font-semibold text-blue-300">Step 0:</span> Complete the pre-test (no reward).
+              </li>
+              <li>
+                <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks (i.e., Zic-Zac-Zoe) to receive $40 or extra credit.
+              </li>
+              <li>
+                <span className="font-semibold text-blue-300">Stage 2:</span> Complete all required game-based design tasks (i.e., Platformer) to receive $10.
+              </li>
+              <li>
+                <span className="font-semibold text-blue-300">Stage 3:</span> Complete additional website tasks to receive $20 for every 5 tasks.
+              </li>
+              <li>
+                <span className="font-semibold text-blue-300">Stage 4:</span> After 10 additional website tasks, complete the post-test to receive $10.
+              </li>
+              <li>
+                <span className="font-semibold text-blue-300">Bonus rewards:</span> Additional rewards are available through {bonusRewardsEndDate} for the users with the highest-scoring websites in game-based tasks.
+              </li>
+            </ul>
+            <p className="text-gray-300 mt-2">
+              You can track each stage under the "Compensation Checklist" section below. If you have any questions, please contact{" "}
+              <a
+                href="mailto:nbalepur@umd.edu"
+                className="text-blue-300 hover:text-blue-200 underline"
+              >
+                nbalepur@umd.edu
+              </a>.
+            </p>
+            <div className="bg-red-600/10 border-l-4 border-red-500 rounded-r p-4 !mt-7">
+              <p className="text-white font-medium mb-2 flex items-center text-lg">
+                <AlertTriangle className="w-5 h-5 mr-2 text-red-400 flex-shrink-0" />
+                Warnings
+              </p>
+              <ul className="text-gray-200 space-y-3 list-disc list-outside pl-6 marker:text-red-300">
+                <li className="leading-relaxed">
+                  There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention. We may withdraw your compensation if you fail all checks.
+                </li>
+                <li className="leading-relaxed">
+                  Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.
+                </li>
+                <li className="leading-relaxed">
+                  Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        {/* Compensation Checklist */}
+        <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <DollarSign className="text-green-400" size={24} />
+            Compensation Checklist
+          </h2>
+          <p className="text-gray-300 mb-4">
+            Below are the tasks you can complete for compensation and your current progress.
+          </p>
+          <div className="space-y-4">
+            <div className="bg-gray-900/60 rounded-lg border border-gray-700/60 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Step 0: Pre-test</p>
+                  <p className="text-gray-400 text-sm">
+                    Pre-test: {completedPreTest ? "Done" : "Not done"}
+                  </p>
+                  <p className="text-gray-400 text-sm font-medium mt-1">No reward</p>
+                </div>
+                {completedPreTest ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
+                ) : (
+                  <Circle className="text-gray-500 shrink-0" size={20} />
+                )}
+              </div>
+            </div>
+
+            <div
+              className="rounded-lg border p-4 space-y-3 bg-gray-900/60 border-gray-700/60"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Step 1: Website Recreation Tasks (e.g., Zic-Zac-Zoe)</p>
+                  <p className="text-gray-400 text-sm">
+                    Requires pre-test completed • Task progress: {stats.completedRequiredTasks}/{requiredTaskCount}
+                    {websiteRequirementsSkipped ? " • Your status: Skipped" : ""}
+                  </p>
+                  <p className={`text-sm font-medium mt-1 ${stage1Skipped ? "text-amber-300" : "text-green-300"}`}>
+                    {stage1Skipped ? "Reward: Skipped" : "Reward: $40 or extra credit"}
+                  </p>
+                </div>
+                {stage1Skipped ? (
+                  <CircleSlash className="text-amber-300 shrink-0" size={20} />
+                ) : stage1Completed ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
+                ) : (
+                  <Circle className="text-gray-500 shrink-0" size={20} />
+                )}
+              </div>
+              {!stage1Completed && !stage1Skipped && (
+                <LabeledInfoBubble
+                  text={
+                    <>
+                      {!completedPreTest && (
+                        <>Complete the pre-test (Step 0) first, then </>
+                      )}
+                      Complete all website recreation tasks listed on the{" "}
+                      <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
+                        Browse page
+                      </a>
+                      .
+                    </>
+                  }
+                />
+              )}
+            </div>
+
+            <div
+              className={`rounded-lg border p-4 space-y-3 ${stage2Unlocked ? "bg-gray-900/60 border-gray-700/60" : "bg-gray-900/30 border-gray-800 opacity-70 cursor-not-allowed select-none"}`}
+              aria-disabled={!stage2Unlocked}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Stage 2: Required Game-Based Tasks (Platformer)</p>
+                  <p className="text-gray-400 text-sm">
+                    {stage2Unlocked
+                      ? `Task progress: ${completedGameRequiredTasks}/${gameRequiredTaskCount}`
+                      : "Locked until Stage 1 is complete"}
+                  </p>
+                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10</p>
+                </div>
+                {stage2Completed ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
+                ) : !stage2Unlocked ? (
+                  <Lock className="text-amber-300 shrink-0" size={20} />
+                ) : (
+                  <Circle className="text-gray-500 shrink-0" size={20} />
+                )}
+              </div>
+              {!stage2Completed && (
+                <LabeledInfoBubble
+                  text={
+                    <>
+                      Complete the required game-based website tasks (e.g., "Platformer") listed on the{" "}
+                      <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
+                        Browse page
+                      </a>
+                    </>
+                  }
+                  disabled={!stage2Unlocked}
+                />
+              )}
+            </div>
+
+            <div
+              className={`rounded-lg border p-4 space-y-3 ${stage3Unlocked ? "bg-gray-900/60 border-gray-700/60" : "bg-gray-900/30 border-gray-800 opacity-70 cursor-not-allowed select-none"}`}
+              aria-disabled={!stage3Unlocked}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Stage 3: Choose any additional website tasks to complete</p>
+                  <p className="text-gray-400 text-sm">
+                    {stage3Unlocked
+                      ? `Completed: ${completedAdditionalWebsiteTasks}${totalAdditionalWebsiteTasks > 0 ? `/${totalAdditionalWebsiteTasks}` : ""} • Current block: ${stage3ProgressInCurrentBlock}/5`
+                      : "Locked until Stage 2 is complete"}
+                  </p>
+                  <p className="text-green-300 text-sm font-medium mt-1">
+                    Reward earned so far: ${stage3RewardDollars} ({stage3RewardBlocks} × $20 per 5 tasks)
+                  </p>
+                </div>
+                {stage3RewardBlocks > 0 ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
+                ) : !stage3Unlocked ? (
+                  <Lock className="text-amber-300 shrink-0" size={20} />
+                ) : (
+                  <Circle className="text-gray-500 shrink-0" size={20} />
+                )}
+              </div>
+              {!stage3Completed && (
+                <LabeledInfoBubble
+                  text={
+                    <>
+                      After Stage 2, every additional set of 5 submitted game-based website tasks on the{" "}
+                      <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
+                        Browse page
+                      </a>{" "}
+                      adds a $20 reward.
+                    </>
+                  }
+                  disabled={!stage3Unlocked}
+                />
+              )}
+            </div>
+
+            <div
+              className={`rounded-lg border p-4 space-y-3 ${stage4Unlocked ? "bg-gray-900/60 border-gray-700/60" : "bg-gray-900/30 border-gray-800 opacity-70 cursor-not-allowed select-none"}`}
+              aria-disabled={!stage4Unlocked}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Stage 4: Post-test Assessment</p>
+                  <p className="text-gray-400 text-sm">
+                    {stage4Unlocked
+                      ? `Post-test: ${completedPostTest ? "Done" : "Not done"}`
+                      : `Locked until ${numTasksRequiredUntilPostTest} game-based website tasks from Steps 2 and 3 are completed (${completedAdditionalWebsiteTasks}/${numTasksRequiredUntilPostTest})`}
+                  </p>
+                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10</p>
+                </div>
+                {stage4Completed ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
+                ) : !stage4Unlocked ? (
+                  <Lock className="text-amber-300 shrink-0" size={20} />
+                ) : (
+                  <Circle className="text-gray-500 shrink-0" size={20} />
+                )}
+              </div>
+              {!stage4Completed && (
+                <LabeledInfoBubble
+                  text={
+                    <>
+                      Once you complete at least {numTasksRequiredUntilPostTest} additional website tasks on the{" "}
+                      <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
+                        Browse page
+                      </a>
+                      , you'll be prompted to complete the post-test. Doing this will receive the final stage reward.
+                    </>
+                  }
+                  disabled={!stage4Unlocked}
+                />
+              )}
+            </div>
+          </div>
         </div>
 
-      <div className="w-full max-w-6xl space-y-6 pb-12">
-        {/* Description Section */}
-        <div className="bg-gray-800/50 rounded-lg border border-gray-700/50 p-4 mb-4">
-          <p className="text-gray-300 text-sm leading-relaxed">
-            This page shows your website scores, AI usage, programming knowledge, coding abilities, and comprehension over time. Hover over the info icons next to each plot to learn more about what each metric represents!
-          </p>
-        </div>
         {/* Overall Progress Card */}
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -1002,7 +1328,7 @@ export default function StatsPage() {
         </div>
 
         {/* MCQA Accuracy Plots */}
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6">
           <h2 className="text-xl font-semibold text-white mb-8">MCQA Scores</h2>
           <div className="space-y-8">
             <SimpleLineChart
@@ -1024,7 +1350,7 @@ export default function StatsPage() {
         </div>
 
         {/* Coding Performance Plots */}
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6">
           <h2 className="text-xl font-semibold text-white mb-8">Coding Performance</h2>
           <div className="space-y-8">
             <div className="relative pt-8">
@@ -1075,7 +1401,7 @@ export default function StatsPage() {
         </div>
 
         {/* Comprehension Scores */}
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-8">
+        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6 mb-8">
           <h2 className="text-xl font-semibold text-white mb-4">Comprehension Scores</h2>
           
           {/* Per-project charts */}

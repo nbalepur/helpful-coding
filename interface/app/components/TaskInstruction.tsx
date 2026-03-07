@@ -2,6 +2,7 @@
 import React from 'react';
 import Markdown from "react-markdown";
 import { BsBoxArrowUpRight, BsX } from 'react-icons/bs';
+import { CodeBlockWithCopy } from './AssistantTerminalPane';
 
 interface TaskInstructionProps {
   taskDescription: string;
@@ -66,7 +67,7 @@ const TaskInstruction: React.FC<TaskInstructionProps> = ({ taskDescription, onHi
             sandbox="allow-same-origin allow-scripts"
           />
         ) : (
-          <Markdown>
+          <Markdown components={{ pre: (props) => <CodeBlockWithCopy className="bg-[#1b2130] rounded p-2 pr-10 my-2 overflow-x-auto text-[12px]" {...props} /> }}>
             {raw || "No task description available."}
           </Markdown>
         )}

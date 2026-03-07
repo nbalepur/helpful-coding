@@ -36,6 +36,36 @@ backendEnvContent.split('\n').forEach(line => {
   }
 });
 
+// Parse existing frontend .env.local to support local-first overrides for selected keys
+const existingFrontendVars = {};
+if (fs.existsSync(frontendEnvPath)) {
+  const existingContent = fs.readFileSync(frontendEnvPath, 'utf8');
+  existingContent.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#')) return;
+
+    const [key, ...valueParts] = line.split('=');
+    if (key && valueParts.length > 0) {
+      existingFrontendVars[key.trim()] = valueParts.join('=').trim();
+    }
+  });
+}
+
+// Keys that should be editable directly in interface/.env.local and not overwritten from backend/.env
+const localFirstFrontendVars = new Set([
+  'NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST',
+  'NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES',
+  'NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES',
+  'NEXT_PUBLIC_GAME_TASK_ONE_MINUTES',
+]);
+
+const resolveFrontendVar = (key, backendValue, fallbackValue) => {
+  if (localFirstFrontendVars.has(key) && existingFrontendVars[key]) {
+    return existingFrontendVars[key];
+  }
+  return backendValue || fallbackValue;
+};
+
 // Map backend variables to frontend variables
 const frontendEnvVars = {
   NEXT_PUBLIC_BACKEND_URL: envVars.BACKEND_URL || 'http://localhost:4828',
@@ -43,6 +73,26 @@ const frontendEnvVars = {
   NEXT_PUBLIC_FRONTEND_URL: envVars.FRONTEND_URL || 'http://localhost:4827',
   NEXT_PUBLIC_DEFAULT_BACKEND_PORT: envVars.DEFAULT_BACKEND_PORT || '5000',
   NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY: envVars.SHOW_PUBLIC_TESTS_ONLY || 'true',
+  NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST: resolveFrontendVar(
+    'NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST',
+    envVars.NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST || envVars.NUM_TASKS_REQUIRED_UNTIL_POSTTEST,
+    '10'
+  ),
+  NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES: resolveFrontendVar(
+    'NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES',
+    envVars.RECREATION_TASK_ONE_MINUTES,
+    '120'
+  ),
+  NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES: resolveFrontendVar(
+    'NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES',
+    envVars.RECREATION_TASK_TWO_MINUTES,
+    '120'
+  ),
+  NEXT_PUBLIC_GAME_TASK_ONE_MINUTES: resolveFrontendVar(
+    'NEXT_PUBLIC_GAME_TASK_ONE_MINUTES',
+    envVars.GAME_TASK_ONE_MINUTES,
+    '120'
+  ),
   USE_LOCAL_EXECUTION: envVars.USE_LOCAL_EXECUTION || 'false',
 };
 
@@ -90,6 +140,15 @@ NEXT_PUBLIC_DEFAULT_BACKEND_PORT=${frontendEnvVars.NEXT_PUBLIC_DEFAULT_BACKEND_P
 # Set to 'false' to show ALL test cases (including private/hidden tests)
 # Set to 'true' (or omit) to show only public test cases
 NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY=${frontendEnvVars.NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY}
+
+# Post-test prompt configuration
+# Number of submitted game tasks required (with platformer completed) before post-test is prompted
+NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST=${frontendEnvVars.NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST}
+
+# Timed task configuration (minutes)
+NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES=${frontendEnvVars.NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES}
+NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES=${frontendEnvVars.NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES}
+NEXT_PUBLIC_GAME_TASK_ONE_MINUTES=${frontendEnvVars.NEXT_PUBLIC_GAME_TASK_ONE_MINUTES}
 `;
 
 // Append preserved variables

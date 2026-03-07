@@ -6,6 +6,7 @@ import LoginForm from "./LoginForm";
 import SignupForm from "./SignupForm";
 import IRBConsentForm from "./IRBConsentForm";
 import { useAuth } from "../utils/auth";
+import { getAuthTokenCookie } from "../utils/cookies";
 import LoadingSpinner from "./LoadingSpinner";
 
 export default function LandingPage() {
@@ -94,13 +95,17 @@ export default function LandingPage() {
   };
 
   const handleAuthSuccess = (user: any, token: string) => {
-    // Use the auth context login method
+    // Update auth state; redirect is handled by the useEffect below when isAuthenticated becomes true.
+    // This avoids racing with React state updates (no redirect before state is committed).
     login(user, token);
-    // Redirect to browse page - cookies are now set correctly for Safari
-    // Small delay ensures cookies are written before navigation
+    // Best-effort immediate navigation after login/signup.
+    router.replace('/browse');
+    // Fallback in case client-side navigation is interrupted but auth cookie exists.
     setTimeout(() => {
-      router.push('/browse');
-    }, 100);
+      if (typeof window !== 'undefined' && window.location.pathname === '/landing' && getAuthTokenCookie()) {
+        window.location.assign('/browse');
+      }
+    }, 250);
   };
 
   const handleSwitchToSignup = () => {

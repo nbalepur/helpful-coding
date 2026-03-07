@@ -5,13 +5,23 @@ import UserStudyPopup, { PopupState, UserStudyPopupContext } from "./UserStudyPo
 import { getCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
 import { useAuth } from "../utils/auth";
-import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
-import { isStudyEnded } from "../config/study";
+import { getWebsiteRequirementTaskNames, isWebsiteRequirementTask, WEBSITE_REQUIREMENT_TASKS } from "../config/tasks";
+import {
+  hasWebsiteRequirementsChoiceFromSettings,
+  isWebsiteRequirementsSkippedFromSettings,
+  saveWebsiteRequirementsChoiceInSettings,
+  setWebsiteRequirementsChoiceLocal,
+} from "../utils/userSettings";
 import { PASSWORD_HASH, hashString } from "../utils/password";
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
-const SKILL_CHECK_PROMPT_COOKIE_NAME = `${ENV.COOKIE_PREFIX}skill_check_prompt_dismissed`;
+const WEBSITE_MODE_COMPLETE_COOKIE_NAME = `${ENV.COOKIE_PREFIX}website_requirements_complete_acknowledged`;
+const ASSISTANT_TRANSITION_ACK_COOKIE_NAME = `${ENV.COOKIE_PREFIX}assistant_transition_acknowledged`;
+const FOLLOW_UP_INTRO_TASK_NAME = 'website_tutorial_follow_up';
+
+/** Session-only flag: when set, pre-test is treated as completed (do not use if you are in CMSC848Q). Unguessable key. */
+export const PRE_TEST_SKIPPED_KEY = `${ENV.COOKIE_PREFIX}x9k2m7p4q1w8e5r3t6y0u1i2o3s5a7b9c`;
 
 // Set to true to disable the user study popup
 const DISABLE_USER_STUDY_POPUP = false;
@@ -34,7 +44,7 @@ interface UserStudyPopupProviderProps {
  */
 export default function UserStudyPopupProvider({ children }: UserStudyPopupProviderProps) {
   const searchParams = useSearchParams();
-  const { user, isLoading: isAuthLoading } = useAuth();
+  const { user, token, refreshUser, isLoading: isAuthLoading } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   
   // Check for secret password bypass using hash comparison
@@ -68,7 +78,6 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     }
     
     // Collect debug information
-    const studyEnded = isStudyEnded();
     const debugInfo: any = {
       userId: numericUserId,
       tutorialState: null as TutorialCookieState | null,
@@ -76,14 +85,17 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       preTestCompleted: null as boolean | null,
       postTestCompleted: null as boolean | null,
       allRequiredTasksCompleted: null as boolean | null,
-      studyEnded,
       completedTaskNames: [] as string[],
-      requiredTaskNames: POST_TEST_REQUIRED_TASKS,
+      requiredTaskNames: WEBSITE_REQUIREMENT_TASKS,
       numProjectsSubmitted: null as number | null,
+      numGameProjectsSubmitted: null as number | null,
+      hasSubmittedPlatformer: null as boolean | null,
       cookieDismissed: null as boolean | null,
       sessionDismissed: null as boolean | null,
       shouldShowSkillCheckPrompt: null as boolean | null,
       skillCheckPromptCondition: null as any,
+      websiteRequirementsSkipped: null as boolean | null,
+      websiteRequirementsChoiceMade: null as boolean | null,
       finalDecision: null as PopupState | null,
       error: null as any,
     };
@@ -99,7 +111,17 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // Check tutorial cookie first
       const tutorialState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
       debugInfo.tutorialState = tutorialState;
+      const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+      const websiteRequirementsChoiceMade = hasWebsiteRequirementsChoiceFromSettings(user?.settings);
+      debugInfo.websiteRequirementsSkipped = websiteRequirementsSkipped;
+      debugInfo.websiteRequirementsChoiceMade = websiteRequirementsChoiceMade;
       
+      const selectedTaskParam = searchParams?.get('task');
+      const experimentGroup = typeof user?.settings?.experiment_group === 'string'
+        ? user.settings.experiment_group.trim().toLowerCase()
+        : '';
+      const isAgentGroupUser = experimentGroup === 'agent';
+
       // Fetch all required data in parallel for better performance
       const [testStatusResponse, submissionsResponse, tasksResponse] = await Promise.all([
         fetch(`/api/skill-check/completion-status-both?user_id=${numericUserId}`),
@@ -114,6 +136,10 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         const testStatusData = await testStatusResponse.json();
         preTestCompletedValue = testStatusData.pre_test?.completed || false;
         postTestCompletedValue = testStatusData.post_test?.completed || false;
+        // If user chose "Skip pre-test", treat as completed for this session only
+        if (typeof window !== 'undefined' && sessionStorage.getItem(PRE_TEST_SKIPPED_KEY) === 'true') {
+          preTestCompletedValue = true;
+        }
         debugInfo.preTestCompleted = preTestCompletedValue;
         debugInfo.postTestCompleted = postTestCompletedValue;
       } else {
@@ -122,13 +148,11 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       }
       
       // Store the completion status in state for use by other components
-      setPreTestCompleted(studyEnded ? true : preTestCompletedValue);
-      setPostTestCompleted(studyEnded ? true : postTestCompletedValue);
+      setPreTestCompleted(preTestCompletedValue);
+      setPostTestCompleted(postTestCompletedValue);
       
       // Use the local variables for the rest of the function
-      const preTestCompleted = studyEnded ? true : preTestCompletedValue;
-      const postTestCompleted = studyEnded ? true : postTestCompletedValue;
-      
+      const preTestCompleted = preTestCompletedValue;
       // Parse submissions
       let submissionsData = { items: [] };
       if (submissionsResponse.ok) {
@@ -169,13 +193,32 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         });
         
         debugInfo.completedTaskNames = Array.from(completedTaskNames);
-        const requiredCompleted = POST_TEST_REQUIRED_TASKS.every(
+        const requiredTaskNames = getWebsiteRequirementTaskNames(tasks);
+        debugInfo.requiredTaskNames = requiredTaskNames;
+
+        const completedGameTaskNames = new Set<string>();
+        submittedProjectIds.forEach((projectId: number) => {
+          const matchingTask = tasks.find((task: any) => task.projectId === projectId);
+          if (!matchingTask || !matchingTask.name || matchingTask.id === 'playground') {
+            return;
+          }
+          if (!isWebsiteRequirementTask(matchingTask)) {
+            completedGameTaskNames.add(String(matchingTask.name).toLowerCase());
+          }
+        });
+        const numGameProjectsSubmitted = completedGameTaskNames.size;
+        const hasSubmittedPlatformer = completedGameTaskNames.has('platformer');
+        debugInfo.numGameProjectsSubmitted = numGameProjectsSubmitted;
+        debugInfo.hasSubmittedPlatformer = hasSubmittedPlatformer;
+
+        const requiredCompleted = requiredTaskNames.every(
           taskName => completedTaskNames.has(taskName)
         );
-        debugInfo.allRequiredTasksCompleted = studyEnded ? true : requiredCompleted;
-        setAllRequiredTasksCompleted(studyEnded ? true : requiredCompleted);
+        const effectiveRequiredCompleted = requiredCompleted || websiteRequirementsSkipped;
+        debugInfo.allRequiredTasksCompleted = effectiveRequiredCompleted;
+        setAllRequiredTasksCompleted(effectiveRequiredCompleted);
       } else {
-        setAllRequiredTasksCompleted(false);
+        setAllRequiredTasksCompleted(websiteRequirementsSkipped);
       }
       
       // Simplified decision flow:
@@ -186,88 +229,60 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       }
       
       // 2. Otherwise, if user has not done the pre-test, show pre-test
-      if (!studyEnded && !preTestCompleted) {
+      if (!preTestCompleted) {
         debugInfo.finalDecision = 'pre-test';
         return 'pre-test';
       }
-      
-      // 3. Otherwise, if user has not completed all required tasks, check for skill check prompt
-      if (!studyEnded && !debugInfo.allRequiredTasksCompleted) {
-        // Check if we should show skill check prompt
-        // Condition: (numProjects - offset) % 5 === 0 && numProjects >= (5 + offset)
-        // Only subtract offset if study hasn't ended (which is true in this block)
-        // Check both cookie (1 day) and sessionStorage (session only)
-        const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
-        const sessionDismissed = typeof window !== 'undefined' 
-          ? sessionStorage.getItem(SKILL_CHECK_PROMPT_COOKIE_NAME) 
-          : null;
-        
-        debugInfo.cookieDismissed = !!cookieDismissed;
-        debugInfo.sessionDismissed = !!sessionDismissed;
-        
-        const offset = studyEnded ? 0 : 3;
-        const shouldShowSkillCheckPrompt = 
-          numProjectsSubmitted >= (5 + offset) && 
-          (numProjectsSubmitted - offset) % 5 === 0 &&
-          !cookieDismissed &&
-          !sessionDismissed;
-        
-        debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
-        debugInfo.skillCheckPromptCondition = {
-          numProjectsSubmitted,
-          condition: `(numProjects - ${offset}) % 5 === 0`,
-          result: (numProjectsSubmitted - offset) % 5 === 0,
-          meetsMinProjects: numProjectsSubmitted >= (5 + offset)
-        };
-        
-        if (shouldShowSkillCheckPrompt) {
-          debugInfo.finalDecision = 'skill-check-prompt';
-          return 'skill-check-prompt';
+
+      // 3. Show one-time assistant transition notice for agent-group users
+      // when they enter the follow-up warm-up task.
+      if (isAgentGroupUser && selectedTaskParam && tasks.length > 0) {
+        const selectedTask = tasks.find(
+          (task: any) => String(task.id) === selectedTaskParam || task.name === selectedTaskParam
+        );
+        const selectedTaskName = selectedTask?.name || null;
+        const assistantTransitionAcknowledged = getCookie(ASSISTANT_TRANSITION_ACK_COOKIE_NAME);
+        if (
+          selectedTaskName === FOLLOW_UP_INTRO_TASK_NAME &&
+          !assistantTransitionAcknowledged
+        ) {
+          debugInfo.finalDecision = 'assistant-transition';
+          return 'assistant-transition';
         }
-        
-        debugInfo.finalDecision = 'none';
-        return 'none';
       }
-      
-      // 4. Otherwise, if user has not done the post-test, show post-test
-      if (!studyEnded && !postTestCompleted) {
+
+      // 4. When user would have seen the skip-task modal, we return this state so recalculateState can auto-set "don't skip" (modal removed).
+      if (!debugInfo.allRequiredTasksCompleted && !websiteRequirementsChoiceMade) {
+        debugInfo.finalDecision = 'website-task-choice';
+        return 'website-task-choice';
+      }
+
+      // 5. Force post-test after configured number of submitted game tasks (must include platformer)
+      if (
+        !postTestCompletedValue &&
+        (debugInfo.numGameProjectsSubmitted ?? 0) >= ENV.NUM_TASKS_REQUIRED_UNTIL_POSTTEST &&
+        debugInfo.hasSubmittedPlatformer
+      ) {
         debugInfo.finalDecision = 'post-test';
         return 'post-test';
       }
       
-      // 5. Otherwise, check for skill check prompt (after post-test is done too)
-      // Condition: (numProjects - offset) % 5 === 0 && numProjects >= (5 + offset)
-      // offset is 3 if study hasn't ended, 0 if study has ended
-      // Check both cookie (1 day) and sessionStorage (session only)
-      const cookieDismissed = getCookie(SKILL_CHECK_PROMPT_COOKIE_NAME);
-      const sessionDismissed = typeof window !== 'undefined' 
-        ? sessionStorage.getItem(SKILL_CHECK_PROMPT_COOKIE_NAME) 
-        : null;
-      
-      debugInfo.cookieDismissed = !!cookieDismissed;
-      debugInfo.sessionDismissed = !!sessionDismissed;
-      
-      const offset = studyEnded ? 0 : 3;
-      const shouldShowSkillCheckPrompt = 
-        numProjectsSubmitted >= (5 + offset) && 
-        (numProjectsSubmitted - offset) % 5 === 0 &&
-        !cookieDismissed &&
-        !sessionDismissed;
-      
-      debugInfo.shouldShowSkillCheckPrompt = shouldShowSkillCheckPrompt;
-      debugInfo.skillCheckPromptCondition = {
-        numProjectsSubmitted,
-        condition: `(numProjects - ${offset}) % 5 === 0`,
-        result: (numProjectsSubmitted - offset) % 5 === 0,
-        meetsMinProjects: numProjectsSubmitted >= (5 + offset)
-      };
-      
-      if (shouldShowSkillCheckPrompt) {
-        debugInfo.finalDecision = 'skill-check-prompt';
-        return 'skill-check-prompt';
+      // 6. Otherwise, if user has not completed all required tasks, show nothing
+      if (!debugInfo.allRequiredTasksCompleted) {
+        debugInfo.finalDecision = 'none';
+        return 'none';
       }
       
-      // 6. Otherwise, show nothing
+      // 7. Show one-time transition modal when website requirements are completed.
+      if (debugInfo.allRequiredTasksCompleted) {
+        const websiteModeCompleteAcknowledged = getCookie(WEBSITE_MODE_COMPLETE_COOKIE_NAME);
+        if (!websiteModeCompleteAcknowledged) {
+          debugInfo.finalDecision = 'website-requirements-complete';
+          return 'website-requirements-complete';
+        }
+      }
+      
+      // 8. Otherwise, show nothing
       debugInfo.finalDecision = 'none';
       return 'none';
     } catch (error) {
@@ -277,7 +292,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // On error, default to none to avoid blocking the user
       return 'none';
     }
-  }, [numericUserId, hasSecretPassword]);
+  }, [numericUserId, hasSecretPassword, user?.settings, searchParams]);
   
   // Manage the popup state
   const [popupState, setPopupState] = useState<PopupState>('none');
@@ -297,7 +312,23 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     isCalculatingRef.current = true;
     setIsCalculating(true);
     try {
-      const newState = await calculatePopupState();
+      let newState = await calculatePopupState();
+      // When we would have shown the skip-task modal, auto-set choice to "don't skip" and recalc (modal removed).
+      if (newState === 'website-task-choice' && numericUserId) {
+        setWebsiteRequirementsChoiceLocal(false);
+        try {
+          await saveWebsiteRequirementsChoiceInSettings(
+            numericUserId,
+            false,
+            user?.settings,
+            token ?? undefined
+          );
+          await refreshUser();
+        } catch (err) {
+          console.error('[UserStudyPopupProvider] Failed to auto-save website task choice:', err);
+        }
+        newState = await calculatePopupState();
+      }
       // Double-check hasSecretPassword before setting state (in case it changed during calculation)
       if (hasSecretPassword) {
         setPopupState('none');
@@ -308,7 +339,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       isCalculatingRef.current = false;
       setIsCalculating(false);
     }
-  }, [calculatePopupState, hasSecretPassword]);
+  }, [calculatePopupState, hasSecretPassword, numericUserId, user?.settings, token, refreshUser]);
   
   // Initialize popup state on first page load (after auth loads)
   // This only runs once when auth is ready
@@ -356,10 +387,9 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     }, 100);
   }, [recalculateState]);
   
-  // Stats page is accessible when: secret password in URL, study has ended (past NEXT_PUBLIC_STUDY_END_DATE), OR user has completed the study (pre-test + required tasks + post-test)
+  // Stats page is accessible when: secret password in URL OR user has completed the study (pre-test + required tasks + post-test)
   const statsAccessible =
     hasSecretPassword ||
-    isStudyEnded() ||
     (preTestCompleted === true && allRequiredTasksCompleted === true && postTestCompleted === true);
 
   return (
@@ -371,6 +401,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       onTutorialClose: handleTutorialClose,
       preTestCompleted,
       postTestCompleted,
+      allRequiredTasksCompleted,
       statsAccessible
     }}>
       <UserStudyPopup />

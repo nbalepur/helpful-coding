@@ -54,6 +54,8 @@ def run_post_creation_migrations():
             "add_question_to_comprehension_questions.py",
             "add_docstring_to_code_data.py",
             "increase_phase_column_size.py",
+            "add_requirements_and_example_to_projects.py",
+            "add_submission_disqualification_fields.py",
         ]
         
         logger.info("Running post-creation migrations...")

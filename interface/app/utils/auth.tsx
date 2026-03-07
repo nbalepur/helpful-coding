@@ -51,40 +51,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setToken(null);
     clearAllCookies(); // Clear all cookies on logout
     try {
-      localStorage.removeItem('user');
-      localStorage.removeItem('auth_token');
+      if (typeof window !== 'undefined') {
+        // Ensure a full client reset on logout so persisted user data does not leak between sessions.
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      }
     } catch (error) {
       console.error('Error clearing auth state from storage:', error);
     }
   }, []);
 
-  // Hydrate auth state from localStorage first (fast path), then validate with backend
+  // Hydrate auth state from cookies, then validate with backend.
+  // We intentionally avoid trusting localStorage for auth-critical data.
   useEffect(() => {
     if (hasInitialized) return;
-    
-    // First, try to load from localStorage (fast path for client-side navigation)
-    let parsedUser: User | null = null;
-    let storedToken: string | null = null;
-    
-    if (typeof window !== 'undefined') {
-      try {
-        const storedUserStr = localStorage.getItem('user');
-        storedToken = localStorage.getItem('auth_token');
-        
-        if (storedUserStr && storedToken) {
-          try {
-            parsedUser = JSON.parse(storedUserStr);
-          } catch (error) {
-            // Invalid JSON in localStorage, clear it
-            localStorage.removeItem('user');
-            localStorage.removeItem('auth_token');
-            storedToken = null;
-          }
-        }
-      } catch (error) {
-        // localStorage access failed, continue to cookie check
-      }
-    }
     
     // Check cookies for auth state
     const userId = getUserIdCookie();
@@ -92,26 +72,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // If no cookies, we're not authenticated - middleware will redirect
     if (!userId || !authToken) {
-      // If we loaded from storage but have no cookies, clear storage (session expired)
-      if (parsedUser || storedToken) {
-        clearClientAuthState();
-      }
+      clearClientAuthState();
       setIsLoading(false);
       setHasInitialized(true);
       return;
     }
 
-    // If we loaded from localStorage and have cookies, use localStorage values
-    // Backend validation happens on API calls, so we trust localStorage for fast navigation
-    if (parsedUser && storedToken) {
-      setUser(parsedUser);
-      setToken(storedToken);
-      setIsLoading(false);
-      setHasInitialized(true);
-      return;
-    }
-
-    // Fetch user data if we have cookies but no localStorage (first load or cleared storage)
+    // Fetch and validate user data from backend.
     fetch(`${ENV.BACKEND_URL}/auth/validate`, {
       headers: {
         Authorization: `Bearer ${authToken}`,
@@ -136,13 +103,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         setUser(normalizedUser);
         setToken(authToken);
-
-        try {
-          localStorage.setItem('user', JSON.stringify(normalizedUser));
-          localStorage.setItem('auth_token', authToken);
-        } catch (error) {
-          console.error('Error persisting auth state:', error);
-        }
       })
       .catch((error) => {
         console.error('Error fetching user data:', error);
@@ -171,13 +131,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     setUserIdCookie(generateUuidV4());
     setAuthTokenCookie(authToken);
-
-    try {
-      localStorage.setItem('user', JSON.stringify(normalizedUser));
-      localStorage.setItem('auth_token', authToken);
-    } catch (error) {
-      console.error('Error persisting auth state:', error);
-    }
   };
 
   const logout = () => {
@@ -211,11 +164,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             settings: data.user.settings || {},
           };
           setUser(normalizedUser);
-          try {
-            localStorage.setItem('user', JSON.stringify(normalizedUser));
-          } catch (error) {
-            console.error('Error persisting auth state:', error);
-          }
         }
       }
     } catch (error) {

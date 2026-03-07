@@ -4,6 +4,9 @@ import { ENV } from './app/config/env'
 
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
+  const normalizedPathname =
+    pathname !== '/' && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+  const publicPaths = ['/landing', '/compensation']
   
   // Skip middleware for static files (images, fonts, etc.)
   const staticFileExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.mp4', '.webm', '.woff', '.woff2', '.ttf', '.eot']
@@ -25,9 +28,9 @@ export async function middleware(request: NextRequest) {
   
   // If not authenticated and trying to access protected routes
   // Exception: allow /browse if password parameter is present (client-side will validate)
-  if (!isAuthenticated && pathname !== '/landing') {
+  if (!isAuthenticated && !publicPaths.includes(normalizedPathname)) {
     // Allow access to /browse with password parameter
-    if (pathname === '/browse' && hasPasswordParam) {
+    if (normalizedPathname === '/browse' && hasPasswordParam) {
       return NextResponse.next()
     }
     
@@ -38,7 +41,7 @@ export async function middleware(request: NextRequest) {
   }
   
   // If authenticated and on landing page, redirect to browse
-  if (isAuthenticated && pathname === '/landing') {
+  if (isAuthenticated && normalizedPathname === '/landing') {
     return NextResponse.redirect(new URL('/browse', request.url))
   }
   

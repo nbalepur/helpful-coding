@@ -1,13 +1,19 @@
 "use client";
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import Markdown from "react-markdown";
 import { BsBoxArrowUpRight, BsX } from 'react-icons/bs';
-import { Video, List, Sun, Moon } from 'lucide-react';
+import { Video } from 'lucide-react';
+import { CodeBlockWithCopy } from './AssistantTerminalPane';
 import { ENV } from '@/app/config/env';
 import { useIframeTheme } from '@/app/utils/IframeThemeContext';
 
 // Module-level cache that persists across component remounts
 const htmlCache = new Map<string, string>();
+
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'] as const;
+function numberToWord(n: number): string {
+  return n >= 0 && n <= 20 ? NUMBER_WORDS[n] : String(n);
+}
 
 interface TaskInstructionProps {
   taskDescription?: string;
@@ -17,6 +23,9 @@ interface TaskInstructionProps {
   example?: string;
   taskName?: string;
   taskLabel?: string;
+  aiAssistantMode?: 'agent' | 'ask' | 'brainstorm';
+  isAiGroupUser?: boolean;
+  showAIAssistantDetails?: boolean;
   onHide?: () => void;
   showHeader?: boolean;
   compact?: boolean;
@@ -30,6 +39,9 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
   example,
   taskName,
   taskLabel,
+  aiAssistantMode,
+  isAiGroupUser = false,
+  showAIAssistantDetails = false,
   onHide, 
   showHeader = true,
   compact = false 
@@ -55,20 +67,72 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
                  /^<[a-z][\s\S]*>/.test(trimmed); // Check if starts with HTML tag
 
   // Build structured HTML content with the new format
-  const buildStructuredContent = (descriptionHtml: string, exampleHtml?: string, label?: string, taskNameParam?: string, lightMode: boolean = false) => {
+  const buildStructuredContent = (
+    descriptionHtml: string,
+    exampleHtml?: string,
+    label?: string,
+    taskNameParam?: string,
+    requirementsList?: string[],
+    lightMode: boolean = false
+  ) => {
     const textColor = lightMode ? '#1f2937' : '#d6dde6';
     const strongColor = lightMode ? '#111827' : '#ffffff';
+    const agentModeColor = lightMode ? '#065f46' : '#a7f3d0';
+    const askModeColor = lightMode ? '#b45309' : '#fde68a';
+    const brainstormModeColor = lightMode ? '#4338ca' : '#c4b5fd';
     const accentColor = lightMode ? '#2563eb' : '#8ac4ff'; // Darker blue for light mode
     const linkColor = lightMode ? '#1e40af' : '#8ac4ff'; // Darker blue for light mode
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     
+    const assistantWorkflowDescription =
+      label !== 'website_requirements'
+        ? `
+          <p style="margin: 12px 0; color: ${textColor};">
+            This task includes an AI assistant that works in three modes:
+          </p>
+          <ul style="margin: 8px 0 12px 0; padding-left: 20px;">
+            <li style="margin: 4px 0; color: ${textColor};"><strong>Agent</strong>: Make changes to your code directly.</li>
+            <li style="margin: 4px 0; color: ${textColor};"><strong>Ask</strong>: Answer questions about your code.</li>
+            <li style="margin: 4px 0; color: ${textColor};"><strong>Brainstorm</strong>: Come up with ideas and approaches.</li>
+          </ul>
+          <p style="margin: 12px 0; color: ${textColor};">
+            You can switch between these modes at any time. Conversation history is isolated to each individual mode.
+          </p>
+        `
+        : aiAssistantMode === 'agent'
+          ? `<p style="margin: 12px 0; color: ${textColor};">To interact with the AI assistant, use the AI assistant tab to prompt it with your requests (e.g., "Add a blue Reset button underneath the game canvas."). The assistant will attempt to make those code changes directly and show you a diff editor where you can review the proposed edits before accepting or rejecting them.</p>`
+          : aiAssistantMode === 'brainstorm'
+            ? `<p style="margin: 12px 0; color: ${textColor};">To interact with the AI assistant, use the AI assistant tab to brainstorm implementation ideas, UX improvements, and trade-offs (e.g., "Give me three ways to make this game more engaging"). In this mode, the assistant does not directly edit your files, so you'll apply changes yourself in the editor.</p>`
+            : label === 'website_requirements'
+              ? `<p style="margin: 12px 0; color: ${textColor};">To interact with the AI assistant, use the AI assistant tab to ask syntax or implementation questions (e.g., "How do I write a for loop in JavaScript?"). In this mode, the assistant does not directly edit your files, so you'll apply changes yourself in the editor.</p>`
+              : `<p style="margin: 12px 0; color: ${textColor};">To interact with the AI assistant, use the AI assistant tab to ask syntax or implementation questions (e.g., "How do I write a for loop in JavaScript?"). In this mode, the assistant does not directly edit your files, so you'll apply changes yourself in the editor.</p>`;
+
     const generalDescription = `
       <p style="margin: 12px 0; color: ${textColor};">This interface provides you with everything you need to build your project. On the right side, you'll find the coding editor with an AI assistant that can help you implement features. There's also a preview tab where you can see your work in real-time as you code.</p>
       
-      <p style="margin: 12px 0; color: ${textColor};">To interact with the AI assistant, use the AI assistant tab to prompt it with your requests. The assistant will execute your request and show you a diff editor where you can review the proposed changes before accepting or rejecting them. After making changes, the assistant will suggest follow-up actions that you can optionally choose from to continue building your project.</p>
+      ${assistantWorkflowDescription}
       
       <p style="margin: 12px 0; color: ${textColor};">Once you're personally satisfied with your work, you can make a submission. Before submitting, you'll need to answer some questions about your project.</p>
     `;
-    let taskDescription = descriptionHtml || '<p>No task description available.</p>';
+    const normalizedTaskName = (taskNameParam || '').toLowerCase().replace(/_/g, '-');
+    const isZicZacZoeFollowUpTask = normalizedTaskName === 'zic-zac-zoe-follow-up';
+    const zicZacZoeFollowUpDescription = `
+      <p style="margin: 12px 0; color: ${textColor};">
+        The rules of Zic-Zac-Zoe have changed a bit, so now you need to make changes to your website to reflect them.
+        You'll start with your website that you previously submitted and update it based on the items listed in the <strong style="color: ${strongColor};">Requirements</strong> section below.
+        Don't worry about trying to fix issues in your previous submission, just try to complete as many requirements as you can.
+      </p>
+    `;
+
+    let taskDescription = isZicZacZoeFollowUpTask
+      ? zicZacZoeFollowUpDescription
+      : (descriptionHtml || '<p>No task description available.</p>');
     
     // For replication tasks, prepend the prefix to the description
     if (label === 'replication' && taskNameParam) {
@@ -81,9 +145,9 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     // Task type indicator
     let taskTypeInfo = '';
     if (label === 'replication') {
-      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is a <span style="color: ${accentColor}; font-weight: 600;">replication</span> task: fixed rules are provided to help scope the game, but you can do whatever you want within those rules. This is based on an existing, popular game. Other users will judge your project based on how well it adheres to the task, style, creativity, and enjoyment (details below).</p>`;
+      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is a <span style="color: ${accentColor}; font-weight: 600;">replication</span> task based on an existing game. You will see a list of requirements, and your project will be judged by how well you fulfill them.</p>`;
     } else if (label === 'open-ended') {
-      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is an <span style="color: ${accentColor}; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Other users will judge your project based on how well it adheres to the task, style, creativity, and enjoyment (details below).</p>`;
+      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is an <span style="color: ${accentColor}; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Your submission will be judged by other users from 1-5 on theme fulfillment, style, enjoyment, and creativity, so try to make your website fun and engaging!</p>`;
     }
     
     // Split examples by newline and create individual example divs
@@ -94,6 +158,63 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
         examples = exampleLines.map(line => `<div class="example">${line.trim()}</div>`).join('');
       }
     }
+
+    const isTutorialTask =
+      taskNameParam === 'website_tutorial_intro' || taskNameParam === 'website_tutorial_follow_up';
+    const aiGroupFollowUpReminder = isZicZacZoeFollowUpTask && isAiGroupUser
+      ? `<p style="margin: 0; color: ${textColor};">As a reminder, this differs from the last task, as you no longer have access to an AI assistant that can edit your code directly. The assistant can only provide guidance and suggestions.</p>`
+      : '';
+    const tutorialPracticeNote = isTutorialTask
+      ? (
+          aiAssistantMode === 'agent'
+            ? `<p style="margin: 0; color: ${textColor};">We encourage you to practice using the AI assistant to complete these warm-up tasks. For example, for the first requirement, you could prompt the AI: "Make the Blank Site header text blue" and review whether it edited your files accurately.</p>`
+            : `<p style="margin: 0; color: ${textColor};">We encourage you to practice asking the AI assistant questions to complete these warm-up tasks if you are unsure on how to do so. For example, for the first requirement, you could ask "How do I change the color of a button?" and adapt the response to your own code.</p>`
+        )
+      : '';
+    const showSubmitProjectInstruction = label === 'website_requirements';
+    const showTimerInstruction = label === 'website_requirements' && !isTutorialTask;
+    const submitProjectInstruction = showSubmitProjectInstruction
+      ? `<p style="margin: 0; color: ${textColor};">If you've finished all the changes, or you're feeling stuck and can't make any more changes, you can hit <strong style="color: ${accentColor};">Submit Project</strong>. Focus on fulfilling the requirements versus trying to make the website look nice.</p>`
+      : '';
+    const timerInstruction = showTimerInstruction
+      ? `<p style="margin: 0; color: ${textColor};">This task has a time limit, and there is a <strong>timer</strong> next to the "Code" tab.</p>`
+      : '';
+    const storageKeyEncoded = taskNameParam
+      ? encodeURIComponent(`task-instruction-requirements:${taskNameParam}`)
+      : '';
+    const requirementsSection = requirementsList && requirementsList.length > 0 ? `
+      <h2>Requirements</h2>
+      <div class="requirements-checklist" data-storage-key="${storageKeyEncoded}" style="display: flex; flex-direction: column; gap: 8px;">
+        <p style="margin: 0; color: ${textColor};">Here are the <strong style="color: ${strongColor};">${numberToWord(requirementsList.length)}</strong> requirements you must fulfill. You can check them off as you complete them to track your own progress.</p>
+        ${requirementsList
+          .map(
+            (requirement, index) => `
+          <label class="requirement-check-item" style="display: flex; align-items: flex-start; gap: 10px;">
+            <input type="checkbox" data-req-index="${index}" style="width: 16px; height: 16px; margin: 2px 0 0 0; flex-shrink: 0;" />
+            <span style="display: block; line-height: 1.45; margin: 0;">${escapeHtml(requirement)}</span>
+          </label>
+        `
+          )
+          .join('')}
+        ${tutorialPracticeNote}
+        ${submitProjectInstruction}
+        ${timerInstruction}
+      </div>
+    ` : '';
+
+    const aiAssistantSection = showAIAssistantDetails ? `
+      <h2>AI Assistant Details</h2>
+      <p style="margin: 0 0 12px 0; color: ${textColor};">
+        ${
+          aiAssistantMode === 'agent'
+            ? `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${agentModeColor};">Agent Mode</strong>.` : `Your AI is currently in <strong style="color: ${agentModeColor};">Agent Mode</strong>.`} You can ask the AI to make changes to your code (e.g., "Make the reset button red"), and you can review the AI's proposed changes to your code.`
+            : aiAssistantMode === 'brainstorm'
+              ? `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${brainstormModeColor};">Brainstorm Mode</strong>.` : `Your AI is currently in <strong style="color: ${brainstormModeColor};">Brainstorm Mode</strong>.`} The AI can help you generate ideas, compare implementation approaches, and plan what to build next, but it cannot directly edit your files.`
+              : `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.` : `Your AI is currently in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.`} ${label === 'website_requirements' ? 'You can only ask the AI syntax questions (e.g., "How do I make the color of a button red?") and it will answer with text or a code snippet you can copy. It cannot write any code for you.`' : 'The AI can answer questions about your current code and provide examples, but it cannot directly edit your files.'}`
+        }
+      </p>
+      ${aiGroupFollowUpReminder}
+    ` : '';
     
     const judgmentCriteria = `
       <p style="margin: 6px 0; color: ${textColor};">Your submission will be evaluated by other users through voting. They will rate your work on the following criteria, each on a scale from 1 to 5 (higher scores are better):</p>
@@ -123,31 +244,43 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     `;
 
     // Only include examples section if there are actual examples
+    const examplesIntroText = label === 'website_requirements'
+      ? "Here's a video demo of how the game should work."
+      : "Here are some examples you can draw inspiration from. Note that these are professional games, so they will likely be more polished than what you create, but they can serve as good reference points.";
+
     const examplesSection = exampleHtml ? `
       <h2>Examples</h2>
-      <p style="margin: 0 0 12px 0; color: ${strongColor};">Here are some examples you can draw inspiration from. Note that these are professional games, so they will likely be more polished than what you create, but they can serve as good reference points.</p>
+      <p style="margin: 0 0 12px 0; color: ${textColor};">${examplesIntroText}</p>
       ${examples}
     ` : '';
+
+    const restrictionsSection = label === 'website_requirements'
+      ? ''
+      : `
+      <h2>Restrictions</h2>
+      ${notes}
+    `;
+
+    const assistantInstructionsIntro = label === 'website_requirements'
+      ? `Below is an abridged version of the instructions for coding with the AI assistant. If you already feel comfortable with our UI, you can skip reading this.`
+      : `Below is an abridged version of the instructions for coding with the AI assistant, but more information can be found on the <a href="/about">about page</a>. If you already feel comfortable with our UI, you can skip reading this.`;
 
     return `
       <h2>Task Description</h2>
       ${taskTypeInfo}
       ${taskDescription}
+      ${aiAssistantSection}
+      ${requirementsSection}
       
       ${examplesSection}
       
       <hr />
       
-      <p style="margin: 12px 0; color: ${textColor};">Below is an abridged version of the instructions for coding with the AI assistant, but more information can be found on the <a href="/about">about page</a>.</p>
+      <p style="margin: 12px 0; color: ${textColor};">${assistantInstructionsIntro}</p>
       
       <h2>Getting Started</h2>
       ${generalDescription}
-      
-      <h2>Judgment Criteria</h2>
-      ${judgmentCriteria}
-      
-      <h2>Restrictions</h2>
-      ${notes}
+      ${restrictionsSection}
     `;
   };
 
@@ -189,7 +322,20 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     // If we should use structured format
     if (useStructured) {
       const descriptionContent = extractDescriptionContent(html);
-      content = buildStructuredContent(descriptionContent, example, taskLabel, taskName, isLightMode);
+      content = buildStructuredContent(descriptionContent, example, taskLabel, taskName, requirements, isLightMode);
+    }
+
+    const normalizedTaskName = (taskName || '').toLowerCase();
+    const isTutorialTask =
+      normalizedTaskName === 'website_tutorial_intro' ||
+      normalizedTaskName === 'website_tutorial_follow_up';
+    const isPlaygroundTask = normalizedTaskName === 'playground';
+
+    // Tutorial instruction HTML includes inline dark-theme colors; remap them in light mode for readability.
+    if (isLightMode && (isTutorialTask || isPlaygroundTask)) {
+      content = content
+        .replace(/#ffe082/gi, '#b45309')
+        .replace(/#8ac4ff/gi, '#1e40af');
     }
     
     // Use lowercase for image path - playground has name "Playground" but file is playground.png
@@ -350,24 +496,6 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
           </div>
         )}
 
-        {/* Requirements Section */}
-        {requirements && requirements.length > 0 && !compact && (
-          <div className="mb-6">
-            <div className="flex items-center space-x-2 mb-3">
-              <List className="h-4 w-4 text-green-400" />
-              <h4 className="text-sm font-medium text-gray-200">Requirements</h4>
-            </div>
-            <div className="space-y-2">
-              {requirements.map((requirement, index) => (
-                <div key={index} className="flex items-start space-x-2">
-                  <div className="flex-shrink-0 w-1.5 h-1.5 bg-green-400 rounded-full mt-2"></div>
-                  <p className="text-sm text-gray-300 leading-relaxed">{requirement}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Main Content */}
         {contentToRender ? (
           instructionsUrl ? (
@@ -394,7 +522,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
               sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
             />
           ) : (
-            <Markdown>
+            <Markdown components={{ pre: (props) => <CodeBlockWithCopy className="bg-[#1e1e1e] rounded p-2 pr-10 my-2 overflow-x-auto text-[12px]" {...props} /> }}>
               {contentToRender || "No task description available."}
             </Markdown>
           )

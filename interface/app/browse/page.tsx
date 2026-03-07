@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "../utils/auth";
-import { isPlaygroundCompletedFromSettings } from "../utils/userSettings";
+import { isPlaygroundCompletedFromSettings, isWebsiteRequirementsSkippedFromSettings } from "../utils/userSettings";
 import {
   Shuffle,
   Search,
@@ -14,10 +14,17 @@ import {
 import { useSidebar } from "../components/AppLayout";
 import TaskCardGrid from "../components/TaskCardGrid";
 import LoadingSpinner from "../components/LoadingSpinner";
-import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
+import {
+  GAME_REQUIRED_TASKS,
+  getRequiredTasksForMode,
+  getStudyTaskMode,
+  isWebsiteRequirementTask,
+  TIMED_TASKS,
+  WEBSITE_TUTORIAL_TASKS,
+} from "../config/tasks";
+import { ENV } from "../config/env";
 import { useSnackbar } from "../components/SnackbarProvider";
 import { PASSWORD_HASH, hashString } from "../utils/password";
-import { isStudyEnded } from "../config/study";
 
 function BrowseInner() {
   const router = useRouter();
@@ -27,7 +34,7 @@ function BrowseInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
-  const studyEnded = isStudyEnded();
+  const studyEnded = false;
   
   // All hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState("");
@@ -121,9 +128,100 @@ function BrowseInner() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [allRequiredTasksCompleted, setAllRequiredTasksCompleted] = useState(false);
   const [lockedTaskIds, setLockedTaskIds] = useState<Set<string>>(new Set());
+  const [noEditLockedTaskIds, setNoEditLockedTaskIds] = useState<Set<string>>(new Set());
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [isPlaygroundNotCompleted, setIsPlaygroundNotCompleted] = useState(false);
+  const [timedTaskModalState, setTimedTaskModalState] = useState<{
+    taskId: string;
+    taskTitle: string;
+    minutes: number | null;
+  } | null>(null);
   const filterModalRef = useRef<HTMLDivElement | null>(null);
+  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+  const studyTaskMode = useMemo(() => {
+    const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
+    return getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+  }, [allTasks, websiteRequirementsSkipped]);
+  const requiredGameTaskNames = useMemo(() => {
+    if (studyEnded) {
+      return new Set<string>();
+    }
+
+    const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+    if (mode === 'website-requirements') {
+      return new Set<string>();
+    }
+
+    return new Set(getRequiredTasksForMode(mode, otherTasks));
+  }, [allTasks, studyEnded, websiteRequirementsSkipped]);
+  const timedRequiredTaskNames = useMemo(() => {
+    if (studyEnded) {
+      return new Set<string>();
+    }
+
+    const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+    const requiredTaskNames = new Set(getRequiredTasksForMode(mode, otherTasks));
+
+    return new Set(
+      TIMED_TASKS.filter((taskName) => requiredTaskNames.has(taskName))
+    );
+  }, [allTasks, studyEnded, websiteRequirementsSkipped]);
+  const requiredTaskNamesForCurrentMode = useMemo(() => {
+    if (studyEnded) {
+      return new Set<string>();
+    }
+
+    const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+    return new Set(getRequiredTasksForMode(mode, otherTasks));
+  }, [allTasks, studyEnded, websiteRequirementsSkipped]);
+  const timedTaskLimitMinutesByName = useMemo<Record<string, number>>(
+    () => ({
+      zic_zac_zoe: Math.max(1, ENV.RECREATION_TASK_ONE_MINUTES),
+      zic_zac_zoe_follow_up: Math.max(1, ENV.RECREATION_TASK_TWO_MINUTES),
+      platformer: Math.max(1, ENV.GAME_TASK_ONE_MINUTES),
+    }),
+    []
+  );
+  const timedTaskNamesSet = useMemo(() => new Set<string>(TIMED_TASKS), []);
+  const tutorialTaskNames = useMemo(() => {
+    const tutorialNames = new Set<string>(WEBSITE_TUTORIAL_TASKS);
+    allTasks.forEach((task: any) => {
+      const taskName = (task?.name || '') as string;
+      if (/warm[_-]?up/i.test(taskName)) {
+        tutorialNames.add(taskName);
+      }
+    });
+    return tutorialNames;
+  }, [allTasks]);
+
+  const buildTaskListForCurrentMode = useCallback((tasks: any[]) => {
+    const mode = getStudyTaskMode(tasks, websiteRequirementsSkipped);
+    if (mode === 'website-requirements') {
+      return tasks;
+    }
+
+    const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
+    const playgroundTask = {
+      id: 'playground',
+      name: 'Playground',
+      title: 'Playground Tutorial',
+      description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
+      difficulty: 'Beginner',
+      appType: 'practice',
+      estimatedTime: '5-10 min',
+      tags: ['practice', 'tutorial', 'sandbox'],
+      preview: 'A practice environment for testing and learning',
+      status: playgroundCompleted ? 'completed' : 'not-started',
+      saved: false,
+      label: 'Practice',
+      category: 'tutorial',
+    };
+
+    return [playgroundTask, ...tasks];
+  }, [user?.settings, websiteRequirementsSkipped]);
   
   // Load tasks
   const loadTasks = useCallback(async (signal?: AbortSignal, forceRefresh: boolean = false) => {
@@ -137,27 +235,8 @@ function BrowseInner() {
           const parsed = JSON.parse(cachedData);
           const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
           
-          // Add playground task at the beginning of the list
-          const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
-          const playgroundTask = {
-            id: 'playground',
-            name: 'Playground',
-            title: 'Playground (Tutorial)',
-            description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
-            difficulty: 'Beginner',
-            appType: 'practice',
-            estimatedTime: '5-10 min',
-            tags: ['practice', 'tutorial', 'sandbox'],
-            preview: 'A practice environment for testing and learning',
-            status: playgroundCompleted ? 'completed' : 'not-started',
-            saved: false,
-            label: 'Practice',
-            category: 'tutorial'
-          };
-          
-          setAllTasks([playgroundTask, ...tasks]);
+          setAllTasks(buildTaskListForCurrentMode(tasks));
           setIsLoadingTasks(false);
-          return;
         }
       } catch (error) {
       }
@@ -189,25 +268,7 @@ function BrowseInner() {
           }
         }
         
-        // Add playground task
-        const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
-        const playgroundTask = {
-          id: 'playground',
-          name: 'Playground',
-          title: 'Playground (Tutorial)',
-          description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
-          difficulty: 'Beginner',
-          appType: 'practice',
-          estimatedTime: '5-10 min',
-          tags: ['practice', 'tutorial', 'sandbox'],
-          preview: 'A practice environment for testing and learning',
-          status: playgroundCompleted ? 'completed' : 'not-started',
-          saved: false,
-          label: 'Practice',
-          category: 'tutorial'
-        };
-        
-        setAllTasks([playgroundTask, ...tasks]);
+        setAllTasks(buildTaskListForCurrentMode(tasks));
       } else {
         console.error('Failed to load tasks:', res.status, res.statusText);
         setAllTasks([]);
@@ -223,7 +284,7 @@ function BrowseInner() {
     } finally {
       setIsLoadingTasks(false);
     }
-  }, [numericUserId]);
+  }, [buildTaskListForCurrentMode, numericUserId]);
 
   // Initial load of tasks
   useEffect(() => {
@@ -267,46 +328,75 @@ function BrowseInner() {
     return shuffled;
   }, [createSeededRandom]);
 
+  const normalizeTaskLabel = useCallback((task: any) => {
+    return (task.label || 'open-ended').toLowerCase().replace(/_/g, '-');
+  }, []);
+
+  const isGameOpenEndedTask = useCallback((task: any) => {
+    return normalizeTaskLabel(task) === 'open-ended';
+  }, [normalizeTaskLabel]);
+
   // Helper function to filter tasks by required status
-  const filterTasksByRequiredStatus = useCallback((tasks: any[], userSeed: string): any[] => {
+  const filterTasksByRequiredStatus = useCallback((tasks: any[]): any[] => {
     const playgroundTask = tasks.find((task: any) => task.id === 'playground');
     const otherTasks = tasks.filter((task: any) => task.id !== 'playground');
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
 
     if (studyEnded) {
-      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
+      if (mode === 'website-requirements') {
+        return otherTasks;
+      }
+
+      const orderedGameTasks = otherTasks
+        .filter((task: any) => isGameOpenEndedTask(task))
+        .sort((a: any, b: any) => {
+        const aIsPlatformer = (a.name || '').toLowerCase() === 'platformer';
+        const bIsPlatformer = (b.name || '').toLowerCase() === 'platformer';
+        if (aIsPlatformer !== bIsPlatformer) {
+          return aIsPlatformer ? -1 : 1;
+        }
+
+        return (a.name || '').localeCompare(b.name || '', undefined, {
+          sensitivity: 'base',
+          numeric: true,
+        });
+      });
+
+      return playgroundTask ? [playgroundTask, ...orderedGameTasks] : orderedGameTasks;
     }
-    
-    const completedTaskNames = new Set(
-      otherTasks
-        .filter((task: any) => task.status === 'completed')
-        .map((task: any) => task.name)
-    );
-    
-    const allRequiredTasksCompleted = POST_TEST_REQUIRED_TASKS.every(
-      taskName => completedTaskNames.has(taskName)
-    );
-    
-    if (allRequiredTasksCompleted) {
-      // When all tasks are completed, return in current order (alphabetical)
-      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
+
+    const requiredTaskNames = getRequiredTasksForMode(mode, otherTasks);
+
+    if (mode === 'website-requirements') {
+      const requiredTaskNamesSet = new Set(requiredTaskNames);
+      const filteredOtherTasks = otherTasks.filter((task: any) => requiredTaskNamesSet.has(task.name));
+      const orderedRequiredTasks = [...filteredOtherTasks].sort((a: any, b: any) => {
+        const aIndex = requiredTaskNames.indexOf(a.name);
+        const bIndex = requiredTaskNames.indexOf(b.name);
+        return aIndex - bIndex;
+      });
+
+      return orderedRequiredTasks;
     }
-    
-    // When not all required tasks are completed, filter and order them
-    const requiredTaskNamesSet = new Set(POST_TEST_REQUIRED_TASKS);
-    const filteredOtherTasks = otherTasks.filter((task: any) => requiredTaskNamesSet.has(task.name));
-    
-    // Separate into replication and open-ended tasks
-    const replicationTasks = filteredOtherTasks.filter((task: any) => (task.label || 'open-ended') === 'replication');
-    const openEndedTasks = filteredOtherTasks.filter((task: any) => (task.label || 'open-ended') === 'open-ended');
-    
-    // Shuffle each group with user-specific seed (consistent per user, random across users)
-    const shuffledReplication = shuffleArray(replicationTasks, `${userSeed}_replication`);
-    const shuffledOpenEnded = shuffleArray(openEndedTasks, `${userSeed}_openended`);
-    
-    // Return: Playground first, then replication tasks, then open-ended tasks
-    const orderedTasks = [...shuffledReplication, ...shuffledOpenEnded];
+
+    const gameModeTasks = otherTasks.filter((task: any) => {
+      return !isWebsiteRequirementTask(task) && isGameOpenEndedTask(task);
+    });
+    const orderedTasks = [...gameModeTasks].sort((a: any, b: any) => {
+      const aIsPlatformer = (a.name || '').toLowerCase() === 'platformer';
+      const bIsPlatformer = (b.name || '').toLowerCase() === 'platformer';
+      if (aIsPlatformer !== bIsPlatformer) {
+        return aIsPlatformer ? -1 : 1;
+      }
+
+      return (a.name || '').localeCompare(b.name || '', undefined, {
+        sensitivity: 'base',
+        numeric: true,
+      });
+    });
+
     return playgroundTask ? [playgroundTask, ...orderedTasks] : orderedTasks;
-  }, [shuffleArray, studyEnded]);
+  }, [isGameOpenEndedTask, studyEnded, websiteRequirementsSkipped]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
@@ -325,10 +415,11 @@ function BrowseInner() {
         .filter((task: any) => task.status === 'completed')
         .map((task: any) => task.name)
     );
-    const allRequiredCompleted = POST_TEST_REQUIRED_TASKS.every(
-      taskName => completedTaskNames.has(taskName)
-    );
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+    const requiredTaskNames = getRequiredTasksForMode(mode, otherTasks);
+    const allRequiredCompleted = requiredTaskNames.every((taskName) => completedTaskNames.has(taskName));
     const effectiveRequiredCompleted = studyEnded ? true : allRequiredCompleted;
+    const isWebsiteRequirementsMode = mode === 'website-requirements';
     setAllRequiredTasksCompleted(effectiveRequiredCompleted);
     
     let tasksAfterRequiredFilter: any[];
@@ -344,10 +435,22 @@ function BrowseInner() {
         seenIds.add(task.id);
         return true;
       });
+
+      if (mode !== 'website-requirements') {
+        tasksAfterRequiredFilter = tasksAfterRequiredFilter.filter((task: any) => {
+          if (task.id === 'playground') {
+            return true;
+          }
+          return !isWebsiteRequirementTask(task) && isGameOpenEndedTask(task);
+        });
+      }
     } else {
       // Create user-specific seed (use username if available, otherwise user ID, fallback to 'default')
-      const userSeed = user?.username || (numericUserId ? `user_${numericUserId}` : 'default');
-      tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground, userSeed);
+      tasksAfterRequiredFilter = filterTasksByRequiredStatus(tasksWithUpdatedPlayground);
+    }
+
+    if (isWebsiteRequirementsMode) {
+      tasksAfterRequiredFilter = tasksAfterRequiredFilter.filter((task: any) => task.id !== 'playground');
     }
     
     // Filter by status
@@ -364,7 +467,8 @@ function BrowseInner() {
       if (task.id === 'playground') {
         return true;
       }
-      const taskLabel = task.label || 'open-ended';
+      const rawTaskLabel = normalizeTaskLabel(task);
+      const taskLabel = rawTaskLabel === 'website-requirements' ? 'replication' : rawTaskLabel;
       return categoryFilters[taskLabel as keyof typeof categoryFilters];
     });
     
@@ -380,29 +484,57 @@ function BrowseInner() {
       );
     }
     
-    // Calculate locked tasks and active task (only when not all required tasks are completed)
-    if (!effectiveRequiredCompleted && !hasSecretPassword) {
+    // Calculate locked tasks and active task.
+    // In website requirements mode, completed tasks remain locked.
+    const completedRequiredGameTaskIds = new Set(
+      finalFilteredTasks
+        .filter((task: any) =>
+          task.id !== 'playground' &&
+          task.status === 'completed' &&
+          GAME_REQUIRED_TASKS.includes(task.name as any)
+        )
+        .map((task: any) => task.id as string)
+    );
+    const shouldEnableLocking = !hasSecretPassword && (
+      isWebsiteRequirementsMode ||
+      !effectiveRequiredCompleted
+    );
+    if (shouldEnableLocking) {
       const lockedIds = new Set<string>();
+      const noEditIds = new Set<string>();
       let activeId: string | null = null;
       
-      // Check if playground is completed
+      // Check if playground is completed (game mode only)
       const playgroundTask = finalFilteredTasks.find((task: any) => task.id === 'playground');
+      const hasPlaygroundTask = !!playgroundTask;
       const playgroundCompleted = playgroundTask?.status === 'completed';
-      setIsPlaygroundNotCompleted(!playgroundCompleted);
+      setIsPlaygroundNotCompleted(hasPlaygroundTask ? !playgroundCompleted : false);
       
       // Find the first uncompleted task (excluding playground)
       for (const task of finalFilteredTasks) {
         if (task.id === 'playground') continue; // Playground is always unlocked
         
-        // If playground is not completed, lock all other tasks
-        if (!playgroundCompleted) {
+        // In game mode, lock all non-playground tasks until playground is completed.
+        if (!isWebsiteRequirementsMode && hasPlaygroundTask && !playgroundCompleted) {
           lockedIds.add(task.id);
           continue;
         }
         
         const isCompleted = task.status === 'completed';
+        const isCompletedRequiredGameTask =
+          !isWebsiteRequirementsMode &&
+          isCompleted &&
+          GAME_REQUIRED_TASKS.includes(task.name as any);
+        if (isCompletedRequiredGameTask) {
+          lockedIds.add(task.id);
+          noEditIds.add(task.id);
+          continue;
+        }
         
-        if (!isCompleted && activeId === null) {
+        if (isWebsiteRequirementsMode && isCompleted) {
+          // For website requirements tasks, completed tasks stay locked.
+          lockedIds.add(task.id);
+        } else if (!isCompleted && activeId === null) {
           // This is the active task (first uncompleted)
           activeId = task.id;
         } else if (!isCompleted && activeId !== null) {
@@ -412,15 +544,24 @@ function BrowseInner() {
       }
       
       setLockedTaskIds(lockedIds);
+      setNoEditLockedTaskIds(noEditIds);
       setActiveTaskId(activeId);
+    } else if (!hasSecretPassword && !isWebsiteRequirementsMode && completedRequiredGameTaskIds.size > 0) {
+      // After game requirement completion, unlock everything except completed required game tasks.
+      setLockedTaskIds(new Set(completedRequiredGameTaskIds));
+      setNoEditLockedTaskIds(new Set(completedRequiredGameTaskIds));
+      setActiveTaskId(null);
+      setIsPlaygroundNotCompleted(false);
     } else {
       // When all tasks are unlocked, clear locks
       setLockedTaskIds(new Set());
+      setNoEditLockedTaskIds(new Set());
       setActiveTaskId(null);
+      setIsPlaygroundNotCompleted(false);
     }
     
     setFilteredTasks(finalFilteredTasks);
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId, studyEnded]);
+  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId, studyEnded, isGameOpenEndedTask, normalizeTaskLabel, websiteRequirementsSkipped]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -452,11 +593,31 @@ function BrowseInner() {
     if (tasksWithoutPlayground.length === 0) return;
     const randomIndex = Math.floor(Math.random() * tasksWithoutPlayground.length);
     const randomTask = tasksWithoutPlayground[randomIndex];
-    router.push(`/vibe?task=${randomTask.id}`);
+    handleGetStarted(randomTask.id);
   };
 
   const handleGetStarted = (taskId: string) => {
+    const selectedTask =
+      filteredTasks.find((task: any) => task.id === taskId) ||
+      allTasks.find((task: any) => task.id === taskId);
+    const selectedTaskName = selectedTask?.name;
+
+    if (selectedTaskName && timedTaskNamesSet.has(selectedTaskName)) {
+      setTimedTaskModalState({
+        taskId,
+        taskTitle: selectedTask?.title || selectedTaskName,
+        minutes: timedTaskLimitMinutesByName[selectedTaskName] ?? null,
+      });
+      return;
+    }
+
     router.push(`/vibe?task=${taskId}`);
+  };
+
+  const handleConfirmTimedTaskStart = () => {
+    if (!timedTaskModalState) return;
+    router.push(`/vibe?task=${timedTaskModalState.taskId}`);
+    setTimedTaskModalState(null);
   };
 
   // Show loading state while checking authentication or password
@@ -564,11 +725,21 @@ function BrowseInner() {
             {/* Header */}
             <div className="text-center mb-16 w-full">
               <h1 className="text-4xl font-light mb-2 text-center">
-                What do you want to build on {" "}
-                <span className="animated-gradient font-semibold">
-                  Vibe Jam
-                </span>
-                ?
+                {studyTaskMode === 'website-requirements' ? (
+                  <>
+                    Work on the website creation tasks below with{" "}
+                    <span className="animated-gradient font-semibold">
+                      VibeJam
+                    </span>!
+                  </>
+                ) : (
+                  <>
+                    What game to do you want to build today on{" "}
+                    <span className="animated-gradient font-semibold">
+                      VibeJam
+                    </span>?
+                  </>
+                )}
               </h1>
             </div>
 
@@ -708,8 +879,23 @@ function BrowseInner() {
                     onGetStarted={handleGetStarted}
                     lockedTaskIds={lockedTaskIds}
                     activeTaskId={activeTaskId}
-                    isLockingEnabled={!allRequiredTasksCompleted && !hasSecretPassword}
+                    isLockingEnabled={
+                      !hasSecretPassword &&
+                      (
+                        studyTaskMode === 'website-requirements' ||
+                        !allRequiredTasksCompleted ||
+                        noEditLockedTaskIds.size > 0
+                      )
+                    }
+                    noEditLockedTaskIds={noEditLockedTaskIds}
                     isPlaygroundNotCompleted={isPlaygroundNotCompleted}
+                    showTaskTypeIcons={studyTaskMode !== 'website-requirements'}
+                    showLockedTooltip={studyTaskMode !== 'website-requirements'}
+                    requiredTaskNames={requiredGameTaskNames}
+                    requiredTaskNamesForTime={requiredTaskNamesForCurrentMode}
+                    timedTaskNames={timedRequiredTaskNames}
+                    timedTaskLimitMinutesByName={timedTaskLimitMinutesByName}
+                    tutorialTaskNames={tutorialTaskNames}
                   />
                 </div>
               )}
@@ -741,6 +927,153 @@ function BrowseInner() {
           </div>
         </div>
       </div>
+
+      {timedTaskModalState && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: '16px',
+          }}
+        >
+          <div
+            data-modal-content
+            style={{
+              backgroundColor: '#1f2937',
+              borderRadius: '12px',
+              width: '90%',
+              maxWidth: '500px',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+              border: '1px solid rgba(148, 163, 184, 0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '24px 24px 16px 24px',
+                borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+              }}
+            >
+              <h2
+                style={{
+                  color: '#e2e8f0',
+                  fontSize: '22px',
+                  fontWeight: 600,
+                  letterSpacing: '0.01em',
+                  margin: 0,
+                }}
+              >
+                Timed Task Confirmation
+              </h2>
+            </div>
+
+            <div
+              style={{
+                padding: '24px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+              }}
+            >
+              <p
+                style={{
+                  color: '#e5e7eb',
+                  fontSize: '16px',
+                  lineHeight: '1.6',
+                  margin: 0,
+                }}
+              >
+                This task{' '}
+                {timedTaskModalState.minutes
+                  ? `has a time limit of ${timedTaskModalState.minutes} minutes.`
+                  : 'has a time limit.'}
+              </p>
+              <p
+                style={{
+                  color: '#e5e7eb',
+                  fontSize: '16px',
+                  lineHeight: '1.6',
+                  margin: 0,
+                }}
+              >
+                Please make sure you have enough time to complete it in one session. The timer starts only after you click <strong>Start</strong> in the task workspace and does not pause.
+              </p>
+              <p
+                style={{
+                  color: '#e5e7eb',
+                  fontSize: '16px',
+                  lineHeight: '1.6',
+                  margin: 0,
+                }}
+              >
+                You will not be able to leave the page once you begin the task.
+              </p>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button
+                  onClick={() => setTimedTaskModalState(null)}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: '#374151',
+                    color: '#e5e7eb',
+                    border: '1px solid rgba(148, 163, 184, 0.35)',
+                    borderRadius: '6px',
+                    fontSize: '15px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s ease',
+                    flex: 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#4b5563';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#374151';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmTimedTaskStart}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s ease',
+                    flex: 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#1d4ed8';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#2563eb';
+                  }}
+                >
+                  Start timed task
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

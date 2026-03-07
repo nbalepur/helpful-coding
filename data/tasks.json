@@ -3,7 +3,7 @@
     {
       "name": "ai_opponent",
       "title": "AI Opponent",
-      "description": "<p>Create any game where the player competes against an AI opponent rather than another human. The AI should make decisions based on the current game state so it feels like an intentional opponent, even if its strategy is lightweight.</p>",
+      "description": "<p><strong>Theme:</strong> Create any game where the player competes against an AI opponent rather than another human. The AI should make decisions based on the current game state so it feels like an intentional opponent, even if its strategy is lightweight.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.chess.com/play/computer\">Chess vs Computer</a>\n<a href=\"https://cardgames.io/checkers/\">Checkers vs Computer</a>\n<a href=\"https://playtictactoe.org/\">Tic Tac Toe vs Computer</a>",
       "code_start_date": "2025-01-01",
@@ -57,7 +57,7 @@
     {
       "name": "battleship",
       "title": "Battleship",
-      "description": "<p>a game where ships are placed on a hidden grid and the player fires shots by selecting coordinates. Each shot should reveal hit or miss and remain marked so the player can track previous guesses.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Track ship health so a ship is “sunk” when all its cells are hit, and end the game when all ships are sunk. The UI should show shot history clearly and communicate hit/miss/sunk feedback instantly after each move.</p>",
+      "description": "<p>a game where ships are placed on a hidden grid and the player fires shots by selecting coordinates. Each shot should reveal hit or miss and remain marked so the player can track previous guesses.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Track ship health so a ship is \u201csunk\u201d when all its cells are hit, and end the game when all ships are sunk. The UI should show shot history clearly and communicate hit/miss/sunk feedback instantly after each move.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.battleshiponline.org/\">Battleship</a>",
       "code_start_date": "2025-01-01",
@@ -84,7 +84,7 @@
     {
       "name": "blackjack",
       "title": "Blackjack",
-      "description": "<p>a card game where the player competes against a dealer to reach a score of 21. Cards are dealt from a shuffled deck, and each hand’s value is the sum of card ranks with Aces counting as 1 or 11, depending on what helps the hand most.</p><p>The player chooses to Hit (take another card) or Stand (end their turn), trying to get closer to 21 without going over. After the player stands, the dealer reveals their hidden card and draws until reaching at least 17, then totals are compared to decide win/lose/push.</p>",
+      "description": "<p>a card game where the player competes against a dealer to reach a score of 21. Cards are dealt from a shuffled deck, and each hand\u2019s value is the sum of card ranks with Aces counting as 1 or 11, depending on what helps the hand most.</p><p>The player chooses to Hit (take another card) or Stand (end their turn), trying to get closer to 21 without going over. After the player stands, the dealer reveals their hidden card and draws until reaching at least 17, then totals are compared to decide win/lose/push.</p>",
       "label": "replication",
       "example": "<a href=\"https://games.washingtonpost.com/games/blackjack\">Blackjack</a>",
       "code_start_date": "2025-01-01",
@@ -138,7 +138,7 @@
     {
       "name": "bullet_hell_survival",
       "title": "Bullet Hell Survival",
-      "description": "<p>Create a top-down survival game where enemies spawn continuously and must be defeated or avoided by the player. The player’s role is movement and positioning while attacks fire automatically on a cooldown.</p>",
+      "description": "<p><strong>Theme:</strong> Create a top-down survival game where enemies spawn continuously and must be defeated or avoided by the player. The player\u2019s role is movement and positioning while attacks fire automatically on a cooldown.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://poncle.itch.io/vampire-survivors\">Vampire Survivors</a>\n<a href=\"https://armorgames.com/play/13324/boss-slayer\">Boss Slayer</a>\n<a href=\"https://armorgames.com/towertide-game/19559?tag-referral=bullet-hell\">Tower Tide</a>\n",
       "code_start_date": "2025-01-01",
@@ -165,7 +165,7 @@
     {
       "name": "checkers",
       "title": "Checkers",
-      "description": "<p>the classic board game on an 8×8 board where players move pieces diagonally and take turns to capture opponent pieces. A normal piece moves forward one square into an empty space, and captures by jumping over an adjacent opponent piece into the empty square beyond it.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Require captures when available, remove captured pieces immediately, and promote a piece to a king when it reaches the far row so it can move backward too. The game ends when a player has no legal moves, and the UI should highlight legal moves and clearly show whose turn it is.</p>",
+      "description": "<p>the classic board game on an 8\u00d78 board where players move pieces diagonally and take turns to capture opponent pieces. A normal piece moves forward one square into an empty space, and captures by jumping over an adjacent opponent piece into the empty square beyond it.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. Require captures when available, remove captured pieces immediately, and promote a piece to a king when it reaches the far row so it can move backward too. The game ends when a player has no legal moves, and the UI should highlight legal moves and clearly show whose turn it is.</p>",
       "label": "replication",
       "example": "<a href=\"https://cardgames.io/checkers/\">Checkers</a>",
       "code_start_date": "2025-01-01",
@@ -192,7 +192,7 @@
     {
       "name": "chess",
       "title": "Chess",
-      "description": "<p>a classic 8×8 strategy board game where players alternate turns moving pieces with distinct movement rules (pawns, knights, bishops, rooks, queen, and king), aiming to trap the enemy king. Moves can capture opponent pieces, changing the position and available tactics each turn.</p><p>The key rule is check and checkmate: the game ends when the king is attacked and has no legal escape. A web version should make turns readable, show legal moves clearly, and indicate check/checkmate/stalemate states in a way that’s easy to understand while playing.</p>",
+      "description": "<p>a classic 8\u00d78 strategy board game where players alternate turns moving pieces with distinct movement rules (pawns, knights, bishops, rooks, queen, and king), aiming to trap the enemy king. Moves can capture opponent pieces, changing the position and available tactics each turn.</p><p>The key rule is check and checkmate: the game ends when the king is attacked and has no legal escape. A web version should make turns readable, show legal moves clearly, and indicate check/checkmate/stalemate states in a way that\u2019s easy to understand while playing.</p>",
       "label": "replication",
       "example": "<a href=\"https://cardgames.io/chess/\">Chess</a>",
       "code_start_date": "2025-01-01",
@@ -219,7 +219,7 @@
     {
       "name": "connect_four",
       "title": "Connect Four",
-      "description": "<p>a vertical grid game where players drop discs into columns to connect four discs in a row. On a turn, the player selects a column and the disc falls to the lowest empty slot as if pulled by gravity.</p><p>The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own. The first player to connect four of their discs in a single line—horizontal, vertical, or diagonal—wins the round. If the grid fills without a four-in-a-row, it’s a draw, and the UI should make turn order and win states very obvious.</p>",
+      "description": "<p>a vertical grid game where players take turns dropping discs into columns; the disc falls to the lowest empty slot in that column. The goal is to connect four of your discs in a line\u2014horizontal, vertical, or diagonal.</p><p>The round ends when someone makes four in a row or the grid fills with no winner. A good version shows whose turn it is, highlights the winning line, and makes restarting instant so players can run it back.</p>",
       "label": "replication",
       "example": "<a href=\"https://papergames.io/en/connect4\">Connect Four</a>",
       "code_start_date": "2025-01-01",
@@ -228,17 +228,17 @@
       "files": [
         {
           "name": "index.html",
-          "content": "data/code_files/blank_site/index.html",
+          "content": "data/code_files/connect_four_starter/index.html",
           "language": "html"
         },
         {
           "name": "styles.css",
-          "content": "data/code_files/blank_site/styles.css",
+          "content": "data/code_files/connect_four_starter/styles.css",
           "language": "css"
         },
         {
           "name": "frontend.js",
-          "content": "data/code_files/blank_site/frontend.js",
+          "content": "data/code_files/connect_four_starter/frontend.js",
           "language": "javascript"
         }
       ]
@@ -246,7 +246,7 @@
     {
       "name": "cookie_clicker",
       "title": "Cookie Clicker",
-      "description": "<p>Create an incremental clicker game where clicking produces currency and that currency buys generators that automatically produce more currency over time. The experience is about watching numbers grow and making upgrades that accelerate growth.</p>",
+      "description": "<p><strong>Theme:</strong> Create an incremental clicker game where clicking produces currency and that currency buys generators that automatically produce more currency over time. The experience is about watching numbers grow and making upgrades that accelerate growth.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://orteil.dashnet.org/cookieclicker/\">Cookie Clicker</a>\n<a href=\"https://www.decisionproblem.com/paperclips/index2.html\">Universal Paperclips</a>\n<a href=\"https://funflower.itch.io/nimbus\">Nimbus</a>",
       "code_start_date": "2025-01-01",
@@ -300,7 +300,7 @@
     {
       "name": "deck_builder_combat",
       "title": "Deck Builder",
-      "description": "<p>Create a turn-based card combat game where the player draws a hand of cards each turn and plays cards to attack, block, heal, or apply effects. The goal of the player is to defeat another player who is drawing cards from the same hand</p>",
+      "description": "<p><strong>Theme:</strong> Create a turn-based card combat game where the player draws a hand of cards each turn and plays cards to attack, block, heal, or apply effects. The goal of the player is to defeat another player who is drawing cards from the same hand</p>",
       "label": "open-ended",
       "example": "<a href=\"https://tcgmasters.net/\">Pokemon Trading Card Game</a>\n<a href=\"https://teamwood.itch.io/super-auto-pets\">Super Auto Pets</a>\n<a href=\"https://armorgames.com/play/2738/mytheria\">Mytheria</a>",
       "code_start_date": "2025-01-01",
@@ -354,7 +354,7 @@
     {
       "name": "endless_arcade",
       "title": "Endless",
-      "description": "<p>Design a game that can run indefinitely, where the goal is always to beat a previous best score. The player should never truly “finish” the game; instead the challenge continuously ramps.</p>",
+      "description": "<p><strong>Theme:</strong> Design a game that can run indefinitely, where the goal is always to beat a previous best score. The player should never truly \u201cfinish\u201d the game; instead the challenge continuously ramps.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://flappybird.io/\">Flappy Bird</a>\n<a href=\"https://doodlejumponline.github.io/\">Doodle Jump</a>\n<a href=\"https://nbalepur.github.io/ai2-trex-runner/\">Chrome Dinosaur Game</a>",
       "code_start_date": "2025-01-01",
@@ -381,7 +381,7 @@
     {
       "name": "fighting_game",
       "title": "Fighting Game",
-      "description": "<p>Create any game where the player needs to fight against another opponent. Each player has a health bar, and the game ends when one of the players runs out of health. The player with the most health wins the game.</p>",
+      "description": "<p><strong>Theme:</strong> Create any game where the player needs to fight against another opponent. Each player has a health bar, and the game ends when one of the players runs out of health. The player with the most health wins the game.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.crazygames.com/game/street-fighter-2\">Street Fighter</a>\n<a href=\"https://pvpoke.com/battle/\">Pokemon</a>\n<a href=\"https://www.crazygames.com/game/mortal-kombat-karnage\">Mortal Kombat</a>",
       "code_start_date": "2025-01-01",
@@ -435,7 +435,7 @@
     {
       "name": "gravity_shift",
       "title": "Gravity Change",
-      "description": "<p>Create a game where gravity direction can change, either by player control or by moving between areas with different gravity.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where gravity direction can change, either by player control or by moving between areas with different gravity.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://flori9.itch.io/circloo\">circloO</a>\n<a href=\"https://rob1221.itch.io/gravity-arrows\">Gravity Arrows</a>\n<a href=\"https://prox276.itch.io/the-right-turn\">The Right Turn</a>",
       "code_start_date": "2025-01-01",
@@ -489,7 +489,7 @@
     {
       "name": "interactive_story",
       "title": "Interactive Story",
-      "description": "<p>Create a branching narrative where the user reads scenes and makes choices that influence what happens next.</p>",
+      "description": "<p><strong>Theme:</strong> Create a branching narrative where the user reads scenes and makes choices that influence what happens next.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://aidungeon.com/\">Online Dungeons and Dragons</a>\n<a href=\"https://bitlifefree.io/\">BitLife</a>\n<a href=\"https://www.visitoregon.com/the-oregon-trail-game-online/\">Oregon Trail</a>\n",
       "code_start_date": "2025-01-01",
@@ -516,7 +516,7 @@
     {
       "name": "jam_theme",
       "title": "Jam-themed Game",
-      "description": "<p>In the spirit of VibeJam, create a game where <strong>jam</strong> is central to the theme or mechanics, whether that’s fruit jam, music jam, or game jam.</p>",
+      "description": "<p><strong>Theme:</strong> In the spirit of VibeJam, create a game where <strong>jam</strong> is central to the theme or mechanics, whether that\u2019s fruit jam, music jam, or game jam.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://stonet2000.github.io/Cut-Bread/\">Cut Bread</a>\n<a href=\"https://www.crazygames.com/game/parking-jam-dqq\">Parking Jam</a>\n<a href=\"https://rhythm-plus.com/menu/\">Rhythm+</a>",
       "code_start_date": "2025-01-01",
@@ -543,7 +543,7 @@
     {
       "name": "mancala",
       "title": "Mancala",
-      "description": "<p>a board game with pits and a store for each player. On your turn, you pick a pit on your side and distribute its stones one-by-one into subsequent pits around the board.</p><p>Depending on where the last stone lands, you may get an extra turn or capture stones, and the game ends when one side’s pits are empty. Remaining stones are collected and the higher store total wins, so the strategy is about planning where your final stone lands and how you starve your opponent of moves.</p>",
+      "description": "<p>a board game with pits and a store for each player. On your turn, you pick a pit on your side and distribute its stones one-by-one into subsequent pits around the board.</p><p>Depending on where the last stone lands, you may get an extra turn or capture stones, and the game ends when one side\u2019s pits are empty. Remaining stones are collected and the higher store total wins, so the strategy is about planning where your final stone lands and how you starve your opponent of moves.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.crazygames.com/game/mancala-classic\">Mancala</a>",
       "code_start_date": "2025-01-01",
@@ -570,7 +570,7 @@
     {
       "name": "match_three",
       "title": "Match-3 Puzzle",
-      "description": "<p>a puzzle game on a grid of colored tiles, where the player swaps adjacent tiles to create lines of three or more matching tiles (e.g. Candy Crush). If a swap creates a line of three or more matching tiles, those tiles clear and new tiles fall in from above.</p><p>Allow chain reactions when new falls create additional matches, and track score based on cleared tiles and combos. The UI should animate swaps and clears clearly, and prevent swaps that don’t result in a match.</p>",
+      "description": "<p>a puzzle game on a grid of colored tiles, where the player swaps adjacent tiles to create lines of three or more matching tiles (e.g. Candy Crush). If a swap creates a line of three or more matching tiles, those tiles clear and new tiles fall in from above.</p><p>Allow chain reactions when new falls create additional matches, and track score based on cleared tiles and combos. The UI should animate swaps and clears clearly, and prevent swaps that don\u2019t result in a match.</p>",
       "label": "replication",
       "example": "<a href=\"https://games.aarp.org/games/sweet-shuffle\">Sweet Shuffle</a>",
       "code_start_date": "2025-01-01",
@@ -597,7 +597,7 @@
     {
       "name": "maze",
       "title": "Maze Game",
-      "description": "<p>Create a maze navigation game where the player must reach an exit through tricky mazes. The goal is typically to find the way out.</p>",
+      "description": "<p><strong>Theme:</strong> Create a maze navigation game where the player must reach an exit through tricky mazes. The goal is typically to find the way out.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://cariboutests.com/games/mazes.php\">Standard Maze Game</a>\n<a href=\"https://www.mathsisfun.com/games/tilt-maze.html\">Tilt Maze</a>\n<a href=\"https://freepacman.org/\">Pac-Man</a>",
       "code_start_date": "2025-01-01",
@@ -624,7 +624,7 @@
     {
       "name": "memory",
       "title": "Memory",
-      "description": "<p>Create a game where remembering past information is a core mechanic of the game.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where remembering past information is a core mechanic of the game.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.memozor.com/simon-games/simon-gam\">Simon</a>\n<a href=\"https://memorymatching.com/\">Matching</a>\n<a href=\"https://humanbenchmark.com/tests/verbal-memory\">Verbal Memory Test</a>",
       "code_start_date": "2025-01-01",
@@ -651,7 +651,7 @@
     {
       "name": "memory_match",
       "title": "Memory Matching",
-      "description": "<p>a concentration game where players flip cards to try and find matching pairs. The player flips two cards per turn, trying to find matching pairs by remembering previously seen card faces.</p><p>If the two revealed cards match they stay face-up, and if they don’t match they flip back after a short delay, giving the player a moment to memorize them. The game ends when all pairs are found, and you can show moves or time as the “score” to encourage replay. The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own.</p>",
+      "description": "<p>a concentration game where players flip cards to try and find matching pairs. The player flips two cards per turn, trying to find matching pairs by remembering previously seen card faces.</p><p>If the two revealed cards match they stay face-up, and if they don\u2019t match they flip back after a short delay, giving the player a moment to memorize them. The game ends when all pairs are found, and you can show moves or time as the \u201cscore\u201d to encourage replay. The game should support one-player against an AI opponent (and optionally two-player locally). The AI does not need to be sophisticated, but should be able to make valid moves on its own.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.helpfulgames.com/subjects/brain-training/memory.html\">Memory</a>",
       "code_start_date": "2025-01-01",
@@ -732,7 +732,7 @@
     {
       "name": "password_game",
       "title": "Password Game",
-      "description": "<p>a puzzle where the player must type a password that satisfies a growing list of rules. Rules are revealed progressively, and the password must satisfy all rules simultaneously as they stack up.</p><p>The fun comes from adjusting the password as new constraints appear, while the UI shows a live pass/fail indicator for every rule and explains what is missing. Players “win” when all rules are satisfied at once, making it feel like a logic juggling act.</p>",
+      "description": "<p>a puzzle where the player must type a password that satisfies a growing list of rules. Rules are revealed progressively, and the password must satisfy all rules simultaneously as they stack up.</p><p>The fun comes from adjusting the password as new constraints appear, while the UI shows a live pass/fail indicator for every rule and explains what is missing. Players \u201cwin\u201d when all rules are satisfied at once, making it feel like a logic juggling act.</p>",
       "label": "replication",
       "example": "<a href=\"https://neal.fun/password-game/\">Password Game</a>",
       "code_start_date": "2025-01-01",
@@ -786,7 +786,7 @@
     {
       "name": "platformer",
       "title": "Platformer",
-      "description": "<p>Create a platformer game, where the player must run, jump, or user other movement across platforms to reach a goal.</p>",
+      "description": "<p><strong>Theme:</strong> Create a <strong>platformer</strong> game, where the player must run, jump, or user other movement across platforms to reach a goal.</p><p>This is a required website task you must complete before all others are unlocked. There is also a time limit for this task, next to the code tab.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://supermario-game.com/\">Super Mario Bros</a>\n<a href=\"https://www.retrogames.cz/play_001-NES.php\">Donkey Kong</a>\n<a href=\"https://www.miniplay.com/game/sonic-the-hedgehog-pocket-platformer\">Sonic the Hedgehog</a>",
       "code_start_date": "2025-01-01",
@@ -813,7 +813,7 @@
     {
       "name": "pong",
       "title": "Pong",
-      "description": "<p>a two-paddle ball game where the ball bounces between paddles and the top/bottom walls. A player scores when the ball passes the opponent’s paddle.</p><p>The paddles move up and down, and after each point the ball resets and serves again, continuing until a target score is reached. The appeal is simple but satisfying physics and a clear scoreboard that makes the duel feel competitive. The second player can either be another human or an AI.</p>",
+      "description": "<p>a two-paddle ball game where the ball bounces between paddles and the top/bottom walls. A player scores when the ball passes the opponent\u2019s paddle.</p><p>The paddles move up and down, and after each point the ball resets and serves again, continuing until a target score is reached. The appeal is simple but satisfying physics and a clear scoreboard that makes the duel feel competitive. The second player can either be another human or an AI.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.ponggame.org/\">Pong</a>",
       "code_start_date": "2025-01-01",
@@ -840,7 +840,7 @@
     {
       "name": "puzzle",
       "title": "Puzzle Game",
-      "description": "<p>Create a game where users must solve puzzles in order to beat the game or levels in the game.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where users must solve puzzles in order to beat the game or levels in the game.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.jigsawexplorer.com/online-jigsaw-puzzle-player.html\">Jigsaw Puzzles</a>\n<a href=\"https://www.crazygames.com/game/link\">Link</a>\n<a href=\"https://www.nytimes.com/games/connections\">NYT Connections</a>",
       "code_start_date": "2025-01-01",
@@ -867,7 +867,7 @@
     {
       "name": "reaction",
       "title": "Reaction Test",
-      "description": "<p>Create a game that relies on users having good \"reaction time\": how well they can respond to new inputs on the screen</p>",
+      "description": "<p><strong>Theme:</strong> Create a game that relies on users having good \"reaction time\": how well they can respond to new inputs on the screen</p>",
       "label": "open-ended",
       "example": "<a href=\"https://humanbenchmark.com/tests/reactiontime\">Reaction Time Test</a>\n<a href=\"https://play.tetris.com/\">Tetris</a>\n<a href=\"https://geometrydash-lite.io/\">Geometry Dash</a>",
       "code_start_date": "2025-01-01",
@@ -921,7 +921,7 @@
     {
       "name": "scale",
       "title": "Growing or Shrinking",
-      "description": "<p>Create a game where a core mechanic involves the main character growing or shrinking in size</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where a core mechanic involves the main character growing or shrinking in size</p>",
       "label": "open-ended",
       "example": "<a href=\"https://agargame.io/\">Agar IO</a>\n<a href=\"https://holeio.com/\">Hole IO</a>\n<a href=\"https://playsnake.org/\">Snake</a>",
       "code_start_date": "2025-01-01",
@@ -948,7 +948,7 @@
     {
       "name": "simon",
       "title": "Simon",
-      "description": "<p>a memory game where the game shows a sequence of highlighted buttons (colors/shapes) and the player must repeat the sequence in the same order.</p><p>Each successful round adds one more step, making the sequence longer and harder to remember. A purely visual version still works well by using strong highlights and timing, and the player’s score is typically the longest sequence completed before making a mistake.</p>",
+      "description": "<p>a memory game where the game shows a sequence of highlighted buttons (colors/shapes) and the player must repeat the sequence in the same order.</p><p>Each successful round adds one more step, making the sequence longer and harder to remember. A purely visual version still works well by using strong highlights and timing, and the player\u2019s score is typically the longest sequence completed before making a mistake.</p>",
       "label": "replication",
       "example": "<a href=\"https://www.memozor.com/simon-games/simon-game\">Simon</a>",
       "code_start_date": "2025-01-01",
@@ -1002,7 +1002,7 @@
     {
       "name": "snake",
       "title": "Snake",
-      "description": "<p>a grid-based arcade game where a snake aims to become as big as possible by eating food. The snake moves continuously in the current direction and the player steers it with arrow keys or WASD. Each tick advances the snake by one cell, so the path you choose matters.</p><p>Food appears on empty cells, and eating it grows the snake and increases score, making movement progressively harder. The game ends when the snake hits the wall or itself, and a good version makes restarting fast and keeps a best score to encourage “one more try.”</p>",
+      "description": "<p>a grid-based arcade game where a snake aims to become as big as possible by eating food. The snake moves continuously in the current direction and the player steers it with arrow keys or WASD. Each tick advances the snake by one cell, so the path you choose matters.</p><p>Food appears on empty cells, and eating it grows the snake and increases score, making movement progressively harder. The game ends when the snake hits the wall or itself, and a good version makes restarting fast and keeps a best score to encourage \u201cone more try.\u201d</p>",
       "label": "replication",
       "example": "<a href=\"https://playsnake.org/\">Snake</a>",
       "code_start_date": "2025-01-01",
@@ -1029,7 +1029,7 @@
     {
       "name": "space",
       "title": "Space",
-      "description": "<p>Build any game set in outer space.</p>",
+      "description": "<p><strong>Theme:</strong> Build any game set in outer space.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://games.aarp.org/games/atari-asteroids\">Asteroids</a>\n<a href=\"https://elgoog.im/space-invaders/\">Space Invaders</a>\n<a href=\"https://amongus-online.net/game/amongus\">Among Us</a>",
       "code_start_date": "2025-01-01",
@@ -1083,7 +1083,7 @@
     {
       "name": "sudoku",
       "title": "Sudoku",
-      "description": "<p>a classic puzzle game with a 9×9 grid where the player fills empty cells with digits 1–9 so that every row, every column, and each 3×3 subgrid contains all digits exactly once. Start from a valid puzzle with some cells pre-filled and locked so they cannot be edited.</p>",
+      "description": "<p>a classic puzzle game with a 9\u00d79 grid where the player fills empty cells with digits 1\u20139 so that every row, every column, and each 3\u00d73 subgrid contains all digits exactly once. Start from a valid puzzle with some cells pre-filled and locked so they cannot be edited.</p>",
       "label": "replication",
       "example": "<a href=\"https://sudoku.com/\">Sudoku</a>",
       "code_start_date": "2025-01-01",
@@ -1110,7 +1110,7 @@
     {
       "name": "swap",
       "title": "Swapped Rules",
-      "description": "<p>Create a game where a core rule or interaction is swapped, reverse or unexpected from the typical.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where a core rule or interaction is swapped, reverse or unexpected from the typical.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.chess.com/variants/atomic\">Atomic Chess</a>\n<a href=\"https://www.foddy.net/Athletics.html\">QWOP</a>\n<a href=\"https://www.crazygames.com/game/the-impossible-quiz\">The Impossible Quiz</a>",
       "code_start_date": "2025-01-01",
@@ -1137,7 +1137,7 @@
     {
       "name": "tabletop",
       "title": "Tabletop Game",
-      "description": "<p>Create a web version of an existing board or card game that can be played as a single player, against an AI, or with another player</p>",
+      "description": "<p><strong>Theme:</strong> Create a web version of an existing board or card game that can be played as a single player, against an AI, or with another player</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.google.com/logos/fnbx/solitaire/standalone.html\">Solitaire</a>\n<a href=\"https://playscrabble.com/\">Scrabble</a>\n<a href=\"https://games.aarp.org/games/texas-holdem-poker-sit-and-go\">Poker</a>",
       "code_start_date": "2025-01-01",
@@ -1164,7 +1164,7 @@
     {
       "name": "tetris",
       "title": "Tetris",
-      "description": "<p>a falling-block puzzle game where tetromino pieces descend from the top of a vertical board and the player moves and rotates them to fit together.</p><p>Completing a full horizontal line clears it and drops everything above, rewarding points and opening space, and the game speeds up over time to increase pressure. The run ends when the stack reaches the top and new pieces can’t spawn, making it a battle for efficiency and calm decision-making.</p>",
+      "description": "<p>a falling-block puzzle game where tetromino pieces descend from the top of a vertical board and the player moves and rotates them to fit together.</p><p>Completing a full horizontal line clears it and drops everything above, rewarding points and opening space, and the game speeds up over time to increase pressure. The run ends when the stack reaches the top and new pieces can\u2019t spawn, making it a battle for efficiency and calm decision-making.</p>",
       "label": "replication",
       "example": "<a href=\"https://play.tetris.com/\">Tetris</a>",
       "code_start_date": "2025-01-01",
@@ -1191,7 +1191,7 @@
     {
       "name": "tic_tac_toe",
       "title": "Tic-Tac-Toe",
-      "description": "<p>a 3×3 grid game where players take turns placing X and O by clicking an empty cell, aiming to make three in a row. Once placed, the symbol stays, so each move changes the remaining possibilities.</p><p>The round ends when someone makes three in a row (row/column/diagonal) or the grid fills with no winner. A good version shows whose turn it is, highlights the winning line, and makes restarting instant so players can run it back.</p>",
+      "description": "<p>a 3\u00d73 grid game where players take turns placing X and O by clicking an empty cell, aiming to make three in a row. Once placed, the symbol stays, so each move changes the remaining possibilities.</p><p>The round ends when someone makes three in a row (row/column/diagonal) or the grid fills with no winner. A good version shows whose turn it is, highlights the winning line, and makes restarting instant so players can run it back.</p>",
       "label": "replication",
       "example": "<a href=\"https://playtictactoe.org/\">Tic Tac Toe</a>",
       "code_start_date": "2025-01-01",
@@ -1200,17 +1200,17 @@
       "files": [
         {
           "name": "index.html",
-          "content": "data/code_files/blank_site/index.html",
+          "content": "data/code_files/tic_tac_toe_starter/index.html",
           "language": "html"
         },
         {
           "name": "styles.css",
-          "content": "data/code_files/blank_site/styles.css",
+          "content": "data/code_files/tic_tac_toe_starter/styles.css",
           "language": "css"
         },
         {
           "name": "frontend.js",
-          "content": "data/code_files/blank_site/frontend.js",
+          "content": "data/code_files/tic_tac_toe_starter/frontend.js",
           "language": "javascript"
         }
       ]
@@ -1218,7 +1218,7 @@
     {
       "name": "time_loop",
       "title": "Time Loop",
-      "description": "<p>Create a game where a core mechanic involves the player repeating the same sequence of events over and over.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where a core mechanic involves the player repeating the same sequence of events over and over.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://armorgames.com/play/4309/this-is-the-only-level\">This is the Only Level</a>\n<a href=\"https://www.newgrounds.com/portal/view/612985\">Give Up</a>\n<a href=\"https://www.coolmathgames.com/0-learn-to-fly\">Learn to Fly</a>\n",
       "code_start_date": "2025-01-01",
@@ -1245,7 +1245,7 @@
     {
       "name": "time_pressure",
       "title": "Speed",
-      "description": "<p>Create a game where the core difficulty relies on the time taken to beat the game.</p>",
+      "description": "<p><strong>Theme:</strong> Create a game where the core difficulty relies on the time taken to beat the game.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://play.tetris.com\">Tetris</a>\n<a href=\"https://papaspizzeria.io/\">Papa's Pizzeria</a>\n<a href=\"https://play.typeracer.com/\">Typeracer</a>",
       "code_start_date": "2025-01-01",
@@ -1272,7 +1272,7 @@
     {
       "name": "tower_defense",
       "title": "Tower Defense",
-      "description": "<p>Create a tower defense game where enemies follow a path and the player places towers to stop them before they reach the base.</p>",
+      "description": "<p><strong>Theme:</strong> Create a tower defense game where enemies follow a path and the player places towers to stop them before they reach the base.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://www.crazygames.com/game/bloons-tower-defense\">Bloons Tower Defense</a>\n<a href=\"https://www.miniplay.com/game/plants-vs-zombies\">Plants vs Zombies</a>\n<a href=\"https://armorgames.com/play/347/storm-the-house\">Storm the House</a>",
       "code_start_date": "2025-01-01",
@@ -1299,7 +1299,7 @@
     {
       "name": "two_zero_four_eight",
       "title": 2048,
-      "description": "<p>a sliding tile puzzle on a 4×4 grid where the player swipes or presses arrow keys to slide all tiles in one direction, aiming to merge tiles into larger numbers. Tiles compress toward the edge until blocked by another tile or the border.</p><p>When two equal-number tiles collide during a move, they merge into a single tile with double the value, and then a new tile (2 or 4) appears in an empty cell. The puzzle ends when no moves remain, and the score grows based on merges as the player aims for bigger and bigger numbers.</p>",
+      "description": "<p>a sliding tile puzzle on a 4\u00d74 grid where the player swipes or presses arrow keys to slide all tiles in one direction, aiming to merge tiles into larger numbers. Tiles compress toward the edge until blocked by another tile or the border.</p><p>When two equal-number tiles collide during a move, they merge into a single tile with double the value, and then a new tile (2 or 4) appears in an empty cell. The puzzle ends when no moves remain, and the score grows based on merges as the player aims for bigger and bigger numbers.</p>",
       "label": "replication",
       "example": "<a href=\"https://play2048.co/\">2048</a>",
       "code_start_date": "2025-01-01",
@@ -1353,7 +1353,7 @@
     {
       "name": "underwater",
       "title": "Water Game",
-      "description": "<p>Create a game either set under or near water or with a core mechanic related to water</p>",
+      "description": "<p><strong>Theme:</strong> Create a game either set under or near water or with a core mechanic related to water</p>",
       "label": "open-ended",
       "example": "<a href=\"https://kids.nationalgeographic.com/games/puzzles/article/maze-oceans\">Ocean Maze</a>\n<a href=\"https://www.miniplay.com/game/where-s-my-water\">Where's My Water</a>\n<a href=\"https://www.coolmathgames.com/0-tiny-fishing\">Tiny Fishing</a>",
       "code_start_date": "2025-01-01",
@@ -1380,7 +1380,7 @@
     {
       "name": "virtual_pet",
       "title": "Virtual Pet",
-      "description": "<p>Create a virtual pet game where the player takes care of a pet that lives in a small UI panel and has needs like Hunger, Happiness, and Energy that decay over time. The player cares for the pet by choosing actions that raise these meters.</p><p>Feeding, playing, cleaning, and sleeping change the pet’s state, and ignoring needs makes the pet look sad or sick and can lead to a game-over.</p>",
+      "description": "<p><strong>Theme:</strong> Create a virtual pet game where the player takes care of a pet that lives in a small UI panel and has needs like Hunger, Happiness, and Energy that decay over time. The player cares for the pet by choosing actions that raise these meters.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://autosam.github.io/Tamaweb/\">Tamaweb</a>\n<a href=\"https://freebie.games/games/tamagotchi/play/\">Tamagotchi</a>\n<a href=\"https://natnatart.itch.io/plantgotchi\">Plantgotchi</a>",
       "code_start_date": "2025-01-01",
@@ -1461,7 +1461,7 @@
     {
       "name": "zen_garden",
       "title": "Zen Garden",
-      "description": "<p>Create a relaxing game where players casually place objects and watch a peaceful scene grow over time, with no goals, pressure, or winning.</p>",
+      "description": "<p><strong>Theme:</strong> Create a relaxing game where players casually place objects and watch a peaceful scene grow over time, with no goals, pressure, or winning.</p>",
       "label": "open-ended",
       "example": "<a href=\"https://playplayfun.com/cats-and-soup-game-cute-cat-game/play/\">Cats and Soup</a>\n<a href=\"https://alfredncy.itch.io/serenitrove\">Serenitrove</a>\n<a href=\"https://cookiecrayon.itch.io/snug\">Snug</a>",
       "code_start_date": "2025-01-01",
@@ -1481,6 +1481,136 @@
         {
           "name": "frontend.js",
           "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "website_tutorial_intro",
+      "title": "Warm-Up Task 1",
+      "description": "<p>This is a warm-up task to help your prepare for your first website creation task and get familiar with our interface. You'll start with a blank website and must update the code to fulfill a list of given requirements.</p>",
+      "requirements": [
+        "Make the main text of the 'Blank Site' header blue",
+        "Anywhere on the page, add a joke within a paragraph element",
+        "When the button is clicked, change the heading text from 'Blank Site' to 'Hello, World!'"
+      ],
+      "label": "website_requirements",
+      "example": "",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2027-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "website_tutorial_follow_up",
+      "title": "Warm-Up Task 2",
+      "description": "<p>This is another warm-up task to help you prepare for your second website creation task and get reacquainted with our interface. You'll start with a blank website and must update the code to fulfill a list of given requirements.</p>",
+      "requirements": [
+        "Rename the button text to say 'My Button'",
+        "Anywhere on the page, add a numbered list with three of your favorite foods",
+        "When the button is clicked, change the button's background color to be blue"
+      ],
+      "label": "website_requirements",
+      "example": "",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2027-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/blank_site/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/blank_site/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/blank_site/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "zic_zac_zoe",
+      "title": "Zic-Zac-Zoe",
+      "description": "<p>In this task, you'll create a variation of tic-tac-toe on a 5x5 grid with two human players: Player A and Player B. You'll start with a blank board, helper JavaScript functions, and logic to connect the HTML, JS, and CSS, which you must update to fulfill a list of given requirements.</p>",
+      "requirements": [
+        "Players can only place a symbol by clicking on a square that does not already have a symbol, which should display 'A' or 'B' based on who clicked it.",
+        "The game is over when a player has five symbols in a row horizontally or vertically (not diagonally), or no more moves can be played (Tie Game)",
+        "Each cell on the 5x5 board should have a pink background color",
+        "Add a status element in a paragraph tag underneath the header 'Zic-Zac-Zoe'. It should show whose turn it is ('Player A Turn' or 'Player B Turn') and a message when the game is over (e.g., 'Player A Wins!', 'Player B Wins!', 'Tie Game!'), prefixed by 'Status:'",
+        "Turns alternate between Player A and Player B, starting with A. Each player places exactly two symbols per turn (A -> A -> B -> B -> ...)"
+      ],
+      "label": "website_requirements",
+      "example": "<iframe width='420' height='315' src='https://youtu.be/gzmw8_eowlc'></iframe>",
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2027-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/zic_zac_zoe_starter/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/zic_zac_zoe_starter/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/zic_zac_zoe_starter/frontend.js",
+          "language": "javascript"
+        }
+      ]
+    },
+    {
+      "name": "zic_zac_zoe_follow_up",
+      "title": "Mystery Challenge",
+      "description": "<p>This task is a mystery! It will only be revealed once you open it 👀</p>",
+      "label": "website_requirements",
+      "example": "<iframe width='420' height='315' src='https://youtu.be/B1yEDqqXuVU'></iframe>",
+      "requirements": [
+        "Along with your previous win condition logic, a player can also win zic-zac-zoe by placing their symbol in all four corners of the board",
+        "Change the colors of symbols on the board: 'A' should be red and 'B' should be blue",
+        "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe."
+      ],
+      "code_start_date": "2025-01-01",
+      "voting_start_date": "2027-02-08",
+      "voting_end_date": "2050-02-15",
+      "files": [
+        {
+          "name": "index.html",
+          "content": "data/code_files/zic_zac_zoe_starter/index.html",
+          "language": "html"
+        },
+        {
+          "name": "styles.css",
+          "content": "data/code_files/zic_zac_zoe_starter/styles.css",
+          "language": "css"
+        },
+        {
+          "name": "frontend.js",
+          "content": "data/code_files/zic_zac_zoe_starter/frontend.js",
           "language": "javascript"
         }
       ]

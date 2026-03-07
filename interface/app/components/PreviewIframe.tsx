@@ -202,6 +202,78 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
             }
           };
 
+          const serializeForTransport = (value, seen) => {
+            const seenSet = seen || new WeakSet();
+            try {
+              if (value == null) { return value; }
+
+              const valueType = typeof value;
+              if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+                return value;
+              }
+              if (valueType === 'undefined') { return '[undefined]'; }
+              if (valueType === 'bigint') { return value.toString() + 'n'; }
+              if (valueType === 'symbol') { return '[Symbol ' + ((value && value.description) || '') + ']'; }
+              if (valueType === 'function') { return '[Function ' + (value.name || 'anonymous') + ']'; }
+
+              if (value instanceof Error) {
+                return {
+                  name: value.name,
+                  message: value.message,
+                  stack: value.stack ? String(value.stack) : undefined
+                };
+              }
+              if (value instanceof Date) { return value.toISOString(); }
+              if (value instanceof RegExp) { return String(value); }
+
+              // DOM values are not structured-cloneable; show readable element text instead.
+              if (typeof Node !== 'undefined' && value instanceof Node) {
+                if (value.nodeType === 1) {
+                  const el = value;
+                  return el.outerHTML || ('[' + (el.nodeName || 'Element') + ']');
+                }
+                if (value.nodeType === 3) {
+                  return '[Text "' + String(value.textContent || '') + '"]';
+                }
+                return '[' + (value.nodeName || 'Node') + ']';
+              }
+
+              if (seenSet.has(value)) { return '[Circular]'; }
+              seenSet.add(value);
+
+              if (Array.isArray(value)) {
+                return value.map(function(item) { return serializeForTransport(item, seenSet); });
+              }
+              if (value instanceof Map) {
+                return {
+                  __type: 'Map',
+                  entries: Array.from(value.entries()).map(function(entry) {
+                    return [
+                      serializeForTransport(entry[0], seenSet),
+                      serializeForTransport(entry[1], seenSet)
+                    ];
+                  })
+                };
+              }
+              if (value instanceof Set) {
+                return {
+                  __type: 'Set',
+                  values: Array.from(value.values()).map(function(item) {
+                    return serializeForTransport(item, seenSet);
+                  })
+                };
+              }
+
+              const out = {};
+              Object.keys(value).forEach(function(key) {
+                out[key] = serializeForTransport(value[key], seenSet);
+              });
+              return out;
+            } catch (_) {
+              try { return String(value); } catch (_) { return '[Unserializable]'; }
+            }
+          };
+
           const findLineCol = (stack, options) => {
             const opts = options || {};
             try {
@@ -282,11 +354,14 @@ const PreviewIframe = forwardRef<PreviewIframeRef, PreviewIframeProps>(({
               }
 
               const scriptLine = adjustConsoleLine(outputLine);
+              const safeArgs = Array.isArray(args)
+                ? args.map(function(arg) { return serializeForTransport(arg); })
+                : [serializeForTransport(args)];
 
               safePostMessage({
                 type: 'console-log',
                 level: type,
-                args,
+                args: safeArgs,
                 line: scriptLine,
                 column: col,
                 stack: stack ? String(stack) : undefined,

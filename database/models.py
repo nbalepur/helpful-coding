@@ -74,8 +74,17 @@ class ProjectBase(BaseModel):
     """Base model for Project with common fields"""
     name: str = Field(..., min_length=1, max_length=200, description="Project name")
     title: Optional[str] = Field(None, max_length=255, description="Project title")
-    label: Optional[str] = Field(None, max_length=255, description="Project label (e.g., 'open-ended', 'replication')")
+    label: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="Project label (e.g., 'open-ended', 'replication', 'website_requirements')",
+    )
     description: Optional[str] = Field(None, max_length=1000, description="Project description")
+    requirements: Optional[List[str]] = Field(
+        None,
+        description="Task requirements for requirement-driven tasks",
+    )
+    example: Optional[str] = Field(None, description="Optional task example HTML/text")
     frontend_starter_file: Optional[str] = Field(None, description="Frontend starter file content")
     html_starter_file: Optional[str] = Field(None, description="HTML starter file content")
     css_starter_file: Optional[str] = Field(None, description="CSS starter file content")
@@ -105,6 +114,8 @@ class ProjectUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     label: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
+    requirements: Optional[List[str]] = None
+    example: Optional[str] = None
     frontend_starter_file: Optional[str] = None
     html_starter_file: Optional[str] = None
     css_starter_file: Optional[str] = None
@@ -173,6 +184,19 @@ class SubmissionBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255, description="Submission title")
     description: Optional[str] = Field(None, max_length=2000, description="Submission description")
     image: Optional[str] = Field(None, description="Preview image (URL, data URI, or encoded binary)")
+    is_forced_timeout_submission: bool = Field(
+        default=False,
+        description="Whether this submission was forced by timer expiration",
+    )
+    is_disqualified: bool = Field(
+        default=False,
+        description="Whether this submission is disqualified from voting",
+    )
+    disqualification_reason: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Optional reason for disqualification",
+    )
 
 
 class SubmissionCreate(SubmissionBase):
@@ -566,7 +590,7 @@ class ReportSkillCheckQuestionBase(BaseModel):
     question_id: str = Field(..., description="ID of the reported question")
     question_type: str = Field(..., description="Type of question: 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'")
     phase: Optional[str] = Field(None, description="Skill check phase: 'pre-test', 'post-test', or 'retake_{uuid}'")
-    report_type: str = Field(..., description="Type of report: 'issue_stops_solving' or 'frustrated_unable_to_solve'")
+    report_type: str = Field(..., description="Type of report: 'issue_stops_solving', 'frustrated_unable_to_solve', 'insufficient_programming_experience', or 'other'")
     rationale: str = Field(..., min_length=1, description="Required rationale explaining the report")
 
 
@@ -650,6 +674,7 @@ class GenerateComprehensionQuestionsRequest(BaseModel):
     submission_title: str = Field(..., description="Submission title")
     submission_description: str = Field(..., description="Submission description")
     submission_code: Dict[str, str] = Field(..., description="Submission code as key-value pairs")
+    ai_assistant_mode: Optional[str] = Field(None, description="AI assistant mode used for the task (e.g., 'agent' or 'chat')")
 
 
 class SaveTutorialQuestionsRequest(BaseModel):
@@ -724,4 +749,43 @@ class NavigationEvent(NavigationEventBase):
 
 class NavigationEventResponse(NavigationEvent):
     """Navigation event response model"""
+    pass
+
+
+# Task Event Models
+class TaskEventBase(BaseModel):
+    """Base model for website requirement task events"""
+    user_id: int = Field(..., description="User ID")
+    project_id: int = Field(..., description="Project ID")
+    event_name: str = Field(
+        ...,
+        description="Event name: loaded_in, left_page, started_edits, started_ai_query, questions_generation_started, questions_generation_completed, continued_to_questions, timer_paused, timer_resumed, submitted",
+    )
+    event_metadata: Optional[Dict[str, Any]] = Field(None, description="Optional event metadata")
+
+
+class TaskEventCreate(TaskEventBase):
+    """Model for creating a task event"""
+    pass
+
+
+class TaskEventUpdate(BaseModel):
+    """Model for updating a task event"""
+    user_id: Optional[int] = None
+    project_id: Optional[int] = None
+    event_name: Optional[str] = None
+    event_metadata: Optional[Dict[str, Any]] = None
+
+
+class TaskEvent(TaskEventBase):
+    """Complete task event model"""
+    id: int = Field(..., description="Task event ID")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        from_attributes = True
+
+
+class TaskEventResponse(TaskEvent):
+    """Task event response model"""
     pass

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
-from .sqlalchemy_models import User, Project, Code, Submission, SubmissionFeedback, CodePreference, AssistantLog, UserMCQASkillResponse, UserCodeSkillResponse, ReportSkillCheckQuestion, NavigationEvent
+from .sqlalchemy_models import User, Project, Code, Submission, SubmissionFeedback, CodePreference, AssistantLog, UserMCQASkillResponse, UserCodeSkillResponse, ReportSkillCheckQuestion, NavigationEvent, TaskEvent
 from .models import (
     UserCreate, UserUpdate, User as UserPydantic,
     ProjectCreate, ProjectUpdate, Project as ProjectPydantic,
@@ -16,6 +16,7 @@ from .models import (
     UserCodeSkillResponseCreate, UserCodeSkillResponseUpdate, UserCodeSkillResponse as UserCodeSkillResponsePydantic,
     ReportSkillCheckQuestionCreate, ReportSkillCheckQuestionUpdate, ReportSkillCheckQuestion as ReportSkillCheckQuestionPydantic,
     NavigationEventCreate, NavigationEventUpdate, NavigationEvent as NavigationEventPydantic,
+    TaskEventCreate, TaskEventUpdate, TaskEvent as TaskEventPydantic,
 )
 
 
@@ -91,7 +92,11 @@ class ProjectCRUD:
         """Create a new project"""
         db_project = Project(
             name=project.name,
+            title=project.title,
+            label=project.label,
             description=project.description,
+            requirements=project.requirements,
+            example=project.example,
             files=project.files,
             code_start_date=project.code_start_date,
             voting_start_date=project.voting_start_date,
@@ -236,6 +241,9 @@ class SubmissionCRUD:
             title=submission.title,
             description=submission.description,
             image=submission.image,
+            is_forced_timeout_submission=submission.is_forced_timeout_submission,
+            is_disqualified=submission.is_disqualified,
+            disqualification_reason=submission.disqualification_reason,
         )
         db.add(db_submission)
         db.commit()
@@ -1029,3 +1037,21 @@ class NavigationEventCRUD:
             .limit(limit)
             .all()
         )
+
+
+class TaskEventCRUD:
+    """CRUD operations for TaskEvent"""
+
+    @staticmethod
+    def create(db: Session, event: TaskEventCreate) -> TaskEvent:
+        """Create a new task event"""
+        db_event = TaskEvent(
+            user_id=event.user_id,
+            project_id=event.project_id,
+            event_name=event.event_name,
+            event_metadata=event.event_metadata,
+        )
+        db.add(db_event)
+        db.commit()
+        db.refresh(db_event)
+        return db_event

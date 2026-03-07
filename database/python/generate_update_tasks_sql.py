@@ -40,6 +40,15 @@ def format_json_for_sql(files: list) -> str:
     return f"'{escaped}'::JSONB"
 
 
+def format_json_value_for_sql(value: Any) -> str:
+    """Format arbitrary JSON value for SQL JSONB assignment."""
+    if value is None:
+        return "NULL::JSONB"
+    json_str = json.dumps(value, ensure_ascii=False)
+    escaped = escape_sql_string(json_str)
+    return f"'{escaped}'::JSONB"
+
+
 def format_date_for_sql(date_str: str) -> str:
     """Format date string for SQL."""
     if not date_str:
@@ -71,6 +80,8 @@ def generate_sql_from_tasks(tasks: list[Dict[str, Any]]) -> str:
         title = task.get("title", "")
         label = task.get("label", "")
         description = task.get("description", "")
+        requirements = task.get("requirements")
+        example = task.get("example", "")
         files = task.get("files", [])
         code_start_date = task.get("code_start_date", "")
         voting_start_date = task.get("voting_start_date", "")
@@ -81,6 +92,8 @@ def generate_sql_from_tasks(tasks: list[Dict[str, Any]]) -> str:
         title_sql = f"'{escape_sql_string(title)}'::VARCHAR" if title is not None else "NULL::VARCHAR"
         label_sql = f"'{escape_sql_string(label)}'::VARCHAR" if label else "NULL::VARCHAR"
         description_sql = f"'{escape_sql_string(description)}'::TEXT" if description else "NULL::TEXT"
+        requirements_sql = format_json_value_for_sql(requirements if isinstance(requirements, list) else [])
+        example_sql = f"'{escape_sql_string(example)}'::TEXT" if example else "NULL::TEXT"
         files_sql = format_json_for_sql(files)
         code_start_sql = format_date_for_sql(code_start_date)
         voting_start_sql = format_date_for_sql(voting_start_date)
@@ -92,6 +105,8 @@ def generate_sql_from_tasks(tasks: list[Dict[str, Any]]) -> str:
             f"    {title_sql} AS title,\n"
             f"    {label_sql} AS label,\n"
             f"    {description_sql} AS description,\n"
+            f"    {requirements_sql} AS requirements,\n"
+            f"    {example_sql} AS example,\n"
             f"    {files_sql} AS files,\n"
             f"    {code_start_sql} AS code_start_date,\n"
             f"    {voting_start_sql} AS voting_start_date,\n"
@@ -110,6 +125,8 @@ def generate_sql_from_tasks(tasks: list[Dict[str, Any]]) -> str:
         "  title = tu.title,",
         "  label = tu.label,",
         "  description = tu.description,",
+        "  requirements = tu.requirements,",
+        "  example = tu.example,",
         "  files = tu.files,",
         "  code_start_date = tu.code_start_date,",
         "  voting_start_date = tu.voting_start_date,",

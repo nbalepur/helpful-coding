@@ -7,7 +7,11 @@ import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "../utils/auth";
 import { getUserSettingsCookie, updateUserSetting } from "../utils/cookies";
-import { isPlaygroundCompletedFromSettings, setPlaygroundCompletedInSettings } from "../utils/userSettings";
+import {
+  isPlaygroundCompletedFromSettings,
+  isWebsiteRequirementsSkippedFromSettings,
+  setPlaygroundCompletedInSettings,
+} from "../utils/userSettings";
 import {
   Grid3X3, 
   Plus, 
@@ -45,16 +49,47 @@ import { ENV } from "../config/env";
 import { DiffEditor } from "@monaco-editor/react";
 import UserSubmissions from "../components/UserSubmissions";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
-import { POST_TEST_REQUIRED_TASKS } from "../config/tasks";
+import {
+  GAME_REQUIRED_TASKS,
+  getRequiredTasksForMode,
+  getStudyTaskMode,
+  isWebsiteRequirementTask,
+  TIMED_TASKS,
+  WEBSITE_REQUIREMENT_TASKS,
+} from "../config/tasks";
 import { useSnackbar } from "../components/SnackbarProvider";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { formatDateOnly } from "../utils/dateFormat";
 import { PASSWORD_HASH, hashString } from "../utils/password";
-import { isStudyEnded } from "../config/study";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
 import { downloadProjectAsRepository } from "../utils/downloadProject";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download" | "undo" | "redo";
+type TaskEventName =
+  | "loaded_in"
+  | "timer_started"
+  | "left_page"
+  | "started_edits"
+  | "started_ai_query"
+  | "questions_generation_started"
+  | "questions_generation_completed"
+  | "continued_to_questions"
+  | "timer_paused"
+  | "timer_resumed"
+  | "submitted";
+type TimerAlertTone = "warning" | "critical";
+type ViewedSubmission = {
+  id: number | null;
+  title: string;
+  description: string | null;
+  projectId: number | null;
+  userId: number | null;
+};
+
+const normalizeTaskNameKey = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim().toLowerCase().replace(/-/g, '_');
+};
 
 function HomeInner() {
   const router = useRouter();
@@ -65,7 +100,7 @@ function HomeInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user, token, refreshUser } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
-  const studyEnded = isStudyEnded();
+  const studyEnded = false;
   
   // This page now exclusively renders tasks.
   const activeTab = 'tasks';
@@ -162,6 +197,9 @@ function HomeInner() {
   
   // Clear snackbars when leaving the Browse page
   const { clearAllSnackbars, showSnackbar } = useSnackbar();
+  const NAVIGATION_WARNING_THRESHOLD_MS = 2000;
+  const LEAVE_STUDY_WARNING_MESSAGE =
+    "Are you sure you want to leave the study? You need to complete this task in one sitting to be eligible for compensation.";
   useEffect(() => {
     // Cleanup function to clear snackbars when component unmounts (navigating away)
     return () => {
@@ -194,7 +232,20 @@ function HomeInner() {
   const [tooltipPlaceAbove, setTooltipPlaceAbove] = useState(true);
   const [leftTab, setLeftTab] = useState<'task' | 'preview' | 'leaderboard' | 'submissions' | 'project-details'>('task');
   const [rightTab, setRightTab] = useState<'code' | 'submissions'>('code');
-  const [viewedSubmission, setViewedSubmission] = useState<{ title: string; description: string | null } | null>(null);
+  const DEFAULT_TASK_TIMER_DURATION_SECONDS = 120 * 60;
+  const [timeLeftSeconds, setTimeLeftSeconds] = useState(DEFAULT_TASK_TIMER_DURATION_SECONDS);
+  const [timerAlert, setTimerAlert] = useState<{ message: string; tone: TimerAlertTone; dismissible: boolean } | null>(null);
+  const [showTimerExpiredModal, setShowTimerExpiredModal] = useState(false);
+  const [hasTimedTaskStarted, setHasTimedTaskStarted] = useState(false);
+  const [isStartingTimedTask, setIsStartingTimedTask] = useState(false);
+  const [isSubmitModalExitLocked, setIsSubmitModalExitLocked] = useState(false);
+  const [viewedSubmission, setViewedSubmission] = useState<ViewedSubmission | null>(null);
+
+  const formattedTimeLeft = useMemo(() => {
+    const minutes = Math.floor(timeLeftSeconds / 60);
+    const seconds = timeLeftSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }, [timeLeftSeconds]);
   
   // Vibe page layout state
   const [code, setCode] = useState("");
@@ -206,7 +257,6 @@ function HomeInner() {
   const [logProbs, setLogProbs] = useState<any>(null);
   const [messageAIIndex, setMessageAIIndex] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [summaryGenerated, setSummaryGenerated] = useState(false);
   const editorRef = useRef<any>(null);
   const actualEditorRef = useRef<any>(null);
   const chatRef = useRef<any>(null);
@@ -226,9 +276,21 @@ function HomeInner() {
   const latestSuggestionsRef = useRef<string[]>([]);
   const fileMetadataRef = useRef<Record<string, { name: string; language?: string }>>({});
   const unloadLoggedRef = useRef(false);
+  const taskLeftPageLoggedRef = useRef(false);
+  const isTaskNavigatedAwayRef = useRef(false);
+  const taskNavigationAwayStartRef = useRef<number | null>(null);
+  const startedEditsLoggedRef = useRef(false);
+  const startedAIQueryLoggedRef = useRef(false);
+  const lastClickedSubmissionRef = useRef<ViewedSubmission | null>(null);
+  const lastLoadedTaskKeyRef = useRef<string | null>(null);
   const isInitialMountRef = useRef(true);
   const historyClearedOnLoadRef = useRef(false);
   const filterModalRef = useRef<HTMLDivElement | null>(null);
+  const timerAlertTimeoutRef = useRef<number | null>(null);
+  const timerWarningKeysShownRef = useRef<Set<string>>(new Set());
+  const timerExpiredModalShownRef = useRef(false);
+  const isSubmissionQuestionsPaneOpenRef = useRef(false);
+  const timedTaskFilesPendingRef = useRef<any[] | null>(null);
   
   // Resize state
   const [leftColumnWidth, setLeftColumnWidth] = useState(0);
@@ -251,6 +313,33 @@ function HomeInner() {
   const previewTabRef = useRef<PreviewTabRef>(null);
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+
+  const buildTaskListForCurrentMode = useCallback((tasks: any[]) => {
+    const mode = getStudyTaskMode(tasks, websiteRequirementsSkipped);
+    if (mode === 'website-requirements') {
+      return tasks;
+    }
+
+    const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
+    const playgroundTask = {
+      id: 'playground',
+      name: 'Playground',
+      title: 'Playground Tutorial',
+      description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
+      difficulty: 'Beginner',
+      appType: 'practice',
+      estimatedTime: '5-10 min',
+      tags: ['practice', 'tutorial', 'sandbox'],
+      preview: 'A practice environment for testing and learning',
+      status: playgroundCompleted ? 'completed' : 'not-started',
+      saved: false,
+      label: 'Practice',
+      category: 'tutorial'
+    };
+
+    return [playgroundTask, ...tasks];
+  }, [user?.settings, websiteRequirementsSkipped]);
   
   // Chat state
   const [chatHistory, setChatHistory] = useState<any[]>([
@@ -260,24 +349,125 @@ function HomeInner() {
     { text: "How can I help you today?", sender: "bot" },
   ]);
   
+  type AssistantMode = 'agent' | 'ask' | 'brainstorm';
+  const defaultAssistantModeState = <T,>(initialValue: T): Record<AssistantMode, T> => ({
+    agent: initialValue,
+    ask: initialValue,
+    brainstorm: initialValue,
+  });
+
   // Assistant terminal state
-  const [assistantMessages, setAssistantMessages] = useState<AssistantItem[]>([]);
-  // Ref to track latest messages for snapshot saving (avoids stale closure issues)
-  const assistantMessagesRef = useRef<AssistantItem[]>([]);
+  const [assistantMessagesByMode, setAssistantMessagesByMode] = useState<Record<AssistantMode, AssistantItem[]>>(
+    defaultAssistantModeState<AssistantItem[]>([])
+  );
+  const [assistantInputByMode, setAssistantInputByMode] = useState<Record<AssistantMode, string>>(
+    defaultAssistantModeState('')
+  );
+  const [summaryGeneratedByMode, setSummaryGeneratedByMode] = useState<Record<AssistantMode, boolean>>(
+    defaultAssistantModeState(false)
+  );
+  // Assistant mode: each mode maps to its own backend endpoint.
+  const [agentMode, setAgentMode] = useState<AssistantMode>('agent');
+  const assistantMessages = assistantMessagesByMode[agentMode] ?? [];
+  const assistantInputValue = assistantInputByMode[agentMode] ?? '';
+  const summaryGenerated = summaryGeneratedByMode[agentMode] ?? false;
+  const modeLabelMap: Record<AssistantMode, string> = {
+    agent: 'Agent Mode',
+    ask: 'Ask Mode',
+    brainstorm: 'Brainstorm Mode',
+  };
+  const modeInitialMessageMap: Record<AssistantMode, string> = {
+    agent: "Hello, I'm in Agent Mode! Tell me what you want to change, and I'll edit your code directly.",
+    ask: "Hello, I'm in Ask Mode! I can answer questions about your current code and show examples, but I can't run or apply changes directly.",
+    brainstorm: "Hello, I'm in Brainstorm Mode! I can help you come up with ideas for your project.",
+  };
+  const assistantModeRef = useRef<AssistantMode>('agent');
   useEffect(() => {
-    assistantMessagesRef.current = assistantMessages;
-  }, [assistantMessages]);
+    assistantModeRef.current = agentMode;
+  }, [agentMode]);
+  // Ref to track latest messages for snapshot saving (avoids stale closure issues)
+  const assistantMessagesByModeRef = useRef<Record<AssistantMode, AssistantItem[]>>(
+    defaultAssistantModeState<AssistantItem[]>([])
+  );
+  useEffect(() => {
+    assistantMessagesByModeRef.current = assistantMessagesByMode;
+  }, [assistantMessagesByMode]);
+
+  const setAssistantMessagesForMode = useCallback((
+    mode: AssistantMode,
+    updater: AssistantItem[] | ((prev: AssistantItem[]) => AssistantItem[])
+  ) => {
+    setAssistantMessagesByMode((prev) => {
+      const previousModeMessages = prev[mode] ?? [];
+      const nextModeMessages = typeof updater === 'function'
+        ? (updater as (prev: AssistantItem[]) => AssistantItem[])(previousModeMessages)
+        : updater;
+      return {
+        ...prev,
+        [mode]: nextModeMessages,
+      };
+    });
+  }, []);
+  const setAssistantInputForMode = useCallback((mode: AssistantMode, value: string) => {
+    setAssistantInputByMode((prev) => ({ ...prev, [mode]: value }));
+  }, []);
+  const handleAssistantModeChange = useCallback((nextMode: AssistantMode) => {
+    setAgentMode((prevMode) => {
+      if (prevMode === nextMode) return prevMode;
+
+      setAssistantInputByMode((prevInputs) => {
+        const previousModeInput = prevInputs[prevMode] ?? '';
+        const nextModeInput = prevInputs[nextMode] ?? '';
+        // Keep draft text visible across mode switches when target mode has no draft yet.
+        if (previousModeInput.length === 0 || nextModeInput.length > 0) {
+          return prevInputs;
+        }
+        return {
+          ...prevInputs,
+          [nextMode]: previousModeInput,
+        };
+      });
+
+      return nextMode;
+    });
+  }, []);
+  const setSummaryGeneratedForMode = useCallback((mode: AssistantMode, value: boolean) => {
+    setSummaryGeneratedByMode((prev) => ({ ...prev, [mode]: value }));
+  }, []);
+  const setAssistantInputValue = useCallback((value: string) => {
+    setAssistantInputForMode(agentMode, value);
+  }, [agentMode, setAssistantInputForMode]);
   const [inputValue, setInputValue] = useState("");
-  const [assistantInputValue, setAssistantInputValue] = useState("");
   const [awaitingResponse, setAwaitingResponse] = useState(false);
   const [awaitingManualSuggestions, setAwaitingManualSuggestions] = useState(false);
+  const EXPERIMENT_GROUP_TASKS = new Set<string>([
+    'website_tutorial_intro',
+    'zic_zac_zoe',
+  ]);
+  const FORCE_CHAT_TASKS = new Set<string>([
+    'website_tutorial_follow_up',
+    'zic_zac_zoe_follow_up',
+  ]);
+  const AI_ASSISTANT_DETAILS_TASKS = new Set<string>([
+    'website_tutorial_intro',
+    'website_tutorial_follow_up',
+    'zic_zac_zoe',
+    'zic_zac_zoe_follow_up',
+  ]);
+  const normalizeExperimentGroup = (value: unknown): 'agent' | 'ask' | null => {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'agent') return 'agent';
+    if (normalized === 'chat' || normalized === 'ask') return 'ask';
+    return null;
+  };
   // No per-session conversation ID; backend maintains a single global history list
   
   // Agent changes state
   const [pendingAgentChanges, setPendingAgentChanges] = useState<any>(null);
   // Track which files were modified in the most recent interaction
   const filesModifiedInCurrentInteractionRef = useRef<Set<string>>(new Set());
-  
+
   // Undo/Redo state for AI assistant - linear history
   interface CodeSnapshot {
     codeState: Record<string, string>; // fileId -> content
@@ -313,7 +503,8 @@ function HomeInner() {
     }
     
     // Use provided messages, or get latest from ref to avoid stale closure
-    const messagesToSave = messages ?? assistantMessagesRef.current;
+    const modeForSnapshot = assistantModeRef.current;
+    const messagesToSave = messages ?? assistantMessagesByModeRef.current[modeForSnapshot] ?? [];
     
       const snapshot: CodeSnapshot = {
       codeState: { ...finalCodeState },
@@ -353,6 +544,40 @@ function HomeInner() {
     votingEndDate?: string | null;
     codeStartDate?: string | null;
   } | null>(null);
+  // Set assistant mode by task policy:
+  // - Playground + non-website-requirement tasks: default to agent (users can change mode)
+  // - Website requirement tasks:
+  //   - First two tasks: fixed by experiment_group (agent/chat)
+  //   - Follow-up two tasks: forced chat mode
+  useEffect(() => {
+    if (selectedTask === 'playground') {
+      handleAssistantModeChange('agent');
+      return;
+    }
+
+    const taskName = normalizeTaskNameKey(currentTaskMeta?.name);
+    if (!taskName) return;
+
+    if (!WEBSITE_REQUIREMENT_TASKS.includes(taskName as any)) {
+      handleAssistantModeChange('agent');
+      return;
+    }
+
+    if (EXPERIMENT_GROUP_TASKS.has(taskName)) {
+      const experimentGroup = normalizeExperimentGroup(user?.settings?.experiment_group);
+      handleAssistantModeChange(experimentGroup ?? 'agent');
+      return;
+    }
+
+    if (FORCE_CHAT_TASKS.has(taskName)) {
+      handleAssistantModeChange('ask');
+      return;
+    }
+
+    // Fallback for any other website-requirement task names.
+    handleAssistantModeChange('ask');
+  }, [selectedTask, currentTaskMeta?.name, user?.settings?.experiment_group, handleAssistantModeChange]);
+
   const [expCondition, setExpCondition] = useState("");
   const [workerId, setWorkerId] = useState("");
   const [model, setModel] = useState("gpt-3.5-turbo");
@@ -412,6 +637,116 @@ function HomeInner() {
 
     return Object.keys(result).length > 0 ? result : null;
   }, []);
+
+  const resolveActiveTaskEventContext = useCallback(() => {
+    if (!user?.id || !selectedTask || selectedTask === "playground" || !currentTaskMeta) {
+      return null;
+    }
+
+    const numericUid = Number.parseInt(user.id, 10);
+    if (!Number.isFinite(numericUid)) {
+      return null;
+    }
+
+    const task = allTasks.find((item: any) => item?.id === currentTaskMeta.id);
+    const projectId = currentTaskMeta.projectId ?? task?.projectId;
+    if (!projectId) {
+      return null;
+    }
+
+    return {
+      userId: numericUid,
+      projectId,
+      taskId: currentTaskMeta.id,
+      taskName: currentTaskMeta?.name ?? null,
+    };
+  }, [user?.id, selectedTask, currentTaskMeta, allTasks]);
+
+  const sendTaskEvent = useCallback(async (eventName: TaskEventName, metadata?: Record<string, any>) => {
+    const context = resolveActiveTaskEventContext();
+    if (!context) return;
+    const clickedSubmission = lastClickedSubmissionRef.current;
+
+    try {
+      await fetch(`${ENV.BACKEND_URL}/api/task-events`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: context.userId,
+          project_id: context.projectId,
+          event_name: eventName,
+          event_metadata: {
+            task_id: context.taskId,
+            task_name: context.taskName,
+            clicked_submission: Boolean(clickedSubmission),
+            clicked_submission_id: clickedSubmission?.id ?? null,
+            clicked_submission_title: clickedSubmission?.title ?? null,
+            clicked_submission_project_id: clickedSubmission?.projectId ?? null,
+            clicked_submission_user_id: clickedSubmission?.userId ?? null,
+            ...(metadata || {}),
+          },
+        }),
+      });
+    } catch (error) {
+      console.warn("Failed to log task event", error);
+    }
+  }, [resolveActiveTaskEventContext]);
+
+  const sendTaskEventBeacon = useCallback((eventName: TaskEventName, metadata?: Record<string, any>) => {
+    const context = resolveActiveTaskEventContext();
+    if (!context) return;
+    const clickedSubmission = lastClickedSubmissionRef.current;
+
+    const payload = JSON.stringify({
+      user_id: context.userId,
+      project_id: context.projectId,
+      event_name: eventName,
+      event_metadata: {
+        task_id: context.taskId,
+        task_name: context.taskName,
+        clicked_submission: Boolean(clickedSubmission),
+        clicked_submission_id: clickedSubmission?.id ?? null,
+        clicked_submission_title: clickedSubmission?.title ?? null,
+        clicked_submission_project_id: clickedSubmission?.projectId ?? null,
+        clicked_submission_user_id: clickedSubmission?.userId ?? null,
+        ...(metadata || {}),
+      },
+    });
+    const url = `${ENV.BACKEND_URL}/api/task-events`;
+
+    try {
+      let dispatched = false;
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        dispatched = navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+      }
+      if (!dispatched) {
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: payload,
+          keepalive: true,
+        }).catch((error) => console.warn("Failed to beacon task event", error));
+      }
+    } catch (error) {
+      console.warn("Failed to dispatch task event beacon", error);
+    }
+  }, [resolveActiveTaskEventContext]);
+
+  const markStartedEdits = useCallback((source: "manual" | "ai_agent") => {
+    if (startedEditsLoggedRef.current) return;
+    startedEditsLoggedRef.current = true;
+    void sendTaskEvent("started_edits", { source });
+  }, [sendTaskEvent]);
+
+  const markStartedAIQuery = useCallback((queryType: string) => {
+    if (startedAIQueryLoggedRef.current) return;
+    startedAIQueryLoggedRef.current = true;
+    void sendTaskEvent("started_ai_query", { query_type: queryType });
+  }, [sendTaskEvent]);
 
   const buildCodeLogPayload = useCallback((event: CodeLogEvent, context: Record<string, any> = {}) => {
     // Skip code logging in playground mode - no database saving or logging
@@ -598,8 +933,8 @@ function HomeInner() {
       }
     });
     
-    // Restore messages
-    setAssistantMessages(snapshot.messages);
+    // Restore agent-mode messages (snapshots are generated from agent code-edit runs)
+    setAssistantMessagesForMode('agent', snapshot.messages);
     
     // Update history index
     setHistoryIndex(targetIdx);
@@ -607,7 +942,7 @@ function HomeInner() {
     if (codeByLanguage) {
       void sendCodeLog('undo', { codeByLanguage });
     }
-  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog]);
+  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog, setAssistantMessagesForMode]);
     
   // Refresh preview when history index changes (after undo/redo)
   useEffect(() => {
@@ -643,8 +978,8 @@ function HomeInner() {
       }
     });
     
-    // Restore messages
-    setAssistantMessages(snapshot.messages);
+    // Restore agent-mode messages (snapshots are generated from agent code-edit runs)
+    setAssistantMessagesForMode('agent', snapshot.messages);
     
     // Update history index
     setHistoryIndex(targetIdx);
@@ -652,7 +987,7 @@ function HomeInner() {
     if (codeByLanguage) {
       void sendCodeLog('redo', { codeByLanguage });
     }
-  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog]);
+  }, [history, historyIndex, buildCodeByLanguageFromState, sendCodeLog, setAssistantMessagesForMode]);
   
   // Check if undo/redo is available
   const canUndo = useMemo(() => {
@@ -838,25 +1173,367 @@ function HomeInner() {
   }, [showAIAssistant, setShowAIAssistant]);
 
   const isViewSubmissionsUnlocked = useMemo(() => {
-    // Disable submissions viewing in playground mode
+    // Disable submissions viewing in playground mode.
     if (isPlaygroundMode) return false;
-    
-    // Check if correct password is present in URL to unlock submissions (override for testing)
-    if (hasSecretPassword) return true;
-    
-    // If we don't have task metadata, lock submissions
+
+    // If we don't have task metadata, keep submissions locked.
     if (!currentTaskMeta?.name) return false;
 
-    if (studyEnded) return true;
-    
-    // Always lock for post-test required tasks
-    if (POST_TEST_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
+    // Lock voting/submissions only for required game tasks (currently: platformer).
+    if (GAME_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
       return false;
     }
-    
-    // Always unlocked for non post-test tasks
+
+    // All other tasks should always allow viewing submissions.
     return true;
-  }, [currentTaskMeta?.name, isPlaygroundMode, hasSecretPassword, studyEnded]);
+  }, [currentTaskMeta?.name, isPlaygroundMode]);
+
+  const isWebsiteRequirementsTaskSelected = useMemo(() => {
+    if (selectedTask === 'playground' || isPlaygroundMode) return false;
+
+    const selectedTaskFromList = allTasks.find((task: any) => task.id === selectedTask);
+    if (selectedTaskFromList) {
+      return isWebsiteRequirementTask(selectedTaskFromList);
+    }
+
+    // Fallback while task list metadata is still loading.
+    if (currentTaskMeta) {
+      return isWebsiteRequirementTask(currentTaskMeta);
+    }
+
+    return false;
+  }, [allTasks, selectedTask, currentTaskMeta, isPlaygroundMode]);
+
+  const selectedTaskName = useMemo(() => {
+    if (selectedTask === 'playground' || isPlaygroundMode) return null;
+
+    const selectedTaskFromList = allTasks.find((task: any) => task.id === selectedTask);
+    if (selectedTaskFromList?.name) {
+      return normalizeTaskNameKey(selectedTaskFromList.name);
+    }
+
+    if (currentTaskMeta?.name) {
+      return normalizeTaskNameKey(currentTaskMeta.name);
+    }
+
+    return null;
+  }, [allTasks, selectedTask, currentTaskMeta?.name, isPlaygroundMode]);
+
+  const isTimedTaskSelected = useMemo(() => {
+    if (!selectedTaskName) return false;
+    return TIMED_TASKS.includes(selectedTaskName as any);
+  }, [selectedTaskName]);
+
+  const shouldWarnOnPageLeaveForTask = useMemo(() => {
+    if (!selectedTaskName) return false;
+    return (
+      isWebsiteRequirementsTaskSelected ||
+      GAME_REQUIRED_TASKS.includes(selectedTaskName as any)
+    );
+  }, [isWebsiteRequirementsTaskSelected, selectedTaskName]);
+
+  const taskTimerDurationSeconds = useMemo(() => {
+    switch (selectedTaskName) {
+      case 'zic_zac_zoe':
+        return Math.max(1, ENV.RECREATION_TASK_ONE_MINUTES) * 60;
+      case 'zic_zac_zoe_follow_up':
+        return Math.max(1, ENV.RECREATION_TASK_TWO_MINUTES) * 60;
+      case 'platformer':
+        return Math.max(1, ENV.GAME_TASK_ONE_MINUTES) * 60;
+      default:
+        return DEFAULT_TASK_TIMER_DURATION_SECONDS;
+    }
+  }, [selectedTaskName]);
+  const timedTaskLimitMinutes = Math.max(1, Math.floor(taskTimerDurationSeconds / 60));
+  const isTimedTaskPreStartGateActive = isTimedTaskSelected && !hasTimedTaskStarted;
+
+  const handleStartTimedTask = useCallback(async () => {
+    if (!isTimedTaskPreStartGateActive || isStartingTimedTask) return;
+    setIsStartingTimedTask(true);
+    await sendTaskEvent("timer_started", { source: "manual_start_click" });
+    setHasTimedTaskStarted(true);
+    if (timedTaskFilesPendingRef.current) {
+      setInitialFiles(timedTaskFilesPendingRef.current);
+      timedTaskFilesPendingRef.current = null;
+    }
+    setIsStartingTimedTask(false);
+  }, [isStartingTimedTask, isTimedTaskPreStartGateActive, sendTaskEvent]);
+
+  useEffect(() => {
+    if (isTimedTaskPreStartGateActive && leftTab === 'preview') {
+      setLeftTab('task');
+    }
+  }, [isTimedTaskPreStartGateActive, leftTab]);
+
+  const showProminentTimerAlert = useCallback((
+    message: string,
+    tone: TimerAlertTone,
+    options?: { dismissible?: boolean; autoDismissMs?: number },
+  ) => {
+    const dismissible = options?.dismissible ?? true;
+    const autoDismissMs = options?.autoDismissMs ?? 9000;
+    setTimerAlert({ message, tone, dismissible });
+    if (timerAlertTimeoutRef.current !== null) {
+      window.clearTimeout(timerAlertTimeoutRef.current);
+      timerAlertTimeoutRef.current = null;
+    }
+
+    if (dismissible) {
+      timerAlertTimeoutRef.current = window.setTimeout(() => {
+        setTimerAlert(null);
+        timerAlertTimeoutRef.current = null;
+      }, autoDismissMs);
+    }
+  }, []);
+
+  const handleSubmissionQuestionsPaneVisibilityChange = useCallback((isOpen: boolean) => {
+    if (isOpen === isSubmissionQuestionsPaneOpenRef.current) return;
+
+    // Submission questions should pause the active task timer globally.
+    isSubmissionQuestionsPaneOpenRef.current = isOpen;
+
+    if (isOpen) {
+      setTimerAlert(null);
+      setShowTimerExpiredModal(false);
+      void sendTaskEvent("timer_paused", { reason: "submission_questions_open" });
+      return;
+    }
+
+    void sendTaskEvent("timer_resumed", { reason: "submission_questions_closed" });
+  }, [sendTaskEvent]);
+
+  useEffect(() => {
+    return () => {
+      if (timerAlertTimeoutRef.current !== null) {
+        window.clearTimeout(timerAlertTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    timerWarningKeysShownRef.current.clear();
+    timerExpiredModalShownRef.current = false;
+    setTimerAlert(null);
+    setShowTimerExpiredModal(false);
+    setHasTimedTaskStarted(!isTimedTaskSelected);
+    setIsStartingTimedTask(false);
+    setIsSubmitModalExitLocked(false);
+    isSubmissionQuestionsPaneOpenRef.current = false;
+  }, [isTimedTaskSelected, selectedTask, taskTimerDurationSeconds]);
+
+  useEffect(() => {
+    const handleSubmissionPaneVisibility = (event: Event) => {
+      const customEvent = event as CustomEvent<{ open?: boolean }> | undefined;
+      const isOpen = Boolean(customEvent?.detail?.open);
+      handleSubmissionQuestionsPaneVisibilityChange(isOpen);
+    };
+
+    window.addEventListener(
+      "submission-questions-pane-visibility",
+      handleSubmissionPaneVisibility as EventListener
+    );
+    return () => {
+      isSubmissionQuestionsPaneOpenRef.current = false;
+      window.removeEventListener(
+        "submission-questions-pane-visibility",
+        handleSubmissionPaneVisibility as EventListener
+      );
+    };
+  }, [handleSubmissionQuestionsPaneVisibilityChange]);
+
+  useEffect(() => {
+    if (!isTimedTaskSelected) return;
+
+    let isCancelled = false;
+
+    const initializeTimer = async () => {
+      const context = resolveActiveTaskEventContext();
+      if (!context) {
+        if (!isCancelled) {
+          setHasTimedTaskStarted(true);
+          setTimeLeftSeconds(taskTimerDurationSeconds);
+        }
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({
+          user_id: String(context.userId),
+          project_id: String(context.projectId),
+          duration_seconds: String(taskTimerDurationSeconds),
+        });
+        const response = await fetch(`${ENV.BACKEND_URL}/api/task-events/timer-state?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error(`Failed to initialize timer: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const remainingSeconds = Number.isFinite(data?.remaining_seconds)
+          ? Math.max(0, Math.min(taskTimerDurationSeconds, Number(data.remaining_seconds)))
+          : taskTimerDurationSeconds;
+        const hasStarted = Boolean(data?.has_started);
+        const isPaused = Boolean(data?.is_paused);
+
+        if (!isCancelled) {
+          // Keep local pause source-of-truth tied to actual pane visibility once timer has started.
+          if (hasStarted && isPaused && !isSubmissionQuestionsPaneOpenRef.current) {
+            void sendTaskEvent("timer_resumed", { reason: "sync_resume_no_submission_pane" });
+          }
+          setHasTimedTaskStarted(hasStarted);
+          setTimeLeftSeconds(remainingSeconds);
+          if (hasStarted && timedTaskFilesPendingRef.current) {
+            setInitialFiles(timedTaskFilesPendingRef.current);
+            timedTaskFilesPendingRef.current = null;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to initialize persisted timer state", error);
+        if (!isCancelled) {
+          setHasTimedTaskStarted(true);
+          setTimeLeftSeconds(taskTimerDurationSeconds);
+          if (timedTaskFilesPendingRef.current) {
+            setInitialFiles(timedTaskFilesPendingRef.current);
+            timedTaskFilesPendingRef.current = null;
+          }
+        }
+      }
+    };
+
+    void initializeTimer();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    isTimedTaskSelected,
+    taskTimerDurationSeconds,
+    resolveActiveTaskEventContext,
+    sendTaskEvent,
+  ]);
+
+  useEffect(() => {
+    if (!isTimedTaskSelected || !hasTimedTaskStarted) return;
+
+    const intervalId = window.setInterval(() => {
+      setTimeLeftSeconds((prevSeconds) => {
+        if (isSubmissionQuestionsPaneOpenRef.current) {
+          return prevSeconds;
+        }
+        return prevSeconds <= 1 ? 0 : prevSeconds - 1;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasTimedTaskStarted, isTimedTaskSelected]);
+
+  useEffect(() => {
+    if (!isTimedTaskSelected) {
+      setTimerAlert(null);
+      setShowTimerExpiredModal(false);
+      return;
+    }
+
+    const warningCheckpoints = [
+      {
+        key: "halfway",
+        thresholdSeconds: Math.floor(taskTimerDurationSeconds * 0.5),
+        message: "50% time remaining. Keep an eye on the timer.",
+        tone: "warning" as TimerAlertTone,
+        dismissible: true,
+      },
+      {
+        key: "quarter",
+        thresholdSeconds: Math.floor(taskTimerDurationSeconds * 0.25),
+        message: "25% time remaining. Start planning your final pass.",
+        tone: "warning" as TimerAlertTone,
+        dismissible: true,
+      },
+      {
+        key: "three-minutes",
+        thresholdSeconds: 3 * 60,
+        message: "3 minutes left. Prepare your code for submission now.",
+        tone: "critical" as TimerAlertTone,
+        dismissible: true,
+      },
+    ];
+
+    warningCheckpoints.forEach(({ key, thresholdSeconds, message, tone, dismissible }) => {
+      if (
+        thresholdSeconds <= 0 ||
+        thresholdSeconds > taskTimerDurationSeconds ||
+        timerWarningKeysShownRef.current.has(key)
+      ) {
+        return;
+      }
+
+      if (timeLeftSeconds <= thresholdSeconds && timeLeftSeconds > 0) {
+        timerWarningKeysShownRef.current.add(key);
+        showProminentTimerAlert(message, tone, {
+          dismissible,
+          autoDismissMs: tone === "critical" ? 15000 : 9000,
+        });
+      }
+    });
+
+    if (
+      timeLeftSeconds <= 0 &&
+      !isSubmissionQuestionsPaneOpenRef.current &&
+      !timerExpiredModalShownRef.current
+    ) {
+      timerExpiredModalShownRef.current = true;
+      setTimerAlert(null);
+      setShowTimerExpiredModal(true);
+    }
+  }, [
+    isTimedTaskSelected,
+    showProminentTimerAlert,
+    taskTimerDurationSeconds,
+    timeLeftSeconds,
+  ]);
+
+  const shouldWarnBeforeLeavingStudyTask = useCallback(() => {
+    if (isTimedTaskPreStartGateActive) {
+      return false;
+    }
+    return (
+      shouldWarnOnPageLeaveForTask &&
+      !studyEnded &&
+      selectedTask !== 'playground' &&
+      showCodingTerminal
+    );
+  }, [isTimedTaskPreStartGateActive, shouldWarnOnPageLeaveForTask, selectedTask, showCodingTerminal, studyEnded]);
+
+  const confirmLeaveStudyIfNeeded = useCallback((): boolean => {
+    if (!shouldWarnBeforeLeavingStudyTask()) {
+      return true;
+    }
+    return window.confirm(LEAVE_STUDY_WARNING_MESSAGE);
+  }, [shouldWarnBeforeLeavingStudyTask, LEAVE_STUDY_WARNING_MESSAGE]);
+
+  useEffect(() => {
+    const handleBeforeSidebarNavigation = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+
+      if (!confirmLeaveStudyIfNeeded()) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('app:before-sidebar-navigation', handleBeforeSidebarNavigation);
+    return () => {
+      window.removeEventListener('app:before-sidebar-navigation', handleBeforeSidebarNavigation);
+    };
+  }, [confirmLeaveStudyIfNeeded]);
+
+  const canShowViewSubmissionsTab = useMemo(() => {
+    // Hide submissions tab for playground, website-requirements tasks, and timed tasks.
+    // This keeps space for the timer on platformer.
+    return !(isPlaygroundMode || selectedTask === 'playground' || isWebsiteRequirementsTaskSelected || isTimedTaskSelected);
+  }, [isPlaygroundMode, selectedTask, isWebsiteRequirementsTaskSelected, isTimedTaskSelected]);
+
+  const assistantPaneTitle = 'AI Assistant Mode:';
 
   // Keyboard shortcuts: Cmd/Ctrl + [ and ] to switch Task/Preview; Cmd/Ctrl + Shift to next file; Cmd/Ctrl + (/) for Code/Submissions
   useEffect(() => {
@@ -905,7 +1582,7 @@ function HomeInner() {
               if (leftTab === 'project-details') {
                 setLeftTab('task');
               }
-            } else if (targetingCloseParen && isViewSubmissionsUnlocked) {
+            } else if (targetingCloseParen && canShowViewSubmissionsTab && isViewSubmissionsUnlocked) {
               setRightTab('submissions');
             }
           }
@@ -934,7 +1611,7 @@ function HomeInner() {
       window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
     };
-  }, [showCodingTerminal, selectedTask, isViewSubmissionsUnlocked]);
+  }, [showCodingTerminal, selectedTask, canShowViewSubmissionsTab, isViewSubmissionsUnlocked]);
 
   useEffect(() => {
     setRightTab('code');
@@ -960,6 +1637,32 @@ function HomeInner() {
   useEffect(() => {
     unloadLoggedRef.current = false;
   }, [selectedTask, currentTaskMeta]);
+
+  useEffect(() => {
+    const context = resolveActiveTaskEventContext();
+    if (!context) return;
+
+    const pageLoadKey = `${context.userId}:${context.projectId}:${context.taskId}`;
+    if (lastLoadedTaskKeyRef.current !== pageLoadKey) {
+      lastLoadedTaskKeyRef.current = pageLoadKey;
+      taskLeftPageLoggedRef.current = false;
+      isTaskNavigatedAwayRef.current = false;
+      taskNavigationAwayStartRef.current = null;
+      startedEditsLoggedRef.current = false;
+      startedAIQueryLoggedRef.current = false;
+      lastClickedSubmissionRef.current = null;
+      void sendTaskEvent("loaded_in");
+    }
+
+    return () => {
+      if (taskLeftPageLoggedRef.current) return;
+      if (lastLoadedTaskKeyRef.current !== pageLoadKey) return;
+      taskLeftPageLoggedRef.current = true;
+      isTaskNavigatedAwayRef.current = false;
+      taskNavigationAwayStartRef.current = null;
+      void sendTaskEvent("left_page", { source: "task_cleanup" });
+    };
+  }, [resolveActiveTaskEventContext, sendTaskEvent]);
 
   useEffect(() => {
     if (!currentTaskMeta) return;
@@ -1003,9 +1706,7 @@ function HomeInner() {
 
   const viewSubmissionsTooltip = isViewSubmissionsUnlocked
     ? 'View community submissions.'
-    : currentTaskMeta?.votingStartDate
-      ? `Viewing and voting on submissions is locked. Check back later!`
-      : 'Viewing and voting on submissions is locked. Check back later!';
+    : 'Voting is not available for this task!';
 
   useEffect(() => {
     try {
@@ -1054,7 +1755,7 @@ function HomeInner() {
 
   // Auto-switch to file with changes by AI agent when summary is generated
   useEffect(() => {
-    if (!summaryGenerated || !pendingAgentChanges || !actualEditorRef.current) return;
+    if (!summaryGeneratedByMode.agent || !pendingAgentChanges || !actualEditorRef.current) return;
     
     const editorApi = actualEditorRef.current;
     if (!editorApi.selectFileByName || !editorApi.revealLocation || !editorApi.getActiveFileId) return;
@@ -1105,7 +1806,7 @@ function HomeInner() {
         editorApi.revealLocation(targetFile.name, firstDiffLine, 1, { scrollOnly: true });
       }, didSwitch ? 300 : 100); // Longer delay if we switched files
     }
-  }, [summaryGenerated, pendingAgentChanges, currentFiles, findFirstDifferenceLine]);
+  }, [summaryGeneratedByMode.agent, pendingAgentChanges, currentFiles, findFirstDifferenceLine]);
 
   // Switch from preview to task when switching to submissions tab
   useEffect(() => {
@@ -1127,10 +1828,15 @@ function HomeInner() {
       const customEvent = event as CustomEvent;
       const submission = customEvent.detail;
       if (submission && submission.title) {
-        setViewedSubmission({
+        const clickedSubmission: ViewedSubmission = {
+          id: Number.isFinite(Number(submission.id)) ? Number(submission.id) : null,
           title: submission.title,
           description: submission.description || null,
-        });
+          projectId: Number.isFinite(Number(submission.projectId)) ? Number(submission.projectId) : null,
+          userId: Number.isFinite(Number(submission.userId)) ? Number(submission.userId) : null,
+        };
+        setViewedSubmission(clickedSubmission);
+        lastClickedSubmissionRef.current = clickedSubmission;
         // When a specific project is viewed while on the submissions tab,
         // automatically switch to the Project Details tab
         setLeftTab(prev => (rightTab === 'submissions' ? 'project-details' : prev));
@@ -1172,27 +1878,7 @@ function HomeInner() {
           const parsed = JSON.parse(cachedData);
           const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
           
-          // Add playground task at the beginning of the list
-          // Check user settings to determine if playground is completed
-          const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
-          const playgroundTask = {
-            id: 'playground',
-            name: 'Playground',
-            title: 'Playground (Tutorial)',
-            description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
-            difficulty: 'Beginner',
-            appType: 'practice',
-            estimatedTime: '5-10 min',
-            tags: ['practice', 'tutorial', 'sandbox'],
-            preview: 'A practice environment for testing and learning',
-            status: playgroundCompleted ? 'completed' : 'not-started',
-            saved: false,
-            label: 'Practice',
-            category: 'tutorial'
-          };
-          
-          // Put playground task first, then other tasks
-          setAllTasks([playgroundTask, ...tasks]);
+          setAllTasks(buildTaskListForCurrentMode(tasks));
           setIsLoadingTasks(false);
           return; // Use cached data, skip API call
         }
@@ -1229,27 +1915,7 @@ function HomeInner() {
           }
         }
         
-        // Add playground task at the beginning of the list
-        // Check user settings to determine if playground is completed
-        const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
-        const playgroundTask = {
-          id: 'playground',
-          name: 'Playground',
-          title: 'Playground (Tutorial)',
-          description: '<p>We recommend that you begin here: a practice environment where you can experiment with coding and test the AI assistant. Your changes won\'t be saved, and you can try out different features to get familiar with the interface.</p><p>Use this space to:</p><ul><li>Practice coding with the AI assistant</li><li>Test different features and functionality</li><li>Get comfortable with the editor and preview</li><li>Experiment freely without worrying about submissions</li></ul><p><strong>Note:</strong> This is a sandbox environment - your work will not be saved or logged.</p>',
-          difficulty: 'Beginner',
-          appType: 'practice',
-          estimatedTime: '5-10 min',
-          tags: ['practice', 'tutorial', 'sandbox'],
-          preview: 'A practice environment for testing and learning',
-          status: playgroundCompleted ? 'completed' : 'not-started',
-          saved: false,
-          label: 'Practice',
-          category: 'tutorial'
-        };
-        
-        // Put playground task first, then other tasks
-        setAllTasks([playgroundTask, ...tasks]);
+        setAllTasks(buildTaskListForCurrentMode(tasks));
         // Filtering will be handled by the useEffect that depends on allTasks
       } else {
         console.error('Failed to load tasks:', res.status, res.statusText);
@@ -1267,17 +1933,50 @@ function HomeInner() {
     } finally {
       setIsLoadingTasks(false);
     }
-  }, [numericUserId]);
+  }, [buildTaskListForCurrentMode, numericUserId]);
 
   // Callback to refresh tasks cache after project submission
   const handleProjectSubmitted = useCallback(async () => {
+    // Log successful submissions across all non-playground tasks.
+    void sendTaskEvent("submitted", { source: "project_submitted" });
     // Refresh tasks cache to update statuses after submission
     await loadTasks(undefined, true); // forceRefresh = true
     // Also recalculate user study popup state
     if (recalculateState) {
       await recalculateState();
     }
-  }, [loadTasks, recalculateState]);
+
+    // Required game tasks only allow one submission; return participants to browse.
+    if (currentTaskMeta?.name && GAME_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
+      setExpandedTask(null);
+      setShowCodingTerminal(false);
+      setSelectedTask(null);
+      setTaskId("");
+      setCurrentTaskMeta(null);
+      router.push('/browse');
+    }
+  }, [loadTasks, recalculateState, sendTaskEvent, currentTaskMeta?.name, router]);
+
+  const handleQuestionsGenerationStarted = useCallback((metadata?: Record<string, any>) => {
+    void sendTaskEvent("questions_generation_started", {
+      source: "comprehension_questions",
+      ...(metadata || {}),
+    });
+  }, [sendTaskEvent]);
+
+  const handleQuestionsGenerationCompleted = useCallback((metadata?: Record<string, any>) => {
+    void sendTaskEvent("questions_generation_completed", {
+      source: "comprehension_questions",
+      ...(metadata || {}),
+    });
+  }, [sendTaskEvent]);
+
+  const handleContinuedToQuestions = useCallback((metadata?: Record<string, any>) => {
+    void sendTaskEvent("continued_to_questions", {
+      source: "continue_submission_flow",
+      ...(metadata || {}),
+    });
+  }, [sendTaskEvent]);
 
   // Initial load of tasks
   useEffect(() => {
@@ -1299,13 +1998,15 @@ function HomeInner() {
       // Silently fail if editor ref is not available
     }
     // Clear assistant messages and follow-up ideas
-    setAssistantMessages([]);
+    setAssistantMessagesByMode({ agent: [], ask: [], brainstorm: [] });
     latestSuggestionsRef.current = [];
     // Clear pending agent changes (this will also trigger cleanup in MultiFileEditor)
     setPendingAgentChanges(null);
     setAwaitingResponse(false);
     setAwaitingManualSuggestions(false);
-    setAssistantInputValue("");
+    setAssistantInputByMode({ agent: '', ask: '', brainstorm: '' });
+    setSummaryGeneratedByMode({ agent: false, ask: false, brainstorm: false });
+    timedTaskFilesPendingRef.current = null;
   }, []);
 
   // Refresh tasks when returning to tasks view (when showCodingTerminal becomes false)
@@ -1336,6 +2037,8 @@ function HomeInner() {
     if (!editorApi || typeof editorApi.getAllFileContents !== 'function') {
       return;
     }
+
+    markStartedEdits("manual");
 
     try {
       const contents: Record<string, string> = editorApi.getAllFileContents() || {};
@@ -1379,7 +2082,7 @@ function HomeInner() {
     } catch (error) {
       console.warn('Failed to synchronize file contents from editor', error);
     }
-  }, [actualEditorRef, initialFiles]);
+  }, [actualEditorRef, initialFiles, markStartedEdits]);
 
   const handlePreviewRefresh = useCallback((source: string) => {
     // Skip logging for external refreshes (they're triggered programmatically and log separately)
@@ -1407,8 +2110,70 @@ function HomeInner() {
   };
 
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const shouldTrackTaskLeave =
+      shouldWarnOnPageLeaveForTask &&
+      !studyEnded &&
+      selectedTask !== 'playground' &&
+      showCodingTerminal;
+
+    if (!shouldTrackTaskLeave) {
+      isTaskNavigatedAwayRef.current = false;
+      taskNavigationAwayStartRef.current = null;
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (!isTaskNavigatedAwayRef.current) {
+          isTaskNavigatedAwayRef.current = true;
+          taskNavigationAwayStartRef.current = Date.now();
+          void sendTaskEvent("left_page", { source: "visibilitychange_hidden" });
+        }
+        return;
+      }
+
+      if (isTaskNavigatedAwayRef.current && taskNavigationAwayStartRef.current) {
+        const timeAwayMs = Date.now() - taskNavigationAwayStartRef.current;
+        isTaskNavigatedAwayRef.current = false;
+        taskNavigationAwayStartRef.current = null;
+        void sendTaskEvent("left_page", {
+          source: "visibilitychange_visible",
+          time_away_ms: timeAwayMs,
+        });
+
+        if (timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS) {
+          showSnackbar(
+            'We logged that you navigated away from the page. You should not leave the page for any reason.',
+            5000
+          );
+        }
+      }
+    };
+
+    const beaconNavigationAwayEvent = (source: "beforeunload" | "pagehide") => {
+      if (isTaskNavigatedAwayRef.current && taskNavigationAwayStartRef.current) {
+        const timeAwayMs = Date.now() - taskNavigationAwayStartRef.current;
+        isTaskNavigatedAwayRef.current = false;
+        taskNavigationAwayStartRef.current = null;
+        taskLeftPageLoggedRef.current = true;
+        sendTaskEventBeacon("left_page", { source, time_away_ms: timeAwayMs });
+        return;
+      }
+
+      if (!taskLeftPageLoggedRef.current) {
+        taskLeftPageLoggedRef.current = true;
+        sendTaskEventBeacon("left_page", { source });
+      }
+    };
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       sendCodeLogBeacon('before-unload');
+      beaconNavigationAwayEvent("beforeunload");
+
+      // Trigger browser-native confirmation dialog before leaving.
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
     };
 
     const handlePageHide = (event: any) => {
@@ -1416,16 +2181,29 @@ function HomeInner() {
         return;
       }
       sendCodeLogBeacon('before-unload');
+      beaconNavigationAwayEvent("pagehide");
     };
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [sendCodeLogBeacon]);
+  }, [
+    NAVIGATION_WARNING_THRESHOLD_MS,
+    shouldWarnOnPageLeaveForTask,
+    selectedTask,
+    sendCodeLogBeacon,
+    sendTaskEvent,
+    sendTaskEventBeacon,
+    showCodingTerminal,
+    showSnackbar,
+    studyEnded,
+  ]);
 
   const defaultFileName = (type: string): string => {
     switch (type) {
@@ -1497,19 +2275,35 @@ function HomeInner() {
     if (!trimmedMessage) {
       return;
     }
+    const submitMode = assistantModeRef.current;
+    const endpointByMode: Record<AssistantMode, string> = {
+      agent: '/api/agent/stream',
+      ask: isWebsiteRequirementsTaskSelected ? '/api/debug/stream' : '/api/ask/stream',
+      brainstorm: '/api/brainstorm/stream',
+    };
+    const endpointPath = endpointByMode[submitMode];
+    const isChatStyleMode = submitMode !== 'agent';
+
+    markStartedAIQuery(submitMode);
 
     const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const appendMessage = (item: AssistantItem) => {
-      setAssistantMessages(prev => [...prev, { ...item, id: item.id ?? createMessageId() }]);
+      setAssistantMessagesForMode(
+        submitMode,
+        (prev) => [...prev, { ...item, id: item.id ?? createMessageId() }]
+      );
     };
     const updateMessage = (id: string, updates: Partial<AssistantItem>) => {
-      setAssistantMessages(prev => prev.map(msg => (msg.id === id ? { ...msg, ...updates } : msg)));
+      setAssistantMessagesForMode(
+        submitMode,
+        (prev) => prev.map(msg => (msg.id === id ? { ...msg, ...updates } : msg))
+      );
     };
 
     // Clear all suggestions when user submits a new query
-    setAssistantMessages(prev => prev.filter(msg => msg.type !== 'suggestions'));
+    setAssistantMessagesForMode(submitMode, (prev) => prev.filter(msg => msg.type !== 'suggestions'));
     
-    setSummaryGenerated(false);
+    setSummaryGeneratedForMode(submitMode, false);
     latestSuggestionsRef.current = [];
     
     appendMessage({ type: 'user', message: trimmedMessage });
@@ -1597,17 +2391,21 @@ function HomeInner() {
     let snapshotSaved = false; // Flag to ensure we only save snapshot once per agent completion
 
     let wasAborted = false;
+    let askStreamMessageId: string | null = null;
+    let askStreamAccum = '';
+    let askClearQuery = false;
     try {
 
       const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
       const controller = new AbortController();
       assistantAbortControllerRef.current = controller;
-      const response = await fetch(`${ENV.BACKEND_URL}/api/agent-chat/stream`, {
+      const response = await fetch(`${ENV.BACKEND_URL}${endpointPath}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          assistantMode: submitMode,
           prompt: trimmedMessage,
           files,
           taskId: taskId || currentTaskMeta?.id || null,
@@ -1642,6 +2440,26 @@ function HomeInner() {
 
         const state = payload?.state;
         const data = payload?.data ?? {};
+
+        // Non-agent modes send { delta } and { done, clearQuery }
+        if (isChatStyleMode) {
+          if (payload.delta !== undefined) {
+            if (!askStreamMessageId) {
+              askStreamMessageId = createMessageId();
+              appendMessage({ id: askStreamMessageId, type: 'assistant', message: '', renderMarkdown: true });
+            }
+            askStreamAccum += payload.delta;
+            updateMessage(askStreamMessageId, { message: askStreamAccum });
+          }
+          if (payload.done || payload.clearQuery) {
+            askClearQuery = true;
+            setAssistantInputValue('');
+          }
+          if (payload.error) {
+            appendMessage({ type: 'assistant', message: `Error: ${payload.error} ${ERROR_TRY_AGAIN}` });
+          }
+          return;
+        }
 
         switch (state) {
           case 'restate': {
@@ -1688,6 +2506,7 @@ function HomeInner() {
               if (messageId) {
                 completedToolMessages.add(messageId);
                 filesWereEdited = true; // Mark that files were edited
+                markStartedEdits("ai_agent");
                 updateMessage(messageId, {
                   status: 'done',
                   diff: {
@@ -1788,11 +2607,11 @@ function HomeInner() {
           case 'summary': {
             if (data.summary) {
               appendMessage({ type: 'assistant', message: data.summary });
-              setSummaryGenerated(true);
+              setSummaryGeneratedForMode(submitMode, true);
               
               // Build the updated messages array with summary included
               // This ensures the snapshot includes the summary even though state updates are async
-              const currentMessages = [...assistantMessagesRef.current];
+              const currentMessages = [...(assistantMessagesByModeRef.current[submitMode] ?? [])];
               
               // Create the summary message with an ID
               const summaryMessageId = createMessageId();
@@ -1945,10 +2764,9 @@ function HomeInner() {
     } finally {
       setAwaitingResponse(false);
       assistantAbortControllerRef.current = null;
-      // Only clear input if files were successfully edited, otherwise restore it
+      // Only clear input if files were successfully edited, or ask/brainstorm completed (clearQuery), otherwise restore it
       if (!wasAborted) {
-        if (filesWereEdited) {
-          // Files were edited, clear the input as normal
+        if (filesWereEdited || isChatStyleMode || askClearQuery) {
           try { setAssistantInputValue(''); } catch {}
         } else {
           // No files were edited, restore the input so user can try again
@@ -1964,6 +2782,7 @@ function HomeInner() {
 
     if (finalPayload && finalPayload.final_files && Object.keys(finalPayload.final_files).length > 0) {
       filesWereEdited = true; // Mark that files were edited via final payload
+      markStartedEdits("ai_agent");
       const originalFiles: Record<string, string> = {};
       const modifiedFilesByFileId: Record<string, string> = {};
 
@@ -2220,32 +3039,32 @@ function HomeInner() {
       return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
     }
     
-    // Check if all required tasks are completed
-    // Use task.name instead of task.id since task.id is slugified (underscores become dashes)
-    const completedTaskNames = new Set(
-      otherTasks
-        .filter((task: any) => task.status === 'completed')
-        .map((task: any) => task.name)
-    );
-    
-    const allRequiredTasksCompleted = POST_TEST_REQUIRED_TASKS.every(
-      taskName => completedTaskNames.has(taskName)
-    );
-    
-    // If all required tasks are completed, show all tasks (including playground)
-    // But ensure playground only appears once at the beginning
-    if (allRequiredTasksCompleted) {
-      return playgroundTask ? [playgroundTask, ...otherTasks] : otherTasks;
+    const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+
+    if (mode === 'website-requirements') {
+      const requiredTaskNames = getRequiredTasksForMode(mode, otherTasks);
+      const requiredTaskNamesSet = new Set(requiredTaskNames);
+      const filteredOtherTasks = otherTasks.filter((task: any) => requiredTaskNamesSet.has(task.name));
+      const orderedRequiredTasks = [...filteredOtherTasks].sort(
+        (a: any, b: any) => requiredTaskNames.indexOf(a.name) - requiredTaskNames.indexOf(b.name)
+      );
+      return playgroundTask ? [playgroundTask, ...orderedRequiredTasks] : orderedRequiredTasks;
     }
-    
-    // Otherwise, only show the required tasks + playground
-    // Use task.name to match against our required task names
-    const requiredTaskNamesSet = new Set(POST_TEST_REQUIRED_TASKS);
-    const filteredOtherTasks = otherTasks.filter((task: any) => requiredTaskNamesSet.has(task.name));
-    
-    // Always include playground task at the beginning
-    return playgroundTask ? [playgroundTask, ...filteredOtherTasks] : filteredOtherTasks;
-  }, [studyEnded]);
+
+    const gameRequiredNamesSet = new Set(GAME_REQUIRED_TASKS);
+    const gameModeTasks = otherTasks.filter((task: any) => !isWebsiteRequirementTask(task));
+    const gameRequiredTasks = gameModeTasks
+      .filter((task: any) => gameRequiredNamesSet.has(task.name))
+      .sort((a: any, b: any) => GAME_REQUIRED_TASKS.indexOf(a.name) - GAME_REQUIRED_TASKS.indexOf(b.name));
+    const remainingTasks = gameModeTasks.filter((task: any) => !gameRequiredNamesSet.has(task.name));
+
+    return playgroundTask ? [playgroundTask, ...gameRequiredTasks, ...remainingTasks] : [...gameRequiredTasks, ...remainingTasks];
+  }, [studyEnded, websiteRequirementsSkipped]);
+
+  const studyTaskMode = useMemo(() => {
+    const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
+    return getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+  }, [allTasks, websiteRequirementsSkipped]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
@@ -2298,7 +3117,8 @@ function HomeInner() {
       if (task.id === 'playground') {
         return true; // Always show playground
       }
-      const taskLabel = task.label || 'open-ended';
+      const rawTaskLabel = (task.label || 'open-ended').toLowerCase();
+      const taskLabel = rawTaskLabel === 'website_requirements' ? 'replication' : rawTaskLabel;
       return categoryFilters[taskLabel as keyof typeof categoryFilters];
     });
     
@@ -2459,7 +3279,7 @@ function HomeInner() {
           try { (event as any).stopImmediatePropagation?.(); } catch(_) {}
           if (isOpenParen) {
             setRightTab('code');
-          } else if (isCloseParen && isViewSubmissionsUnlocked) {
+          } else if (isCloseParen && canShowViewSubmissionsTab && isViewSubmissionsUnlocked) {
             setRightTab('submissions');
           }
           return;
@@ -2524,7 +3344,7 @@ function HomeInner() {
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keyup', handleKeyUp, true);
     };
-  }, [showAIAssistant, showCodingTerminal, selectedTask, isViewSubmissionsUnlocked]);
+  }, [showAIAssistant, showCodingTerminal, selectedTask, canShowViewSubmissionsTab, isViewSubmissionsUnlocked]);
 
   // Generate initial files for each task type
   const getInitialFilesForTask = async (
@@ -2578,7 +3398,6 @@ function HomeInner() {
   };
 
   // Helper functions to get task data
-  // Intentionally omit requirements and video demo from Task pane
 
   const getTaskDescription = (taskId: string): string => {
     // For playground mode, return empty string - instructions will be loaded from blank_site/instructions.html
@@ -2587,6 +3406,14 @@ function HomeInner() {
     }
     const task = allTasks.find(t => t.id === taskId);
     return task?.description || "";
+  };
+
+  const getTaskRequirements = (taskId: string): string[] => {
+    if (isPlaygroundMode || taskId === 'playground') {
+      return [];
+    }
+    const task = allTasks.find(t => t.id === taskId);
+    return Array.isArray(task?.requirements) ? task.requirements : [];
   };
 
   // Function to load and organize test cases
@@ -2699,7 +3526,14 @@ function HomeInner() {
         codeStartDate,
         votingEndDate,
       } = await getInitialFilesForTask(taskId, abortController.signal);
-      setInitialFiles(files);
+      const task = allTasks.find((t: any) => t.id === taskId);
+      const isTimedTask = task && TIMED_TASKS.includes(normalizeTaskNameKey(task.name) as any);
+      if (isTimedTask) {
+        timedTaskFilesPendingRef.current = files;
+        setInitialFiles([]);
+      } else {
+        setInitialFiles(files);
+      }
       fetchedProjectId = projectId;
       fetchedVotingStartDate = votingStartDate;
       fetchedCodeStartDate = codeStartDate;
@@ -2769,39 +3603,123 @@ function HomeInner() {
   };
 
 
-  // Prevent submissions tab in playground mode
+  // Prevent submissions tab in playground and website-requirements modes
   useEffect(() => {
-    if ((isPlaygroundMode || selectedTask === 'playground') && rightTab === 'submissions') {
+    if ((isPlaygroundMode || selectedTask === 'playground' || isWebsiteRequirementsTaskSelected || isTimedTaskSelected) && rightTab === 'submissions') {
       setRightTab('code');
     }
-  }, [isPlaygroundMode, selectedTask, rightTab]);
+  }, [isPlaygroundMode, selectedTask, isWebsiteRequirementsTaskSelected, isTimedTaskSelected, rightTab]);
 
   // Handle task parameter from URL
   useEffect(() => {
     const handleTaskParam = async () => {
       const taskParam = searchParams.get('task');
-      
-      // Playground task is handled the same way as other tasks via task parameter
-      
-      if (taskParam && allTasks.length > 0) {
-        const task = allTasks.find(t => t.id === taskParam);
-        if (task && selectedTask !== task.id) {
-          // Use startTask to properly initialize everything
-          await startTask(task.id, false); // false = don't update URL since we're already there
-        }
-      } else if (!taskParam && pathname === '/vibe' && showCodingTerminal) {
-        // No task param and we're in coding terminal mode, redirect to browse
-        router.push('/browse');
+      const redirectToBrowse = () => {
+        router.replace('/browse');
         setShowCodingTerminal(false);
         setSelectedTask(null);
         setTaskId("");
         setCurrentTaskMeta(null);
         cleanupTaskState();
+      };
+      
+      // Playground task is handled the same way as other tasks via task parameter
+      
+      if (taskParam && allTasks.length > 0) {
+        // Match browse behavior for visibility and lock checks before honoring direct URL access.
+        const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
+        const tasksWithUpdatedPlayground = allTasks.map((task: any) => {
+          if (task.id === 'playground') {
+            return { ...task, status: playgroundCompleted ? 'completed' : 'not-started' };
+          }
+          return task;
+        });
+
+        let visibleTasks: any[];
+        if (hasSecretPassword) {
+          const seenIds = new Set<string>();
+          visibleTasks = tasksWithUpdatedPlayground.filter((task: any) => {
+            if (seenIds.has(task.id)) {
+              return false;
+            }
+            if (task.id !== 'playground' && (task.category === 'tutorial' || task.tags?.includes('tutorial'))) {
+              return false;
+            }
+            seenIds.add(task.id);
+            return true;
+          });
+        } else {
+          visibleTasks = filterTasksByRequiredStatus(tasksWithUpdatedPlayground);
+        }
+
+        const visibleTaskIds = new Set(visibleTasks.map((task: any) => task.id));
+        if (!visibleTaskIds.has(taskParam)) {
+          redirectToBrowse();
+          return;
+        }
+
+        const lockedTaskIds = new Set<string>();
+        if (!hasSecretPassword) {
+          const otherTasks = tasksWithUpdatedPlayground.filter((task: any) => task.id !== 'playground');
+          const completedTaskNames = new Set(
+            otherTasks
+              .filter((task: any) => task.status === 'completed')
+              .map((task: any) => task.name)
+          );
+          const mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
+          const requiredTaskNames = getRequiredTasksForMode(mode, otherTasks);
+          const allRequiredCompleted = requiredTaskNames.every((taskName) => completedTaskNames.has(taskName));
+          const effectiveRequiredCompleted = studyEnded ? true : allRequiredCompleted;
+          const isWebsiteRequirementsMode = mode === 'website-requirements';
+          const shouldEnableLocking = isWebsiteRequirementsMode || !effectiveRequiredCompleted;
+
+          if (shouldEnableLocking) {
+            let activeId: string | null = null;
+            const playgroundTask = visibleTasks.find((task: any) => task.id === 'playground');
+            const hasPlaygroundTask = !!playgroundTask;
+            const isPlaygroundCompleted = playgroundTask?.status === 'completed';
+
+            for (const task of visibleTasks) {
+              if (task.id === 'playground') continue;
+
+              if (!isWebsiteRequirementsMode && hasPlaygroundTask && !isPlaygroundCompleted) {
+                lockedTaskIds.add(task.id);
+                continue;
+              }
+
+              const isCompleted = task.status === 'completed';
+              if (isWebsiteRequirementsMode && isCompleted) {
+                lockedTaskIds.add(task.id);
+              } else if (!isCompleted && activeId === null) {
+                activeId = task.id;
+              } else if (!isCompleted && activeId !== null) {
+                lockedTaskIds.add(task.id);
+              }
+            }
+          }
+        }
+
+        if (lockedTaskIds.has(taskParam)) {
+          redirectToBrowse();
+          return;
+        }
+
+        const task = allTasks.find(t => t.id === taskParam);
+        if (task && selectedTask !== task.id) {
+          // Use startTask to properly initialize everything
+          await startTask(task.id, false); // false = don't update URL since we're already there
+        } else if (!task) {
+          redirectToBrowse();
+          return;
+        }
+      } else if (!taskParam && pathname === '/vibe' && showCodingTerminal) {
+        // No task param and we're in coding terminal mode, redirect to browse
+        redirectToBrowse();
       }
     };
 
     handleTaskParam();
-  }, [searchParams, allTasks, selectedTask, pathname, showCodingTerminal, isPlaygroundMode]);
+  }, [searchParams, allTasks, selectedTask, pathname, showCodingTerminal, isPlaygroundMode, hasSecretPassword, filterTasksByRequiredStatus, user?.settings, studyEnded, router, cleanupTaskState, websiteRequirementsSkipped]);
 
   // Force hide tooltips when pathname changes (tab navigation)
   useEffect(() => {
@@ -2934,6 +3852,24 @@ function HomeInner() {
     }
   }, [getCodeByLanguage, currentTaskMeta?.name, selectedTask, taskDescriptions, customProjectTitle, customProjectDescription, sendCodeLog]);
 
+  const handleOpenSubmitModal = useCallback(() => {
+    setIsSubmitModalExitLocked(false);
+    try {
+      window.dispatchEvent(new Event('open-submit-modal'));
+    } catch {}
+  }, []);
+
+  const handleOpenSubmitQuestionsDirect = useCallback(() => {
+    setIsSubmitModalExitLocked(true);
+    try {
+      window.dispatchEvent(new CustomEvent('open-submit-modal', {
+        detail: {
+          skipInitialConfirmation: true,
+        },
+      }));
+    } catch {}
+  }, []);
+
   // Show loading state while checking authentication
   if (isLoading) {
     return (
@@ -2975,6 +3911,8 @@ function HomeInner() {
   };
 
   const handleRandomTask = async () => {
+    if (!confirmLeaveStudyIfNeeded()) return;
+
     // Exclude playground/tutorial task from random selection
     const tasksWithoutPlayground = filteredTasks.filter(task => task.id !== 'playground');
     if (tasksWithoutPlayground.length === 0) return;
@@ -2993,6 +3931,8 @@ function HomeInner() {
   };
 
   const handleGetStarted = (taskId: string) => {
+    if (!confirmLeaveStudyIfNeeded()) return;
+
     // Optimistically expand the task immediately
     setExpandedTask(taskId);
 
@@ -3001,6 +3941,8 @@ function HomeInner() {
   };
 
   const handleGoBack = () => {
+    if (!confirmLeaveStudyIfNeeded()) return;
+
     startTransition(() => {
       setExpandedTask(null);
       setShowCodingTerminal(false);
@@ -3411,8 +4353,19 @@ function HomeInner() {
                       </button>
                       {rightTab !== 'submissions' && (
                         <button 
-                          className={`text-sm font-medium transition-all duration-200 relative bg-transparent border-none outline-none py-2 hover:bg-transparent hover:-translate-y-0.5 after:content-[\"\"] after:absolute after:bottom-1 after:left-0 after:w-full after:h-px after:bg-blue-400 ${leftTab === 'preview' ? 'text-blue-400 after:opacity-100' : 'text-gray-400 hover:text-blue-400 after:opacity-0 hover:after:opacity-100 after:transition-opacity after:duration-200'}`}
-                          onClick={() => setLeftTab('preview')}
+                          className={`text-sm font-medium transition-all duration-200 relative bg-transparent border-none outline-none py-2 after:content-[\"\"] after:absolute after:bottom-1 after:left-0 after:w-full after:h-px after:bg-blue-400 ${
+                            isTimedTaskPreStartGateActive
+                              ? "text-gray-500 opacity-60 after:opacity-0 pointer-events-none"
+                              : leftTab === 'preview'
+                                ? 'text-blue-400 after:opacity-100 hover:bg-transparent hover:-translate-y-0.5'
+                                : 'text-gray-400 hover:text-blue-400 hover:bg-transparent hover:-translate-y-0.5 after:opacity-0 hover:after:opacity-100 after:transition-opacity after:duration-200'
+                          }`}
+                          onClick={() => {
+                            if (isTimedTaskPreStartGateActive) return;
+                            setLeftTab('preview');
+                          }}
+                          disabled={isTimedTaskPreStartGateActive}
+                          title={isTimedTaskPreStartGateActive ? "Start the timed task to enable preview." : undefined}
                         >
                           My Preview
                           <span className="ml-1 text-[10px] opacity-70 inline-flex items-center align-middle leading-none">
@@ -3595,21 +4548,25 @@ function HomeInner() {
                       </div>
                     </div>
                   )}
-                  {leftTab === 'task' && (
+                  <div style={{ display: leftTab === 'task' ? 'block' : 'none', height: '100%' }}>
                     <TaskInstructionNew
                       taskDescription={isPlaygroundMode || selectedTask === 'playground' 
                         ? (taskDescriptions[0] || '') 
                         : getTaskDescription(selectedTask)}
+                      requirements={getTaskRequirements(selectedTask)}
                       taskName={
                         isPlaygroundMode || selectedTask === 'playground'
                           ? 'Playground'
                           : (allTasks.find(t => t.id === selectedTask)?.name || allTasks.find(t => t.id === selectedTask)?.title)
                       }
                       taskLabel={allTasks.find(t => t.id === selectedTask)?.label}
+                      aiAssistantMode={agentMode}
+                      isAiGroupUser={normalizeExperimentGroup(user?.settings?.experiment_group) === 'agent'}
+                      showAIAssistantDetails={AI_ASSISTANT_DETAILS_TASKS.has(normalizeTaskNameKey(allTasks.find(t => t.id === selectedTask)?.name))}
                       example={allTasks.find(t => t.id === selectedTask)?.example}
                       showHeader={false}
                     />
-                  )}
+                  </div>
                   {leftTab === 'preview' && (
                     <div className="h-full">
                       <PreviewTab 
@@ -3679,10 +4636,27 @@ function HomeInner() {
                         }}
                       >
                         Code
-                        <span className="ml-1 text-[10px] opacity-70 inline-flex items-center align-middle leading-none">
-                          {isMac ? '⌘+(' : 'Ctrl+('}
-                        </span>
+                        {canShowViewSubmissionsTab && (
+                          <span className="ml-1 text-[10px] opacity-70 inline-flex items-center align-middle leading-none">
+                            {isMac ? '⌘+(' : 'Ctrl+('}
+                          </span>
+                        )}
                       </button>
+                      {isTimedTaskSelected && (
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-all ${
+                            !hasTimedTaskStarted
+                              ? "border border-blue-300/60 bg-blue-900/30 text-blue-100"
+                              : timeLeftSeconds <= 3 * 60
+                              ? "border border-red-300/70 bg-red-900/50 text-red-100"
+                              : timeLeftSeconds <= Math.floor(taskTimerDurationSeconds * 0.25)
+                                ? "border border-amber-300/70 bg-amber-900/40 text-amber-100"
+                                : "border border-gray-700/60 bg-gray-800/40 text-gray-300"
+                          }`}
+                        >
+                          {hasTimedTaskStarted ? `⏳ Time Left: ${formattedTimeLeft}` : `⏳ Starts on click: ${timedTaskLimitMinutes} min`}
+                        </span>
+                      )}
                       <div
                         style={{ position: 'relative' }}
                         onWheel={(e) => {
@@ -3690,7 +4664,7 @@ function HomeInner() {
                           e.stopPropagation();
                         }}
                       >
-                        {!isPlaygroundMode && selectedTask !== 'playground' && (isViewSubmissionsUnlocked ? (
+                        {canShowViewSubmissionsTab && (isViewSubmissionsUnlocked ? (
                           <button
                             type="button"
                             className={`text-sm font-medium transition-all duration-200 relative bg-transparent hover:bg-transparent focus:bg-transparent active:bg-transparent border-none outline-none py-2 after:content-[''] after:absolute after:bottom-1 after:left-0 after:w-full after:h-px hover:-translate-y-0.5 ${
@@ -3767,8 +4741,11 @@ function HomeInner() {
                         ))}
                       </div>
                     </div>
-                    {rightTab === 'code' && !isPlaygroundMode && selectedTask !== 'playground' && (
+                    {rightTab === 'code' &&
+                      !isPlaygroundMode &&
+                      selectedTask !== 'playground' && (
                     <div className="flex items-center space-x-2 ml-auto">
+                      {allTasks.find(t => t.id === selectedTask)?.label !== 'website_requirements' && (
                       <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-gray-700 hover:bg-gray-600 text-white cursor-pointer border border-gray-600"
                         onClick={handleDownloadProject}
@@ -3777,13 +4754,19 @@ function HomeInner() {
                         <Download className="w-3.5 h-3.5 inline-block mr-1" />
                         Download Project
                       </button>
+                      )}
                       <button
-                          className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                          className={`px-2.5 py-1.5 rounded-md transition-colors text-xs text-white ${
+                            isTimedTaskPreStartGateActive
+                              ? "bg-blue-900/60 cursor-not-allowed opacity-60"
+                              : "bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                          }`}
                         onClick={() => {
-                          try {
-                            window.dispatchEvent(new Event('open-submit-modal'));
-                          } catch {}
+                          if (isTimedTaskPreStartGateActive) return;
+                          handleOpenSubmitModal();
                         }}
+                        disabled={isTimedTaskPreStartGateActive}
+                        title={isTimedTaskPreStartGateActive ? "Start the timed task before submitting." : undefined}
                       >
                         Submit Project
                       </button>
@@ -3793,11 +4776,7 @@ function HomeInner() {
                     <div className="flex items-center space-x-2 ml-auto">
                       <button
                           className="px-2.5 py-1.5 rounded-md transition-colors text-xs bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
-                        onClick={() => {
-                          try {
-                            window.dispatchEvent(new Event('open-submit-modal'));
-                          } catch {}
-                        }}
+                        onClick={handleOpenSubmitModal}
                       >
                         Submit / Finish Tutorial
                       </button>
@@ -3806,7 +4785,7 @@ function HomeInner() {
                   </div>
                 </div>
                 {/* Editor */}
-                <div className="flex-1 min-w-0 min-h-0">
+                <div className="relative flex-1 min-w-0 min-h-0">
                   <div className="h-full min-w-0 flex flex-col min-h-0">
                     <div className="flex-1 min-h-0">
                       <div style={{ display: rightTab === 'code' ? 'flex' : 'none', flexDirection: 'column', height: '100%', width: '100%' }}>
@@ -3855,12 +4834,19 @@ function HomeInner() {
                       projectId={currentTaskMeta?.projectId ?? null}
                       userId={numericUserId}
                       taskName={currentTaskMeta?.name ?? null}
+                      taskRequirements={getTaskRequirements(selectedTask)}
+                      aiAssistantMode={agentMode}
                       sidebarOpen={sidebarOpen}
                       onProjectSubmitted={handleProjectSubmitted}
+                      onQuestionsGenerationStarted={handleQuestionsGenerationStarted}
+                      onQuestionsGenerationCompleted={handleQuestionsGenerationCompleted}
+                      onContinuedToQuestions={handleContinuedToQuestions}
                       onProjectInfoChange={(title, description) => {
                         setCustomProjectTitle(title);
                         setCustomProjectDescription(description);
                       }}
+                      onSubmissionQuestionsVisibilityChange={handleSubmissionQuestionsPaneVisibilityChange}
+                      lockSubmitModalExit={isSubmitModalExitLocked}
                       // Pane visibility
                       showCodeEditor={showCodeEditor}
                       showTerminal={false}
@@ -3874,7 +4860,24 @@ function HomeInner() {
                       renderAssistantPane={() => (
                         <AssistantTerminalPane
                           ref={assistantTerminalPaneRef}
-                          title="AI Assistant"
+                          title={assistantPaneTitle}
+                          modeLabel={
+                            isWebsiteRequirementsTaskSelected
+                              ? (agentMode === 'ask' ? 'Chat' : 'Agent')
+                              : modeLabelMap[agentMode]
+                          }
+                          modeValue={agentMode}
+                          onModeChange={
+                            (selectedTask === 'playground' || !WEBSITE_REQUIREMENT_TASKS.includes(normalizeTaskNameKey(currentTaskMeta?.name) as any))
+                              ? handleAssistantModeChange
+                              : undefined
+                          }
+                          modeSwitchDisabled={awaitingResponse}
+                          initialMessage={
+                            agentMode === 'ask' && isWebsiteRequirementsTaskSelected
+                              ? "Hello, I'm in Chat Mode! I can help with syntax questions, but I can't read or edit your code directly."
+                              : modeInitialMessageMap[agentMode]
+                          }
                           items={assistantMessages}
                         onClearMessages={async () => {
                           // Save snapshot before clearing (with current code + current messages)
@@ -3883,7 +4886,7 @@ function HomeInner() {
                           
                           // Clear messages visually first (keep only suggestions) - immediate feedback
                           const clearedMessages = assistantMessages.filter((msg: any) => msg.type === 'suggestions');
-                          setAssistantMessages(clearedMessages);
+                          setAssistantMessagesForMode(agentMode, clearedMessages);
                           
                           // Save snapshot after clearing (with current code + empty messages)
                           // This represents the cleared state, so redo can restore it
@@ -3917,7 +4920,9 @@ function HomeInner() {
                         onUndo={handleUndo}
                         onRedo={handleRedo}
                         canUndo={canUndo}
-                        canRedo={canRedo}
+                          canRedo={canRedo}
+                          hideSuggestions={studyTaskMode === 'website-requirements' && selectedTask !== 'playground'}
+                          disablePaste={isWebsiteRequirementsTaskSelected}
                         />
                       )}
                       // Save shortcut callback for preview updates
@@ -4012,12 +5017,93 @@ function HomeInner() {
                       </div>
                     </div>
                   </div>
+                  {isTimedTaskPreStartGateActive && rightTab === 'code' && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/95 px-6">
+                      <div className="w-full max-w-xl rounded-xl border border-blue-400/50 bg-slate-900 p-6 text-slate-100 shadow-2xl">
+                        <h3 className="text-xl font-bold text-blue-200">Timed task ready to begin</h3>
+                        <p className="mt-3 text-sm leading-6 text-slate-200">
+                          Read the instructions in the Task tab before starting. You will have <strong>{timedTaskLimitMinutes} minutes</strong> once you begin.
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-200">
+                          The editor and website preview will stay locked until you click 'Start'. Afterwards, this pane will disappear and your timer and the task will begin.
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-6 inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900/70 disabled:text-slate-300"
+                          onClick={() => {
+                            void handleStartTimedTask();
+                          }}
+                          disabled={isStartingTimedTask}
+                        >
+                          {isStartingTimedTask ? "Starting..." : "Start task"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {timerAlert && (
+        <div
+          role="alert"
+          className="fixed top-6 left-1/2 -translate-x-1/2 z-[10020] w-[min(92vw,44rem)] rounded-xl border px-4 py-3 shadow-2xl"
+          style={{
+            backgroundColor: timerAlert.tone === "critical" ? "#7f1d1d" : "#78350f",
+            borderColor: timerAlert.tone === "critical" ? "#f87171" : "#fbbf24",
+            color: "#f8fafc",
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-base leading-none mt-0.5" aria-hidden>
+              {timerAlert.tone === "critical" ? "⏰" : "⚠️"}
+            </span>
+            <p className="text-sm font-semibold leading-5">{timerAlert.message}</p>
+            {timerAlert.dismissible && (
+              <button
+                type="button"
+                onClick={() => setTimerAlert(null)}
+                className="ml-auto text-slate-100/80 hover:text-white text-sm bg-transparent hover:bg-transparent focus:bg-transparent active:bg-transparent"
+                aria-label="Dismiss timer alert"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showTimerExpiredModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[10030] flex items-center justify-center px-4"
+            style={{ backgroundColor: "rgba(2, 6, 23, 0.75)" }}
+          >
+            <div className="w-full max-w-lg rounded-xl border border-red-400/60 bg-slate-900 p-6 text-slate-100 shadow-2xl">
+              <h2 className="text-xl font-bold text-red-300">Time&apos;s up!</h2>
+              <p className="mt-3 text-sm text-slate-200">
+                You will now proceed to the post-submission questions.
+              </p>
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                  onClick={() => {
+                    setShowTimerExpiredModal(false);
+                    handleOpenSubmitQuestionsDirect();
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Transparent overlay for mouse tracking during drag */}
       {(isResizing || isVerticalResizing || isEditorResizing) && (
@@ -4059,7 +5145,6 @@ function HomeInner() {
         </div>,
         document.body
       )}
-      
     </div>
   );
 }

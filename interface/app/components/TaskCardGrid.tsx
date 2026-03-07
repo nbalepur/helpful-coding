@@ -1,12 +1,13 @@
 "use client";
 import React from 'react';
-import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical, Lock } from 'lucide-react';
+import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical, Lock, Clock3 } from 'lucide-react';
 
 interface Task {
   id: string;
   name: string;
   title: string;
   label?: string;
+  category?: string;
   description: string;
   difficulty?: string;
   appType?: string;
@@ -23,19 +24,39 @@ interface TaskCardGridProps {
   activeTaskId?: string | null;
   isLockingEnabled?: boolean;
   isPlaygroundNotCompleted?: boolean;
+  showTaskTypeIcons?: boolean;
+  showLockedTooltip?: boolean;
+  requiredTaskNames?: Set<string>;
+  requiredTaskNamesForTime?: Set<string>;
+  timedTaskNames?: Set<string>;
+  timedTaskLimitMinutesByName?: Record<string, number>;
+  tutorialTaskNames?: Set<string>;
+  noEditLockedTaskIds?: Set<string>;
 }
 
 // Get status icon component
-const getStatusIcon = (status: string, isLocked: boolean = false, isPlaygroundNotCompleted: boolean = false) => {
+const getStatusIcon = (
+  status: string,
+  isLocked: boolean = false,
+  isNoEditLock: boolean = false,
+  isPlaygroundNotCompleted: boolean = false,
+  showLockedTooltip: boolean = true
+) => {
   if (isLocked) {
-    const tooltipText = isPlaygroundNotCompleted 
+    if (!showLockedTooltip) {
+      return <Lock className="h-4 w-4 text-gray-500" />;
+    }
+
+    const tooltipText = isNoEditLock
+      ? "Edits to this project are not allowed"
+      : isPlaygroundNotCompleted
       ? "Locked: Complete the tutorial first"
       : "Locked: Complete previous tasks first";
     
     return (
-      <div className="relative" style={{ zIndex: 100 }}>
+      <div className="relative" style={{ zIndex: 200000 }}>
         <Lock className="peer h-4 w-4 text-gray-500 transition-colors cursor-help" />
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none shadow-lg" style={{ zIndex: 1000 }}>
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-white text-black text-xs rounded opacity-0 peer-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none shadow-lg" style={{ zIndex: 200001 }}>
           {tooltipText}
         </div>
       </div>
@@ -100,7 +121,22 @@ const getFirstParagraph = (html: string): string => {
   return tmp.textContent || tmp.innerText || '';
 };
 
-const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, lockedTaskIds = new Set(), activeTaskId = null, isLockingEnabled = false, isPlaygroundNotCompleted = false }) => {
+const TaskCardGrid: React.FC<TaskCardGridProps> = ({
+  tasks,
+  onGetStarted,
+  lockedTaskIds = new Set(),
+  activeTaskId = null,
+  isLockingEnabled = false,
+  isPlaygroundNotCompleted = false,
+  showTaskTypeIcons = true,
+  showLockedTooltip = true,
+  requiredTaskNames = new Set(),
+  requiredTaskNamesForTime = new Set(),
+  timedTaskNames = new Set(),
+  timedTaskLimitMinutesByName = {},
+  tutorialTaskNames = new Set(),
+  noEditLockedTaskIds = new Set(),
+}) => {
   return (
     <div className="w-full">
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 py-4">
@@ -114,8 +150,31 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, locked
           const isPlayground = task.id === 'playground';
           const isPlaygroundNotStarted = isPlayground && task.status !== 'completed' && task.status !== 'in-progress';
           const isLocked = isLockingEnabled && !isPlayground && lockedTaskIds.has(task.id);
+          const isNoEditLock = isLockingEnabled && !isPlayground && noEditLockedTaskIds.has(task.id);
           const isActive = isLockingEnabled && !isPlayground && task.id === activeTaskId && !isLocked;
           const isDisabled = isLocked;
+          const isRequiredTask = !isPlayground && requiredTaskNames.has(task.name);
+          const isRequiredTaskForTime = !isPlayground && requiredTaskNamesForTime.has(task.name);
+          const isTimedTask = !isPlayground && timedTaskNames.has(task.name);
+          const isTutorialTask =
+            isPlayground ||
+            task.category === 'tutorial' ||
+            tutorialTaskNames.has(task.name) ||
+            /warm[_-]?up/i.test(task.name || '');
+          const timedTaskLimitMinutes = timedTaskLimitMinutesByName[task.name];
+          const taskTimeMinutes = isTutorialTask
+            ? 5
+            : isTimedTask && timedTaskLimitMinutes
+            ? timedTaskLimitMinutes
+            : null;
+          const shouldShowTaskTime =
+            !isLocked &&
+            task.status !== 'completed' &&
+            taskTimeMinutes !== null &&
+            (isRequiredTaskForTime || isTutorialTask);
+          const displayTitle = isRequiredTask && !task.title.endsWith(" (Required)")
+            ? `${task.title} (Required)`
+            : task.title;
           
           // Determine border and glow styles
           let borderColor = 'rgba(107, 114, 128, 0.5)';
@@ -133,7 +192,7 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, locked
           return (
             <div
               key={task.id}
-              className={`group relative rounded-none transition-all duration-150 ${isDisabled ? '' : 'hover:-translate-y-1 cursor-pointer'}`}
+              className={`group relative z-0 hover:z-[300000] rounded-none transition-all duration-150 ${isDisabled ? '' : 'hover:-translate-y-1 cursor-pointer'}`}
               style={{ 
                 border: `1px solid ${borderColor}`,
                 background: isDisabled ? 'rgba(17, 24, 39, 0.5)' : 'rgba(17, 24, 39, 0.85)',
@@ -188,7 +247,7 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, locked
                         Tutorial Task
                       </div>
                     </div>
-                  ) : label && (
+                  ) : showTaskTypeIcons && label && (
                     <div className="relative flex items-center">
                       {label === 'replication' ? (
                         <>
@@ -208,11 +267,19 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({ tasks, onGetStarted, locked
                     </div>
                   )}
                   {/* Status Indicator */}
-                  {getStatusIcon(task.status || 'not-started', isLocked, isPlaygroundNotCompleted)}
+                  {getStatusIcon(task.status || 'not-started', isLocked, isNoEditLock, isPlaygroundNotCompleted, showLockedTooltip)}
                 </div>
                 <h3 className={`text-sm font-semibold line-clamp-2 transition-colors duration-150 pr-12 ${isDisabled ? 'text-gray-500' : isPlayground ? 'text-white group-hover:text-white' : 'text-white group-hover:text-blue-400'}`} style={{ lineHeight: '1.35' }}>
-                  {task.title}
+                  {displayTitle}
                 </h3>
+                {shouldShowTaskTime && (
+                  <div className="mt-1 inline-flex items-center gap-1 rounded border border-amber-400/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                    <Clock3 className="h-3 w-3" />
+                    <span>
+                      {isTimedTask ? `${taskTimeMinutes} min limit` : `${taskTimeMinutes} min`}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Image Container with Hover Overlay */}

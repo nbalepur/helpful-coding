@@ -51,3 +51,5 @@ backend/.env
 
 frontend_test_schema.json
 validate_tests.py
+
+.env

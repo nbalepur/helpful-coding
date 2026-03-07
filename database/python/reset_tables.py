@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 # Import via the package to enable relative imports inside modules
 from database import config, sqlalchemy_models
+from sqlalchemy import text
 import logging
 
 # Set up logging
@@ -25,16 +26,21 @@ def reset_database():
     """Drop all tables and recreate them"""
     try:
         logger.info("Dropping all database tables...")
-        
-        # Drop all tables
-        sqlalchemy_models.Base.metadata.drop_all(bind=config.engine)
+
+        # PostgreSQL: drop and recreate the public schema so all tables (including those
+        # not in SQLAlchemy models, e.g. code_logs, ai_suggestions) are removed with CASCADE.
+        with config.engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+            conn.commit()
+
         logger.info("✅ All tables dropped successfully!")
-        
+
         logger.info("Creating fresh database tables from SQLAlchemy models...")
-        # Create all tables from the current model definitions
         sqlalchemy_models.Base.metadata.create_all(bind=config.engine)
         logger.info("✅ All tables created successfully!")
-        
+
         return True
     except Exception as e:
         logger.error(f"❌ Error resetting database: {e}")

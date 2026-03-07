@@ -19,7 +19,7 @@ import {
   User,
   FlaskConical,
   MessageSquare,
-  BarChart3
+  DollarSign
 } from "lucide-react";
 import { useAuth } from "../utils/auth";
 import { useUserStudyPopup } from "./UserStudyPopup";
@@ -110,7 +110,8 @@ SidebarHeader.displayName = 'SidebarHeader';
 function getActiveTabFromPathname(pathname: string, searchParams?: URLSearchParams | null): string {
   if (pathname === '/leaderboard' || pathname === '/leaderboard/') return 'leaderboard';
   if (pathname === '/skill-check' || pathname === '/skill-check/') return 'skill-check';
-  if (pathname === '/stats' || pathname === '/stats/') return 'stats';
+  if (pathname === '/compensation' || pathname === '/compensation/') return 'compensation';
+  if (pathname === '/stats' || pathname === '/stats/') return 'compensation';
   if (pathname === '/about' || pathname === '/about/') return 'about';
   
   // Check if we're on the playground (task=playground query param on /vibe)
@@ -139,7 +140,8 @@ export default function Sidebar({
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { statsAccessible } = useUserStudyPopup();
+  const { allRequiredTasksCompleted } = useUserStudyPopup();
+  const isWebsiteRequirementsMode = allRequiredTasksCompleted !== true;
 
   useEffect(() => {
     setMounted(true);
@@ -151,10 +153,10 @@ export default function Sidebar({
   useEffect(() => {
     const routesToPrefetch = [
       '/browse',  // Tasks listing page
-      '/leaderboard', 
       '/skill-check',
-      '/stats',
-      '/about'
+      '/compensation',
+      '/about',
+      ...(isWebsiteRequirementsMode ? [] : ['/leaderboard'])
     ];
     const prefetchRoutes = () => {
       routesToPrefetch.forEach((route) => {
@@ -175,17 +177,50 @@ export default function Sidebar({
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
       requestIdleCallback(prefetchRoutes, { timeout: 2000 });
     }
-  }, [router]);
+  }, [router, isWebsiteRequirementsMode]);
 
   const navigationItems = [
     { id: 'tasks', icon: Grid3X3, label: 'All Tasks' },
-    { id: 'playground', icon: FlaskConical, label: 'Playground', tooltip: 'Playground (Tutorial)' },
+    ...(isWebsiteRequirementsMode ? [] : [{ id: 'playground' as const, icon: FlaskConical, label: 'Playground', tooltip: 'Playground (Tutorial)' }]),
     { id: 'skill-check', icon: Brain, label: 'Skill Check' },
-    ...(statsAccessible ? [{ id: 'stats' as const, icon: BarChart3, label: 'Stats' }] : []),
-    { id: 'leaderboard', icon: Trophy, label: 'Leaderboard' },
+    { id: 'compensation' as const, icon: DollarSign, label: 'Compensation' },
+    ...(isWebsiteRequirementsMode ? [] : [{ id: 'leaderboard' as const, icon: Trophy, label: 'Leaderboard' }]),
     { id: 'about', icon: Info, label: 'Instructions' },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback', isExternal: true, externalUrl: 'https://forms.gle/9zr5VcfzcPC4Mp5x8' },
   ] as const;
+
+  const shouldSkipNavigationGuard = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    return (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    );
+  };
+
+  const shouldProceedWithSidebarNavigation = (route: string): boolean => {
+    if (typeof window === 'undefined') return true;
+
+    const event = new CustomEvent('app:before-sidebar-navigation', {
+      cancelable: true,
+      detail: { to: route },
+    });
+    window.dispatchEvent(event);
+    return !event.defaultPrevented;
+  };
+
+  const handleSidebarNavigationClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    route: string
+  ) => {
+    if (shouldSkipNavigationGuard(event)) return;
+
+    if (!shouldProceedWithSidebarNavigation(route)) {
+      event.preventDefault();
+    }
+  };
 
   // const themeOptions = [
   //   { id: 'native', icon: Monitor, label: 'Native' },
@@ -256,7 +291,7 @@ export default function Sidebar({
                     'playground': '/vibe?task=playground',
                     'leaderboard': '/leaderboard',
                     'skill-check': '/skill-check',
-                    'stats': '/stats',
+                    'compensation': '/compensation',
                     'about': '/about',
                   };
                   const isExternal = (item as any).isExternal;
@@ -277,6 +312,7 @@ export default function Sidebar({
                           target="_blank"
                           rel="noopener noreferrer"
                           className={commonClasses}
+                          onClick={(event) => handleSidebarNavigationClick(event, route)}
                         >
                           <item.icon size={16} />
                           <span className={`transition-all duration-300 ${
@@ -289,6 +325,7 @@ export default function Sidebar({
                         <Link
                           href={route}
                           className={commonClasses}
+                          onClick={(event) => handleSidebarNavigationClick(event, route)}
                         >
                           <item.icon size={16} />
                           <span className={`transition-all duration-300 ${

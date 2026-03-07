@@ -1,0 +1,38 @@
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.container {
+  padding: 20px;
+}
+
+#cookie-clicker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 40px;
+}
+
+#cookie-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  margin-bottom: 20px;
+}
+
+#cookie-img {
+  width: 150px;
+  height: 150px;
+  transition: transform 0.1s;
+}
+
+#cookie-btn:active #cookie-img {
+  transform: scale(0.95);
+}
+
+#cookie-count {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-top: 10px;
+}

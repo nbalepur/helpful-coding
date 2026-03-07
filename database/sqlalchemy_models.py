@@ -22,6 +22,7 @@ class User(Base):
     submissions = relationship("Submission", back_populates="user")
     code_preferences = relationship("CodePreference", back_populates="user")
     submission_feedback = relationship("SubmissionFeedback", back_populates="voter")
+    task_events = relationship("TaskEvent", back_populates="user")
 
 
 class Project(Base):
@@ -33,6 +34,10 @@ class Project(Base):
     title = Column(String(255), nullable=True)
     label = Column(String(255), nullable=True, index=True)
     description = Column(Text)
+    # Structured requirement bullets for requirement-driven tasks.
+    requirements = Column(JSON, nullable=True)
+    # Optional example HTML/links shown in task instructions.
+    example = Column(Text, nullable=True)
     # Store raw files array from tasks.json (names, languages, content paths/inline)
     files = Column(JSON)
     code_start_date = Column(Date, nullable=True)
@@ -47,6 +52,7 @@ class Project(Base):
     submissions = relationship("Submission", back_populates="project")
     code_preferences = relationship("CodePreference", back_populates="project")
     submission_feedback = relationship("SubmissionFeedback", back_populates="project")
+    task_events = relationship("TaskEvent", back_populates="project")
 
 
 class Code(Base):
@@ -78,6 +84,9 @@ class Submission(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text)
     image = Column(Text)
+    is_forced_timeout_submission = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    is_disqualified = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    disqualification_reason = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -314,7 +323,7 @@ class ReportSkillCheckQuestion(Base):
     question_id = Column(String(255), nullable=False, index=True)  # ID of the reported question
     question_type = Column(String(50), nullable=False, index=True)  # 'experience', 'nasa_tli', 'ux', 'frontend', 'coding'
     phase = Column(String(100), nullable=True, index=True)  # 'pre-test', 'post-test', or 'retake_{uuid}'
-    report_type = Column(String(100), nullable=False)  # 'issue_stops_solving' or 'frustrated_unable_to_solve'
+    report_type = Column(String(100), nullable=False)  # 'issue_stops_solving', 'frustrated_unable_to_solve', 'insufficient_programming_experience', or 'other'
     rationale = Column(Text, nullable=False)  # Required rationale from user
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -357,3 +366,19 @@ class NavigationEvent(Base):
 
     # Relationships
     user = relationship("User")
+
+
+class TaskEvent(Base):
+    """Task events table for website requirement task instrumentation"""
+    __tablename__ = "task_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    event_name = Column(String(100), nullable=False, index=True)
+    event_metadata = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    # Relationships
+    user = relationship("User", back_populates="task_events")
+    project = relationship("Project", back_populates="task_events")

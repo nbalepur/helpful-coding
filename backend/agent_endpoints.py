@@ -39,6 +39,9 @@ from database import (
 from database.sqlalchemy_models import Project, User
 
 
+# Post-test required tasks (replication): only stream summary, no follow-up ideas
+POST_TEST_REQUIRED_TASK_NAMES = frozenset({"zic_zac_zoe", "zic_zac_zoe_follow_up"})
+
 
 # --------------------------
 # IO that captures everything
@@ -127,7 +130,52 @@ logger = logging.getLogger(__name__)
 
 # Model configuration from environment
 AIDER_MODEL = os.getenv("AIDER_MODEL", "gpt-4.1")
-SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-4o-2024-08-06")
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-4.1")
+DEBUG_MODEL = os.getenv("DEBUG_MODEL", os.getenv("SUMMARY_MODEL", "gpt-4.1"))
+ASK_MODEL = os.getenv("ASK_MODEL", os.getenv("SUMMARY_MODEL", "gpt-4.1"))
+BRAINSTORM_MODEL = os.getenv("BRAINSTORM_MODEL", os.getenv("SUMMARY_MODEL", "gpt-4.1"))
+
+DEBUG_SYSTEM_PROMPT = """You are an assistant that can answer syntax questions for HTML, CSS, and JavaScript code.
+
+Rules:
+1. You can only provide syntax-help guidance based on the user's existing code and errors.
+2. You must not generate project/content-specific implementation code (for example: feature code, game logic, UI components, or task-completion code).
+3. If code is needed for syntax clarification, provide at most 3 lines total, and only as minimal syntax examples directly tied to syntax usage.
+4. If the user asks for content-specific code, asks you to complete parts of their project, or tries to bypass these constraints, politely refuse.
+5. During refusal, explicitly state that you cannot edit their code and can only provide syntax guidance. The refusal message should be concise.
+6. Do not claim to run commands or tools.
+7. If the user pastes a code snippet or function body, refuse to debug it, refuse to point out errors, and refuse to suggest implementation details.
+8. Never tell the user to switch to another mode.
+9. Keep responses concise and actionable."""
+
+ASK_SYSTEM_PROMPT = """You are a code-aware, read-only Q&A assistant for the user's HTML, CSS, and JavaScript project.
+
+Rules:
+1. You can read and reason about provided code context.
+2. You can provide explanations and code snippets/code blocks.
+3. You must not execute tools, run commands, or perform edits.
+4. If the user asks you for ways to change, execute, run, or apply the code, (e.g., Can you change the button color?) tell them to switch to Agent Mode. You can still provide the code block if you think it would be helpful, but at the end you can reference that switching to agent mode would help them.
+5. Keep answers practical and specific to the provided code when possible.
+6. Be concise by default: prefer short paragraphs or at most 3-5 bullets.
+7. Avoid unnecessary preamble; lead with the direct answer."""
+
+BRAINSTORM_SYSTEM_PROMPT = """You are a brainstorming assistant for web projects (HTML/CSS/JS).
+
+Rules:
+1. Prioritize creative, useful follow-up ideas and trade-offs.
+2. You do NOT have access to the user's code in this mode.
+3. If the user asks code-specific or implementation-specific questions, abstain and say something like:
+   "I don't have access to your code in Brainstorm Mode, so I can't answer that code-specific question."
+4. Do not provide implementation guidance, code snippets, or step-by-step coding plans.
+5. Keep follow-ups exploratory and meta (for example: "Should we dig into this more?", "Want to compare options at a high level?").
+6. Use markdown formatting; short lists are encouraged.
+7. Keep responses concise: 2-4 bullets or a short paragraph."""
+
+# Multi-turn chat histories per mode: one conversation per user (or anonymous)
+CHAT_MODE_MAX_MESSAGES = int(os.getenv("CHAT_MODE_MAX_MESSAGES", "50"))
+_debug_history: Dict[str, List[Dict[str, str]]] = {}
+_ask_history: Dict[str, List[Dict[str, str]]] = {}
+_brainstorm_history: Dict[str, List[Dict[str, str]]] = {}
 
 # --------------------------
 # Temp directory UUID-based Coder instances for conversation history
@@ -373,6 +421,21 @@ def _parse_optional_int(value: Union[str, int, None]) -> Optional[int]:
         except ValueError:
             return None
     return None
+
+
+def _resolve_assistant_mode(raw_mode: Optional[str], raw_assistant_mode: Optional[str]) -> str:
+    """Normalize assistant mode labels for logging."""
+    mode = str(raw_mode or "").strip().lower()
+    assistant_mode = str(raw_assistant_mode or "").strip().lower()
+
+    if assistant_mode in {"agent", "debug", "ask", "brainstorm"}:
+        return assistant_mode
+
+    if mode == "agent":
+        return "agent"
+    if mode in {"debug", "ask", "brainstorm"}:
+        return mode
+    return "agent"
 
 
 def _prepare_suggestions(raw_suggestions: Optional[List[str]]) -> List[str]:
@@ -769,201 +832,6 @@ Do not generate anything else
 # </format instructions>
 # """
 
-        idea_seed_bank = [
-            "Hold-to-charge actions",
-            "Long-press alternatives",
-            "Double-click versus single-click ambiguity",
-            "Drag-based decisions",
-            "Cancelable actions",
-            "Input buffering",
-            "Gesture-like mouse patterns",
-            "Scroll-wheel mechanics",
-            "Right-click interactions",
-            "Multi-step inputs",
-            "Delayed confirmation inputs",
-            "Hover-duration triggers",
-            "Click-and-hold paths",
-            "Momentum-based dragging",
-            "Precision timing inputs",
-
-            "Squash-and-stretch animations",
-            "Screen shake on events",
-            "Anticipation animations",
-            "Overshoot transitions",
-            "Elastic UI elements",
-            "Motion tied to performance",
-            "Color shifts on success",
-            "Visual recoil effects",
-            "Subtle idle animations",
-            "Afterimage trails",
-            "Shake intensity scaling",
-            "Flash feedback on failure",
-            "Deforming UI elements",
-            "Animated emphasis pulses",
-            "Dynamic shadow responses",
-
-            "Slow motion moments",
-            "Rewind last action",
-            "Countdown pressure",
-            "Time-based tradeoffs",
-            "Pauses with consequences",
-            "Speed ramps over time",
-            "Time freezing zones",
-            "Delayed outcomes",
-            "Time-limited choices",
-            "Accelerating difficulty",
-            "Hidden timers",
-            "Time debt mechanics",
-            "Recovery cooldowns",
-            "Reversible timelines",
-            "Time-based penalties",
-
-            "Daily random seeds",
-            "Rare random events",
-            "Controlled randomness sliders",
-            "Weighted randomness",
-            "Streak-based luck",
-            "Unpredictable modifiers",
-            "Randomized layouts",
-            "Dice-roll mechanics",
-            "Shuffled rules mid-session",
-            "Random UI mutations",
-            "Chaos escalation",
-            "Soft randomness biasing",
-            "Probability reveals",
-            "Fake randomness illusions",
-            "Seed preview toggles",
-
-            "Invert controls temporarily",
-            "Hide score until end",
-            "Punish optimization",
-            "Reward inefficiency",
-            "One mistake changes rules",
-            "Permanent consequences",
-            "One-shot decisions",
-            "Risk-everything buttons",
-            "Soft failure states",
-            "Dynamic rule swapping",
-            "Player-chosen handicaps",
-            "Self-imposed challenges",
-            "Delayed rewards",
-            "Trade safety for power",
-            "Unstable mechanics",
-
-            "Tempting bad choices",
-            "Visible regret mechanics",
-            "Loss aversion traps",
-            "Illusion of control",
-            "Bluffing against UI",
-            "Fake difficulty sliders",
-            "Overconfidence penalties",
-            "Delayed gratification",
-            "Confidence meters",
-            "Anxiety-inducing feedback",
-            "Risk versus reward dilemmas",
-            "Moral tradeoff prompts",
-            "Self-competition mechanics",
-            "Pressure escalation",
-            "Choice overload moments",
-
-            "Wraparound screens",
-            "Hidden offscreen content",
-            "Portal-like transitions",
-            "Perspective illusions",
-            "Rotating playfields",
-            "Collapsing layouts",
-            "Camera-relative movement",
-            "Nested play areas",
-            "Zoom-based mechanics",
-            "Infinite scrolling worlds",
-            "Shifting coordinate systems",
-            "Non-rectangular layouts",
-            "Dynamic resizing arenas",
-            "Edge-triggered behaviors",
-            "Spatial memory challenges",
-
-            "Unlockable modes",
-            "Cosmetic-only rewards",
-            "Persistent local state",
-            "Visual progression indicators",
-            "Title or rank systems",
-            "Achievements without points",
-            "Historical session logs",
-            "Mode mutations",
-            "Permanent cosmetic scars",
-            "Replay viewing",
-            "Session summaries",
-            "Progress metaphors",
-            "Unlockable UI variants",
-            "Meta challenges",
-            "Completion collections",
-
-            "Hidden keyboard shortcuts",
-            "Secret click zones",
-            "Rare visual events",
-            "Fourth-wall breaks",
-            "Fake error messages",
-            "Self-aware UI text",
-            "Developer commentary popups",
-            "Intentional UI glitches",
-            "Unexpected endings",
-            "Hidden achievements",
-            "Contextual jokes",
-            "Unannounced features",
-            "Surprise animations",
-            "Secret modes",
-            "Debug-style reveals",
-
-            "Playful onboarding flows",
-            "Interactive tutorials",
-            "Mood-based themes",
-            "Time-of-day styling",
-            "Personality quizzes",
-            "Progress metaphors",
-            "Micro-challenges",
-            "Playful empty states",
-            "Interactive loading screens",
-            "UI reacts to user behavior",
-            "Guided discovery flows",
-            "Narrative-driven navigation",
-            "Exploratory layouts",
-            "User-driven customization",
-            "Context-aware tips",
-
-            "Limited visibility modes",
-            "Input restrictions",
-            "Information asymmetry",
-            "Resource scarcity",
-            "Forced minimalism",
-            "Single-action limits",
-            "Cooldown-only interactions",
-            "No-undo challenges",
-            "UI degradation over time",
-            "Constraint toggles",
-            "Adaptive constraints",
-            "Self-selected limitations",
-            "Environmental handicaps",
-            "Progressive restriction",
-            "Constraint rewards",
-
-            "Motion reduction toggles",
-            "Colorblind-safe modes",
-            "High-contrast themes",
-            "One-handed modes",
-            "Speed adjustment controls",
-            "Input forgiveness",
-            "Panic reset buttons",
-            "Graceful failure states",
-            "Intentional error recovery",
-            "Visual clarity modes",
-            "Feedback customization",
-            "Comfort settings",
-            "Clarity-first UI variants",
-            "Reduced chaos modes",
-            "Adaptive difficulty"
-        ]
-        random.shuffle(idea_seed_bank)
-        idea_str = "\n".join(['- ' + idea for idea in idea_seed_bank])
         resp = client.responses.parse(
             model=SUMMARY_MODEL,
             input=[
@@ -980,6 +848,250 @@ Do not generate anything else
         print(f"[agent_stream] summary helper error: {e}")
         return {"summary": "", "suggestions": []}
 
+
+def _format_code_context(incoming_files: Dict[str, Any]) -> str:
+    normalized = {
+        "index.html": str(incoming_files.get("html") or incoming_files.get("index.html") or ""),
+        "styles.css": str(incoming_files.get("css") or incoming_files.get("styles.css") or ""),
+        "frontend.js": str(incoming_files.get("js") or incoming_files.get("frontend.js") or ""),
+    }
+    sections: List[str] = []
+    for file_name, content in normalized.items():
+        if not content.strip():
+            continue
+        sections.append(f"<{file_name}>\n{content}\n</{file_name}>")
+    return "\n\n".join(sections)
+
+
+def _chat_mode_stream_impl(
+    request_data: dict,
+    db: Session,
+    *,
+    mode_name: str,
+    system_prompt: str,
+    model_name: str,
+    history_store: Dict[str, List[Dict[str, str]]],
+    include_code_context: bool,
+):
+    """Shared impl for debug/ask/brainstorm streaming modes."""
+    prompt = (request_data.get("prompt") or request_data.get("message") or "").strip()
+    if not prompt:
+        return JSONResponse(status_code=400, content={"error": "Prompt is required"})
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "OpenAI API key not configured"},
+        )
+
+    user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
+    task_slug = request_data.get("taskId") or request_data.get("task_id")
+    task_name = request_data.get("taskName") or request_data.get("task_name")
+    project_id_value = _parse_optional_int(request_data.get("projectId") or request_data.get("project_id"))
+    resolved_project_id = _resolve_project_id(
+        db,
+        project_id=project_id_value,
+        task_slug=task_slug,
+        task_name=task_name,
+    )
+    history_key = str(user_id_value) if user_id_value is not None else "_anon"
+    history = list(history_store.get(history_key, []))
+    if len(history) > CHAT_MODE_MAX_MESSAGES:
+        history = history[-CHAT_MODE_MAX_MESSAGES:]
+
+    user_content = prompt
+    if include_code_context:
+        context_blob = _format_code_context(request_data.get("files") or {})
+        if context_blob:
+            user_content = (
+                f"User request:\n{prompt}\n\n"
+                "Current project code context:\n"
+                f"{context_blob}"
+            )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        *[{"role": m["role"], "content": m["content"]} for m in history],
+        {"role": "user", "content": user_content},
+    ]
+
+    client = OpenAI(api_key=api_key)
+    stream = client.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        max_tokens=700,
+        stream=True,
+    )
+
+    def event_generator():
+        full_content: List[str] = []
+        try:
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    full_content.append(delta.content)
+                    yield (json.dumps({"delta": delta.content}) + "\n").encode("utf-8")
+            reply = "".join(full_content).strip()
+            if history_key not in history_store:
+                history_store[history_key] = []
+            history_store[history_key].append({"role": "user", "content": prompt})
+            history_store[history_key].append({"role": "assistant", "content": reply})
+            if len(history_store[history_key]) > CHAT_MODE_MAX_MESSAGES:
+                history_store[history_key] = history_store[history_key][-CHAT_MODE_MAX_MESSAGES:]
+            try:
+                if resolved_project_id and user_id_value is not None:
+                    AssistantLogCRUD.create(
+                        db,
+                        AssistantLogCreate(
+                            user_id=user_id_value,
+                            project_id=resolved_project_id,
+                            query=prompt,
+                            generated_code={
+                                "mode": mode_name,
+                                "response": reply,
+                            },
+                            summary=reply or "",
+                            suggestions=[],
+                        ),
+                    )
+            except Exception as log_error:
+                logger.error("Failed to persist %s assistant log entry: %s", mode_name, log_error, exc_info=True)
+            yield (json.dumps({"done": True, "clearQuery": True}) + "\n").encode("utf-8")
+        except Exception as e:
+            logger.exception("%s stream error", mode_name)
+            yield (json.dumps({"error": str(e)}) + "\n").encode("utf-8")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/api/agent/stream")
+async def agent_stream_unified(request_data: dict, db: Session = Depends(get_db)):
+    """Streaming agent endpoint for edit-capable Agent Mode."""
+    return await agent_chat_stream(request_data, db)
+
+
+@router.post("/api/debug/stream")
+async def debug_stream_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    """Streaming debug mode endpoint."""
+    try:
+        return _chat_mode_stream_impl(
+            request_data,
+            db,
+            mode_name="debug",
+            system_prompt=DEBUG_SYSTEM_PROMPT,
+            model_name=DEBUG_MODEL,
+            history_store=_debug_history,
+            include_code_context=False,
+        )
+    except Exception as e:
+        logger.exception("debug stream error")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Debug mode error: {str(e)}"},
+        )
+
+
+@router.post("/api/ask/stream")
+async def ask_stream_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    """Streaming ask mode endpoint (code-aware, read-only Q&A)."""
+    try:
+        return _chat_mode_stream_impl(
+            request_data,
+            db,
+            mode_name="ask",
+            system_prompt=ASK_SYSTEM_PROMPT,
+            model_name=ASK_MODEL,
+            history_store=_ask_history,
+            include_code_context=True,
+        )
+    except Exception as e:
+        logger.exception("ask stream error")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Ask mode error: {str(e)}"},
+        )
+
+
+@router.post("/api/brainstorm/stream")
+async def brainstorm_stream_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    """Streaming brainstorm mode endpoint."""
+    try:
+        return _chat_mode_stream_impl(
+            request_data,
+            db,
+            mode_name="brainstorm",
+            system_prompt=BRAINSTORM_SYSTEM_PROMPT,
+            model_name=BRAINSTORM_MODEL,
+            history_store=_brainstorm_history,
+            include_code_context=False,
+        )
+    except Exception as e:
+        logger.exception("brainstorm stream error")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Brainstorm mode error: {str(e)}"},
+        )
+
+
+def _clear_chat_history_for_mode(
+    db: Session,
+    request_data: dict,
+    *,
+    mode_name: str,
+    history_store: Dict[str, List[Dict[str, str]]],
+):
+    """Clear a mode-specific conversation history for a user."""
+    try:
+        user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
+        history_key = str(user_id_value) if user_id_value is not None else "_anon"
+        if history_key in history_store:
+            del history_store[history_key]
+            logger.info("Cleared %s history for %s", mode_name, history_key)
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("%s clear error", mode_name)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/api/debug/clear")
+async def debug_clear_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    return _clear_chat_history_for_mode(
+        db,
+        request_data,
+        mode_name="debug",
+        history_store=_debug_history,
+    )
+
+
+@router.post("/api/ask/clear")
+async def ask_clear_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    return _clear_chat_history_for_mode(
+        db,
+        request_data,
+        mode_name="ask",
+        history_store=_ask_history,
+    )
+
+
+@router.post("/api/brainstorm/clear")
+async def brainstorm_clear_endpoint(request_data: dict, db: Session = Depends(get_db)):
+    return _clear_chat_history_for_mode(
+        db,
+        request_data,
+        mode_name="brainstorm",
+        history_store=_brainstorm_history,
+    )
 
 
 @router.post("/api/agent-chat")
@@ -1048,6 +1160,10 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
             project_id=project_id_value,
             task_slug=task_slug,
             task_name=task_name,
+        )
+        assistant_mode = _resolve_assistant_mode(
+            request_data.get("mode"),
+            request_data.get("assistantMode") or request_data.get("assistant_mode"),
         )
 
         if not prompt:
@@ -1460,7 +1576,8 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 except Exception:
                                     pass
 
-                            if assistant_log_suggestions:
+                            # Skip follow-up ideas for replication post-test tasks (summary only)
+                            if assistant_log_suggestions and (task_name or "") not in POST_TEST_REQUIRED_TASK_NAMES:
                                 prepared_suggestions = _prepare_suggestions(assistant_log_suggestions[:3])
                                 if prepared_suggestions:
                                     assistant_log_suggestions = prepared_suggestions
@@ -1483,6 +1600,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                     except Exception as _summary_err:
                         print(f"[agent_stream] summary error: {_summary_err}")
                 generated_code_payload: Dict[str, Any] = {}
+                generated_code_payload["mode"] = assistant_mode
                 type_to_fname = {"html": "index.html", "css": "styles.css", "js": "frontend.js"}
                 # Recalculate final diff stats for all changed files (in case file was edited multiple times)
                 for ftype, fname in type_to_fname.items():
@@ -1614,50 +1732,95 @@ async def get_agent_history():
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@router.post("/api/agent-history/clear")
-async def clear_agent_history(request_data: dict, db: Session = Depends(get_db)):
-    """Clear agent history for a user by deleting their entire temp folder and Aider instance."""
-    global _coder_instances, _user_active_uuid
-    try:
+def _clear_agent_impl(db: Session, request_data: dict, mode: str) -> dict:
+    """Clear agent state. mode: 'agent' | 'debug' | 'ask' | 'brainstorm' | 'all'."""
+    global _coder_instances, _user_active_uuid, _debug_history, _ask_history, _brainstorm_history
+    user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
+    cleared_instances = 0
+
+    if mode in ("agent", "all"):
         MESSAGE_HISTORY.clear()
-        user_id_value = _resolve_user_id(db, request_data.get("userId") or request_data.get("user_id"))
-        
         if user_id_value is not None:
-            # Clear all Aider instances for this user using proper user_id extraction
             keys_to_remove = []
             for cache_key, instance in _coder_instances.items():
                 instance_user_id = instance.get("user_id")
                 if instance_user_id == user_id_value:
                     keys_to_remove.append(cache_key)
                 else:
-                    # Fallback: check temp_dir path if user_id not stored
                     temp_dir = instance.get("temp_dir", "")
-                    if temp_dir:
-                        extracted_user_id = _extract_user_id_from_temp_dir(temp_dir)
-                        if extracted_user_id == user_id_value:
-                            keys_to_remove.append(cache_key)
-            
+                    if temp_dir and _extract_user_id_from_temp_dir(temp_dir) == user_id_value:
+                        keys_to_remove.append(cache_key)
             for cache_key in keys_to_remove:
                 logger.info(f"Clearing Aider instance for user {user_id_value}: {cache_key}")
                 del _coder_instances[cache_key]
-            
-            # Clear user's active UUID so a new one will be created next time
+            cleared_instances = len(keys_to_remove)
             if user_id_value in _user_active_uuid:
                 del _user_active_uuid[user_id_value]
-            
-            # Delete the entire user folder
             repo_root = Path(__file__).resolve().parent.parent
             user_tmp_root = repo_root / "tmp" / str(user_id_value)
             if user_tmp_root.exists():
                 shutil.rmtree(user_tmp_root, ignore_errors=True)
                 logger.info(f"Deleted temp directory for user {user_id_value}: {user_tmp_root}")
         else:
-            # Clear all if no user_id specified
             logger.info("Clearing all Aider instances (no user_id provided)")
+            cleared_instances = len(_coder_instances)
             _coder_instances.clear()
             _user_active_uuid.clear()
-        
-        return {"ok": True, "cleared_instances": len(keys_to_remove) if user_id_value else len(_coder_instances)}
+
+    if mode in ("debug", "all"):
+        if user_id_value is not None:
+            history_key = str(user_id_value)
+            if history_key in _debug_history:
+                del _debug_history[history_key]
+                logger.info("Cleared debug history for %s", history_key)
+        else:
+            _debug_history.clear()
+            logger.info("Cleared all debug history")
+
+    if mode in ("ask", "all"):
+        if user_id_value is not None:
+            history_key = str(user_id_value)
+            if history_key in _ask_history:
+                del _ask_history[history_key]
+                logger.info("Cleared ask history for %s", history_key)
+        else:
+            _ask_history.clear()
+            logger.info("Cleared all ask history")
+
+    if mode in ("brainstorm", "all"):
+        if user_id_value is not None:
+            history_key = str(user_id_value)
+            if history_key in _brainstorm_history:
+                del _brainstorm_history[history_key]
+                logger.info("Cleared brainstorm history for %s", history_key)
+        else:
+            _brainstorm_history.clear()
+            logger.info("Cleared all brainstorm history")
+
+    return {"ok": True, "cleared_instances": cleared_instances}
+
+
+@router.post("/api/agent/clear")
+async def agent_clear_unified(request_data: dict, db: Session = Depends(get_db)):
+    """Unified clear endpoint. Use mode to choose what to clear.
+    - mode: 'agent' | 'debug' | 'ask' | 'brainstorm' | 'all' (default 'all')
+    """
+    try:
+        mode = (request_data.get("mode") or "all").lower()
+        if mode not in ("agent", "debug", "ask", "brainstorm", "all"):
+            mode = "all"
+        return _clear_agent_impl(db, request_data, mode)
+    except Exception as e:
+        logger.error(f"Error clearing agent: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/api/agent-history/clear")
+async def clear_agent_history(request_data: dict, db: Session = Depends(get_db)):
+    """Clear agent history for a user by deleting their entire temp folder and Aider instance.
+    Also clears debug/ask/brainstorm conversation history for that user."""
+    try:
+        return _clear_agent_impl(db, request_data, "all")
     except Exception as e:
         logger.error(f"Error clearing agent history: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})

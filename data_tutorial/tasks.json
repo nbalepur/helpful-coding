@@ -1191,26 +1191,27 @@
     {
       "name": "tic_tac_toe",
       "title": "Tic-Tac-Toe",
-      "description": "<p>a 3×3 grid game where players take turns placing X and O by clicking an empty cell, aiming to make three in a row. Once placed, the symbol stays, so each move changes the remaining possibilities.</p><p>The round ends when someone makes three in a row (row/column/diagonal) or the grid fills with no winner. A good version shows whose turn it is, highlights the winning line, and makes restarting instant so players can run it back.</p>",
+      "description": "<p>a 3x3 grid game where players take turns placing X and O by clicking an empty cell, aiming to make three in a row</p><p>Here are the requirements:</p><ul><li>The game should alternate between the turn of player 'X' and 'O', starting with 'X'</li><li>Users should be able to click a cell and place 'X' or 'O' in that square</li><li>If the game has ended, cells cannot be re-clicked</li><li>Cells cannot be reclicked (no overwriting prior player moves)</li><li>Add a status element with id 'status' that shows whose turn it is, or if the game is over, which player won. The text should be center-aligned horizontally</li><li>Add a reset button with id 'reset', styled orange. When clicked, the game should start over</li></ul><p>The starter code provides:</p><ul><li>An initial website with the tic-tac-toe board</li><li>Global variables for the <code>board</code>, <code>currentPlayer</code>, and <code>statusMessage</code></li><li>A function <code>reset_board()</code>, which should clear the <code>board</code> state</li><li>A function <code>update_board_and_status(cellIndex)</code> which takes the clicked cell index (0-8) and should update the <code>board</code>, <code>currentPlayer</code>, and <code>statusMessage</code></li><li>A function <code>render_board()</code> which should update the board and status visually</li></ul>",
       "label": "replication",
-      "example": "<a href=\"https://playtictactoe.org/\">Tic Tac Toe</a>",
+      // "example": "<a href=\"https://playtictactoe.org/\">Tic Tac Toe</a>",
+      "example": "",
       "code_start_date": "2025-01-01",
       "voting_start_date": "2026-02-08",
       "voting_end_date": "2050-02-15",
       "files": [
         {
           "name": "index.html",
-          "content": "data/code_files/blank_site/index.html",
+          "content": "data/code_files/tic_tac_toe_starter/index.html",
           "language": "html"
         },
         {
           "name": "styles.css",
-          "content": "data/code_files/blank_site/styles.css",
+          "content": "data/code_files/tic_tac_toe_starter/styles.css",
           "language": "css"
         },
         {
           "name": "frontend.js",
-          "content": "data/code_files/blank_site/frontend.js",
+          "content": "data/code_files/tic_tac_toe_starter/frontend.js",
           "language": "javascript"
         }
       ]

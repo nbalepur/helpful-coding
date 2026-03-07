@@ -21,4 +21,8 @@ psql -h localhost -U postgres -d helpful_coding -f database/migrations/create_su
 echo "Removing evaluation fields from submissions table..."
 psql -h localhost -U postgres -d helpful_coding -f database/migrations/remove_llm_evaluation_from_submissions.sql
 
+# Add disqualification fields to submissions table
+echo "Adding disqualification fields to submissions table..."
+psql -h localhost -U postgres -d helpful_coding -f database/migrations/add_submission_disqualification_fields.sql
+
 echo "✅ Migrations completed successfully!"

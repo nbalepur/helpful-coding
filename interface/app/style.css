@@ -2929,7 +2929,6 @@ a#post-task:active {
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
 }
 
 .preview-header {
@@ -5664,7 +5663,6 @@ a#post-task:active {
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
 }
 
 .preview-header {

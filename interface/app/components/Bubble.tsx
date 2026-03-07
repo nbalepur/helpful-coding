@@ -49,6 +49,7 @@ const Bubble: React.FC<BubbleProps> = ({
         timestamp: Date.now(),
       },
     ]);
+
   };
 
   const textBlock = (text: string, copy_fn: any = handleCopy) => {

@@ -5,16 +5,26 @@ import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { getCookie, setCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
+import { useAuth } from "../utils/auth";
 import { useIframeTheme } from "../utils/IframeThemeContext";
-import { isStudyEnded } from "../config/study";
 import { Sun, Moon } from "lucide-react";
 
-export type PopupState = 'none' | 'pre-test' | 'post-test' | 'tutorial' | 'skill-check-prompt';
+export type PopupState =
+  | 'none'
+  | 'pre-test'
+  | 'post-test'
+  | 'tutorial'
+  | 'assistant-transition'
+  | 'skill-check-prompt'
+  | 'website-task-choice'  // Internal: provider auto-sets "don't skip", modal no longer shown
+  | 'website-requirements-complete';
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
 const SKILL_CHECK_PROMPT_COOKIE_NAME = `${ENV.COOKIE_PREFIX}skill_check_prompt_dismissed`;
+const WEBSITE_MODE_COMPLETE_COOKIE_NAME = `${ENV.COOKIE_PREFIX}website_requirements_complete_acknowledged`;
+const ASSISTANT_TRANSITION_ACK_COOKIE_NAME = `${ENV.COOKIE_PREFIX}assistant_transition_acknowledged`;
 
 interface UserStudyPopupContextType {
   popupState: PopupState;
@@ -24,6 +34,7 @@ interface UserStudyPopupContextType {
   onTutorialClose?: () => void;
   preTestCompleted?: boolean | null;
   postTestCompleted?: boolean | null;
+  allRequiredTasksCompleted?: boolean | null;
   statsAccessible?: boolean;
 }
 
@@ -53,8 +64,8 @@ function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
   const { popupState, setPopupState, recalculateState, onTutorialClose } = useUserStudyPopup();
+  const { user, token, refreshUser } = useAuth();
   const { isLightMode, toggleLightMode } = useIframeTheme();
-  const studyEnded = isStudyEnded();
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
@@ -68,6 +79,8 @@ function UserStudyPopupInner() {
   const youtubePlayerRef = useRef<any>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const headingRefs = useRef<Map<string, HTMLHeadingElement>>(new Map());
+  const isInstructionModal =
+    popupState === 'tutorial' || popupState === 'website-requirements-complete';
 
   // Set window origin after mount to avoid hydration mismatch
   useEffect(() => {
@@ -99,13 +112,14 @@ function UserStudyPopupInner() {
     return headings;
   };
 
-  // Load markdown content for tutorial
+  // Load markdown content for instruction modals
   useEffect(() => {
-    if (popupState === 'tutorial') {
+    if (popupState === 'tutorial' || popupState === 'website-requirements-complete') {
       setIsLoading(true);
-      const instructionsPath = studyEnded
-        ? '/instruction_assets/user_study_instructions_post_study.md'
-        : '/instruction_assets/user_study_instructions.md';
+      const instructionsPath =
+        popupState === 'website-requirements-complete'
+          ? '/instruction_assets/user_study_phase_two_instructions.md'
+          : '/instruction_assets/user_study_instructions.md';
       fetch(instructionsPath)
         .then((response) => {
           if (!response.ok) throw new Error('Failed to load instructions');
@@ -119,7 +133,17 @@ function UserStudyPopupInner() {
           setIsLoading(false);
         });
     }
-  }, [popupState, studyEnded]);
+  }, [popupState]);
+
+  // Reset instruction completion state each time an instruction modal opens
+  useEffect(() => {
+    if (!isInstructionModal) {
+      return;
+    }
+    setHasScrolledToBottom(false);
+    setHasWatchedEnough(false);
+    headingRefs.current.clear();
+  }, [isInstructionModal, popupState]);
 
   // Reset checkbox state when skill-check-prompt modal opens
   useEffect(() => {
@@ -212,9 +236,9 @@ function UserStudyPopupInner() {
     });
   }, [startProgressPolling, stopProgressPolling]);
 
-  // Load YouTube API when tutorial opens
+  // Load YouTube API when an instruction modal opens
   useEffect(() => {
-    if (popupState !== 'tutorial') return;
+    if (!isInstructionModal) return;
 
     const loadYouTubeAPI = () => {
       if ((window as any).YT?.Player) return;
@@ -235,10 +259,10 @@ function UserStudyPopupInner() {
         youtubePlayerRef.current = null;
       }
     };
-  }, [popupState]);
+  }, [isInstructionModal, popupState, stopProgressPolling]);
 
-  // Check if tutorial modal can be closed - video must pass threshold or user scrolled to bottom
-  const canCloseTutorial = hasScrolledToBottom || hasWatchedEnough;
+  // Instruction modals can be closed only after scrolling or watching enough of the video
+  const canCloseInstructions = hasScrolledToBottom || hasWatchedEnough;
 
   // Memoize Markdown components to prevent iframe recreation on re-render
   // Must be before any conditional returns to follow Rules of Hooks
@@ -464,7 +488,7 @@ function UserStudyPopupInner() {
 
       // Replace instructions.mp4 with YouTube iframe
       if (isInstructionsVideo) {
-        const youtubeVideoId = studyEnded ? 'eJ2dppIxG60' : 'cMGgMO6DttE';
+        const youtubeVideoId = 'cMGgMO6DttE';
         // Use windowOrigin state to avoid hydration mismatch (Safari is stricter about this)
         // Only render iframe after windowOrigin is set to prevent hydration errors
         const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -623,8 +647,16 @@ function UserStudyPopupInner() {
         if (pathname !== '/skill-check' && pathname !== '/landing') {
           shouldShow = true;
         }
+      } else if (popupState === 'website-requirements-complete') {
+        if (pathname !== '/landing' && pathname !== '/skill-check') {
+          shouldShow = true;
+        }
       } else if (popupState === 'skill-check-prompt') {
         if (pathname !== '/landing' && pathname !== '/skill-check') {
+          shouldShow = true;
+        }
+      } else if (popupState === 'assistant-transition') {
+        if (pathname === '/vibe') {
           shouldShow = true;
         }
       }
@@ -731,6 +763,13 @@ function UserStudyPopupInner() {
     if (popupState === 'skill-check-prompt' && pathname === '/skill-check') {
       return false;
     }
+    if (popupState === 'assistant-transition' && pathname !== '/vibe') {
+      return false;
+    }
+    // For website-requirements-complete, don't show on skill-check page
+    if (popupState === 'website-requirements-complete' && pathname === '/skill-check') {
+      return false;
+    }
     return true;
   };
 
@@ -739,10 +778,33 @@ function UserStudyPopupInner() {
   }
 
   const handleClose = async () => {
-    // Only allow closing if it's tutorial and conditions are met, or if explicitly allowed
-    if (popupState === 'tutorial' && !canCloseTutorial) {
+    if (isInstructionModal && !canCloseInstructions) {
       return;
     }
+
+    if (popupState === 'website-requirements-complete') {
+      const expires = new Date();
+      expires.setFullYear(expires.getFullYear() + 1);
+      setCookie(WEBSITE_MODE_COMPLETE_COOKIE_NAME, 'true', {
+        expires,
+        maxAge: 365 * 24 * 60 * 60,
+        sameSite: 'lax',
+      });
+      setPopupState('none');
+      return;
+    }
+    if (popupState === 'assistant-transition') {
+      const expires = new Date();
+      expires.setFullYear(expires.getFullYear() + 1);
+      setCookie(ASSISTANT_TRANSITION_ACK_COOKIE_NAME, 'true', {
+        expires,
+        maxAge: 365 * 24 * 60 * 60,
+        sameSite: 'lax',
+      });
+      setPopupState('none');
+      return;
+    }
+
     // When tutorial closes, directly transition to pre-test (no API calls needed)
     if (popupState === 'tutorial' && onTutorialClose) {
       onTutorialClose();
@@ -759,7 +821,7 @@ function UserStudyPopupInner() {
       : 'Next Step: Complete Post-Test Assessment';
     const bodyText = popupState === 'pre-test'
       ? "Thanks for reading the instructions! For your first task, you need to complete a pre-test where we measure your coding abilities."
-      : "Thanks for building all required websites in VibeJam! For your final task, you need to complete a post-test where we measure your coding abilities.";
+      : "We're glad you're having fun building websites in VibeJam! Before you can proceed, we want you to take a skill check so we can see how your programming abilities have changed and learn ways to improve our AI system.\n\nThis will take around 45 minutes, and we will compensate you $10 for your time!";
 
     return (
       <div
@@ -1064,8 +1126,122 @@ function UserStudyPopupInner() {
     );
   }
 
-  // Tutorial modal (closeable only if video started or scrolled to bottom)
-  if (popupState === 'tutorial') {
+  if (popupState === 'assistant-transition') {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+        }}
+      >
+        <div
+          data-modal-content
+          style={{
+            backgroundColor: '#1f2937',
+            borderRadius: '12px',
+            width: '90%',
+            maxWidth: '700px',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            border: '1px solid rgba(148, 163, 184, 0.25)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '24px 24px 16px 24px',
+              borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+            }}
+          >
+            <h2
+              style={{
+                color: '#e2e8f0',
+                fontSize: '22px',
+                fontWeight: 600,
+                letterSpacing: '0.01em',
+                margin: 0,
+              }}
+            >
+              AI Assistant Update
+            </h2>
+          </div>
+
+          <div
+            style={{
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+            }}
+          >
+            <p
+              style={{
+                color: '#e5e7eb',
+                fontSize: '16px',
+                lineHeight: '1.6',
+                margin: 0,
+              }}
+            >
+              You have a different AI assistant for the next two tasks.
+            </p>
+            <p
+              style={{
+                color: '#e5e7eb',
+                fontSize: '16px',
+                lineHeight: '1.6',
+                margin: 0,
+              }}
+            >
+              In these tasks, the assistant is in Chat Mode, so it can answer questions and give examples but cannot directly edit your code. You will now complete a warm-up task to adjust to this assistant.
+            </p>
+            <button
+              onClick={handleClose}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#2563eb',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '16px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background-color 0.2s ease',
+                width: '100%',
+                marginTop: '8px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#1d4ed8';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#2563eb';
+              }}
+            >
+              I understand
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Instruction modal (closeable only if video started or scrolled to bottom)
+  if (isInstructionModal) {
+    const headerText =
+      popupState === 'website-requirements-complete'
+        ? 'Phase 2 Instructions: Open-Ended Game Tasks'
+        : 'Instructions';
     return (
       <div
         style={{
@@ -1081,7 +1257,7 @@ function UserStudyPopupInner() {
           zIndex: 2000,
         }}
         onClick={(e) => {
-          if (canCloseTutorial && e.target === e.currentTarget) {
+          if (canCloseInstructions && e.target === e.currentTarget) {
             handleClose();
           }
         }}
@@ -1120,7 +1296,7 @@ function UserStudyPopupInner() {
                 margin: 0,
               }}
             >
-              Instructions
+              {headerText}
             </h2>
             <button
               onClick={toggleLightMode}
@@ -1297,14 +1473,16 @@ function UserStudyPopupInner() {
             <button
               type="button"
               onClick={async () => {
-                const currentState = tutorialCookieState || 'unseen';
-                if (currentState !== 'dismissed') {
-                  setTutorialCookie('seen');
-                  setTutorialCookieState('seen');
+                if (popupState === 'tutorial') {
+                  const currentState = tutorialCookieState || 'unseen';
+                  if (currentState !== 'dismissed') {
+                    setTutorialCookie('seen');
+                    setTutorialCookieState('seen');
+                  }
                 }
                 await handleClose();
               }}
-              disabled={!canCloseTutorial}
+              disabled={!canCloseInstructions}
               style={{
                 padding: '10px 24px',
                 backgroundColor: '#2563eb',
@@ -1313,22 +1491,22 @@ function UserStudyPopupInner() {
                 borderRadius: '6px',
                 fontSize: '14px',
                 fontWeight: 500,
-                cursor: canCloseTutorial ? 'pointer' : 'not-allowed',
-                opacity: canCloseTutorial ? 1 : 0.6,
+                cursor: canCloseInstructions ? 'pointer' : 'not-allowed',
+                opacity: canCloseInstructions ? 1 : 0.6,
                 transition: 'background-color 0.2s ease, opacity 0.2s ease',
               }}
               onMouseEnter={(e) => {
-                if (canCloseTutorial) {
+                if (canCloseInstructions) {
                   e.currentTarget.style.backgroundColor = '#1d4ed8';
                 }
               }}
               onMouseLeave={(e) => {
-                if (canCloseTutorial) {
+                if (canCloseInstructions) {
                   e.currentTarget.style.backgroundColor = '#2563eb';
                 }
               }}
             >
-              Got It
+              {popupState === 'website-requirements-complete' ? 'Continue to Phase 2' : 'Got It'}
             </button>
           </div>
         </div>
