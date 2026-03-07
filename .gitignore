@@ -40,6 +40,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+data_tutorial
+tmp
+
 # vercel
 .vercel
 

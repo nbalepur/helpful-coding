@@ -1,0 +1,1 @@
+document.getElementById('alert-btn')?.addEventListener('click', () => alert('Hi World'));
