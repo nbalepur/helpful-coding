@@ -2332,7 +2332,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
   const buildComprehensionAnswersPayload = useCallback(
     (questions: Array<{ id: string; question_name?: string; question_type: string; choices?: string[] }>) => {
-      return Object.fromEntries(
+      const payloadEntries = Object.fromEntries(
         questions.map((q) => {
           const answer = comprehensionAnswers[q.id] || '';
           if (q.question_type === 'multi_select' && q.choices) {
@@ -2344,8 +2344,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           return [q.question_name || q.id, answer];
         })
       );
+
+      // Required website tasks have pane-1 checklist/comment questions that are not backend-generated.
+      // Include them explicitly so they are persisted alongside the generated comprehension answers.
+      if (isRequiredTask) {
+        const requirementChoices = (taskRequirements || []).filter((requirement) => typeof requirement === 'string');
+        payloadEntries.required_task_implemented_requirements = requirementChoices.map((requirement) =>
+          implementedRequirements[requirement] ? 1 : 0
+        );
+        payloadEntries.required_task_open_feedback = requirementsComments.trim();
+      }
+
+      return payloadEntries;
     },
-    [comprehensionAnswers]
+    [comprehensionAnswers, implementedRequirements, isRequiredTask, requirementsComments, taskRequirements]
   );
 
   const emitQuestionsGenerationStarted = useCallback((metadata?: Record<string, any>) => {

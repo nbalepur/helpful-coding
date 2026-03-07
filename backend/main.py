@@ -3412,6 +3412,41 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                     ComprehensionQuestion.project_id == project.id,
                     ComprehensionQuestion.question_name == question_name
                 ).order_by(ComprehensionQuestion.created_at.desc()).first()
+
+                # These two required-task submit-modal questions are frontend-defined,
+                # so create database rows on-demand the first time we receive them.
+                if question is None and question_name in {
+                    "required_task_implemented_requirements",
+                    "required_task_open_feedback",
+                }:
+                    if question_name == "required_task_implemented_requirements":
+                        requirement_choices = project.requirements if isinstance(project.requirements, list) else []
+                        question = ComprehensionQuestion(
+                            user_id=payload.user_id,
+                            project_id=project.id,
+                            question_name=question_name,
+                            question="Which requirements were you able to successfully implement?",
+                            question_type="multi_select",
+                            choices=requirement_choices,
+                            answer=None,
+                            user_answer=None,
+                            score=None,
+                        )
+                    else:
+                        question = ComprehensionQuestion(
+                            user_id=payload.user_id,
+                            project_id=project.id,
+                            question_name=question_name,
+                            question="Any other comments on your interaction with the AI assistant while completing this task?",
+                            question_type="free_response",
+                            choices=None,
+                            answer=None,
+                            user_answer=None,
+                            score=None,
+                        )
+                    db.add(question)
+                    db.flush()
+                    print(f"Created missing comprehension question: {question_name}")
                 
                 if question:
                     print(f"Found question: {question_name}, type: {question.question_type}, answer: {question.answer}, user_answer: {user_answer}")
@@ -3434,8 +3469,50 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                     # Update user_answer (store as JSON for multi_select, string for others)
                     question.user_answer = parsed_user_answer
                     
+                    # Score for identify_own (left/right code block): 1.0 if correct, 0.0 if wrong
+                    if question_name and question_name.startswith("identify_own"):
+                        try:
+                            correct_answer = question.answer
+                            if isinstance(correct_answer, str):
+                                correct_answer = int(correct_answer.strip())
+                            elif not isinstance(correct_answer, (int, float)):
+                                correct_answer = None
+                            user_answer_str = str(parsed_user_answer).strip() if parsed_user_answer is not None else ""
+                            user_index = None
+                            if user_answer_str == "The Left Code is Mine" or user_answer_str == "1":
+                                user_index = 1
+                            elif user_answer_str == "The Right Code is Mine" or user_answer_str == "2":
+                                user_index = 2
+                            else:
+                                match = re.match(r"^(\d+)", user_answer_str)
+                                if match:
+                                    user_index = int(match.group(1))
+                            if correct_answer is not None and user_index is not None:
+                                question.score = 1.0 if user_index == correct_answer else 0.0
+                                print(f"  Question {question_name}: identify_own score = {question.score} (user={user_index}, correct={correct_answer})")
+                            else:
+                                question.score = None
+                        except Exception as e:
+                            print(f"  Error calculating identify_own score for {question_name}: {e}")
+                            question.score = None
+
+                    # Score for required_task_implemented_requirements: proportion of requirements selected (0–1)
+                    elif question_name == "required_task_implemented_requirements":
+                        try:
+                            user_selected = parsed_user_answer if isinstance(parsed_user_answer, list) else []
+                            if len(user_selected) > 0:
+                                total = sum(1 for x in user_selected if x == 1 or x == "1")
+                                question.score = float(total) / len(user_selected)
+                                print(f"  Question {question_name}: score = {question.score} ({total}/{len(user_selected)} selected)")
+                            else:
+                                question.score = 0.0
+                                print(f"  Question {question_name}: score = 0.0 (no choices)")
+                        except Exception as e:
+                            print(f"  Error calculating required_task_implemented_requirements score: {e}")
+                            question.score = None
+
                     # Calculate score for self_report questions (extract number 1-5 from answer)
-                    if question_name and question_name.startswith('self_report'):
+                    elif question_name and question_name.startswith('self_report'):
                         try:
                             # user_answer is a string like "1 - Strongly disagree" or "5 - Strongly agree"
                             user_answer_str = str(parsed_user_answer) if parsed_user_answer else ""
@@ -3504,8 +3581,13 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                         else:
                             print(f"  Question {question_name} has no answer field, skipping score calculation")
                     
-                    # Calculate score for MCQA questions that have an answer field (e.g., sanity_check)
-                    elif question.question_type in ('mcqa', 'code_compare') and question.answer is not None:
+                    # Calculate score for MCQA questions that have an answer field (e.g., sanity_check).
+                    # identify_own is scored above; skip here to avoid overwriting.
+                    elif (
+                        question.question_type in ('mcqa', 'code_compare')
+                        and question.answer is not None
+                        and not (question_name and question_name.startswith("identify_own"))
+                    ):
                         print(f"Processing MCQA question: {question_name}")
                         print(f"  question.answer: {question.answer}, type: {type(question.answer)}, user_answer: {parsed_user_answer}")
                         try:
@@ -4732,7 +4814,7 @@ def _build_code_compare_question(
     return {
         "question_name": question_name,
         "question": (
-            f"Exactly one of these two {language_display} code blocks is from your project, while the other is functionally equivalent but not part of your project. "
+            f"Exactly one of these two {language_display} code blocks is from your project. "
             f"Which one is yours?\n\n"
             f"Left block:\n```{code_language}\n{left_code}\n```\n\n"
             f"Right block:\n```{code_language}\n{right_code}\n```"
