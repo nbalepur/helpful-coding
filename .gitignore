@@ -53,3 +53,5 @@ frontend_test_schema.json
 validate_tests.py
 
 .env
+
+data/function_tasks.json
