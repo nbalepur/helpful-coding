@@ -1,20 +1,17 @@
-Thank you for participating in VibeJam! Before you can get started, you must either watch the video below (recommended) or read through all of the instructions. You can return to [this page](/about) at any time.
+Thank you for participating in the website reacreation tasks in VibeJam! Before you can get started, you must either watch the video below (recommended) or read through all of the instructions. You can return to [this page](/about) at any time.
 
-![Video Instructions](instruction_assets/instructions.mp4)
+[Watch the Part I tutorial video on YouTube](https://www.youtube.com/watch?v=dE0SQlyhvDI)
 
 <br />
 
 ### Overview
 
-Our goal is to understand which abilities programmers struggle with and excel at when building websites with AI assistants, and whether these abilities change over time. To help us answer this, please complete the following:
+Our goal is to understand the best ways to design AI assistants to help programmers develop websites. To do so, we are running a user study where you must do to the following:
 
-1. A **pre-test** where you answer coding questions.
-2. Design **three websites** with AI assistance in VibeJam.
-3. A **post-test** where you answer more coding questions.
+1. Take a **pre-test** where you answer multiple-choice and coding questions.
+2. Complete **two website recreation tasks** with an AI assistant.
 
-Once you start the study, you will have one week to complete all steps, and you will only be compensated after completing all of them. The final date to complete the study is 05/01/2026. We expect the entire study to take five hours, and you will be paid $75 for your time. Additional rewards will be available for top performers, detailed in the "Compensation" section on the About page.
-
-After completing all tasks, you are free to keep competing with other users across 50+ game jam tasks in VibeJam!
+The final date to complete the study will be set by your course instructor. We expect the entire study to take two hours, and you will be compensated with extra credit. After completing this study, you will have the opportunity to work on follow-up tasks for monetary compensation.
 
 We will now describe each step.
 
@@ -22,7 +19,7 @@ We will now describe each step.
 
 ### Step 1: Pre-Test Assessment
 
-Before coding with AI assistance, we want you to complete an assessment to measure your programming abilities. Our goal is not to reward participants who score higher on this assessment, but rather to understand the background of who is working in our interface.
+We first want you to complete an assessment to measure your programming abilities. Our goal is not to reward participants who score higher on this assessment, but to understand the programming background of our users.
 
 ![Pre-Test Page](instruction_assets/pre_test.png)
 
@@ -34,7 +31,7 @@ Finally, you'll answer a few LeetCode-style coding questions. You'll be given a 
 
 ![Coding Questions](instruction_assets/coding_question.png)
 
-For all of these questions, do not cheat. We only want to understand participants' backgrounds at a whole, so we do not care about your individual performance. Please do not navigate away from the page unless you are looking up general syntax questions. We will show an on-screen reminder every time you leave the page to let you know we detected it.
+For all of these questions, do not cheat or navigate away from the page. We will show an on-screen reminder every time you leave the page to let you know we detected it. We only want to understand participants' backgrounds at a whole, so we do not care about your individual performance.
 
 If you are stuck at any point or find an error in a question, please hit the "Report" button at the top right of the screen. This button appears after 30 seconds on each question to make sure you have made a good-faith attempt at solving it.
 
@@ -45,75 +42,77 @@ After completing the pre-test, you will be prompted to move on to the next step 
 
 ### Step 2: Building Websites in VibeJam
 
-After completing the first skill check, you will be taken to the [tasks page](/vibe) where you will see all tasks that you must complete.
+After completing the skill check, you will be taken to the [tasks page](/browse) where you will see all the tasks that you must complete. You will only be able to complete tasks from left-to-right.
 
-![Browse Tasks](instruction_assets/browse.png)
+![Overview](instruction_assets_phase_one/new_browse.png)
 
-You may complete the tasks in any order, but we **highly recommend that you complete the [tutorial task](/playground)** before proceeding to others.
+There are a total of two website recreation tasks (Zic-Zac-Zoe and Mystery Task). You may be using different AI assistants for each task, so there will be a warm-up task before each of them so you can get used to any changes in the AI assistant. 
 
-Each task will ask you to build a game-based website while adhering to the given constraints. Broadly, tasks are categorized as:
-1. **Replication Tasks:** You will re-create a version of an existing game with your own personal flair (e.g. "Make your own version of tic-tac-toe").
-2. **Open-Ended Tasks:** You have much more freedom and must create a game while adhering to a given theme (e.g. "Make a game set in space").
 
-After you click on any of the tasks, you will be taken to a page split into two halves. On the left half, you'll see tabs for:
-1. **Task:** A description of the game-based website you need to create, plus examples of real games that are in scope of the task.
+Each task will ask you to build a game-based website while implementing to a set of requirements. After you click on a task, you will be taken to a page split into two halves. On the left half, you'll see tabs for:
+1. **Task:** A description of the game-based website you need to create and an overview of how your AI assistant works.
 2. **Preview:** A place where you can view the website you are currently creating.
 
-On the right half of the screen, you'll see a **Code Editor** with HTML, CSS, and JavaScript files you can edit, along with a terminal where you can interact with an AI assistant while coding (similar to Cursor or GitHub Copilot). We provide a screenshot overview below:
+On the right half of the screen, you'll see a **Code Editor** with HTML, CSS, and JavaScript files you can edit, along with a terminal where you can interact with an AI assistant while coding. We provide a screenshot overview below:
 
-![Coding Overview](instruction_assets/coding_overview.png)
+![Overview](instruction_assets_phase_one/overview.png)
 
 We will now describe the core functions for coding.
 
 <br />
 
-#### Prompting the AI Assistant
+#### Task Description
 
-To speed up the process of building websites, we highly recommend using our AI assistant, which is based on [Aider](https://aider.chat/). If you've used Cursor or GitHub Copilot, it should feel very familiar.
+The task description will describe what changes you need to make to the game-based website you are working on. Each requirement will be listed in a checklist, asking you to add certain elements to the website, change the style, or add interaction logic. You can check off the elements as you complete them which may be helpful for tracking your progress, but this is not required.
 
-You can prompt the AI assistant to make changes to `index.html`, `styles.css`, or `frontend.js` with nearly any desired effect: part of the process is learning what the system can and cannot do. The assistant cannot create any new files. After seeing your request, the AI assistant will tell you which files are being edited and generate a summary of what changed. At the very end, it will propose some follow-ups you could prompt the system to execute, but you do not have to pick any of the if you don't find them helpful. If you find that the assistant is struggling to follow your instructions, you can hit the "Trashcan" icon to clear the message history, giving a fresh start.
+![Overview](instruction_assets_phase_one/task_instructions.png)
 
-![AI Assistant Pane](instruction_assets/ai_pane.png)
-
-After the AI makes changes to your code, the editor will show all differences between your old code and the AI-generated code. You can accept or reject changes, make manual edits, or leave it as-is and prompt the assistant with a new request:
-
-![AI Assistant Pane](instruction_assets/diffs.png)
+Your website will only be scored on how well you fulfill these requirements; your website does not need to look pretty. You will see a timer showing how much time you have left to complete this task.
 
 <br />
 
-#### Viewing Your Current Website
+#### Programming in our Code Editor
 
-To view your website at any time, hit the "My Preview" tab at the top left of your screen. You'll see what your current website looks like, along with any errors or outputs from any `console.log()` debugging statements you may have added:
+The multi-file code editor is designed to resemble Visual Study Code. It will be populated with three files:
+- `index.html`: the HTML code for your website, i.e., which elements are shown
+- `styles.css`: the CSS code for your website, i.e., how the elements are styled
+- `frontend.js`: the JS code for your website, i.e., most of the core game logic
+
+The editor will initially be populated with a bare-bones version of the website you need to create, so you don't have to start from scratch. The editor contains basic coding features you would normally use with an editor like Visual Studio Code, such as copy and paste, auto-complete, and undoing and redoing edits.
+
+<br />
+
+#### AI Assistant
+
+The right side of the multi-file code editor contains an AI assistant that can help you with your programming task. You can ask it a question and it will respond to your query, and you can repeat this process across an entire conversation. You can hit the "Trashcan" icon to clear the message history.
+
+![Overview](instruction_assets_phase_one/ai_pane.png)
+
+The goal of our study is to test the effectiveness of different types of responsnes the AI assistant can provide. The way the AI provides responses for each task will be defined on the "Task" instructions on the left-hand side, and you will have a chance to interact with this assistant during the warm-up tasks for each of the two recreation tasks.
+
+![AI Overview](instruction_assets_phase_one/ai_instructions.png)
+
+<br />
+
+#### Previewing Your Current Website
+
+To view your website at any time, hit the "My Preview" tab at the top left of your screen. You'll see what your current website looks like, along with any errors or outputs from any `console.log()` statements:
 
 ![Preview Site](instruction_assets/preview.png)
-
-Because your code is sandboxed in an isolated iframe, we expect the following to be difficult to add to your website (but not impossible), so don't be surprised if they do not work:
-
-- **No External Libraries:** You cannot use npm packages, CDN imports, or any external JavaScript frameworks (React, Vue, Angular, etc.). Only native browser APIs and vanilla JavaScript are available.
-- **No Build Tools:** There are no compilers, bundlers, or transpilers available. You must write code that runs directly in the browser without preprocessing.
-- **No Backend Code:** You cannot write server-side code or connect to databases. All logic must run client-side in the browser.
-- **No New Files:** You cannot create any new files for the website.
-- **Imports and Assets:** Using imports or including external assets (images, fonts, etc.) may or may not work. Since you cannot upload files, you'll need to use data URIs, external URLs, or create assets programmatically with CSS/Canvas. For custom SVG image assets, we recommend using [SVGRepo](https://www.svgrepo.com/).
-- **Persistent Storage:** Browser storage options like localStorage and sessionStorage are available, but they are limited and tied to the browser session. There is no backend storage available.
-- **CORS Restrictions:** Fetching data from external APIs may be blocked by browser CORS policies. You can only reliably use publicly accessible APIs that allow cross-origin requests.
 
 <br />
 
 #### Submitting Projects
 
-Once you are satisfied with your website, you can hit the "Submit" button at the top right of your screen. You will first be asked to give a title and description for your project. This is what other users will see when they eventually play and vote on your project, so make them informative!
+Once you have fulfilled all of the requirements for your website or are unable to fulfill any other requirements, you can hit the "Submit Project" button at the top right of your screen. This button will also automatically be pressed if you run out of time. Once you submit, you will not be able to modify or look back at your code.
 
-![Initial Submission](instruction_assets/submit_1.png)
+Before submitting, you'll be asked to answer a few questions about your project. After answering these questions, you'll be taken back to the browse page, and you can move onto the next task!
 
-Afterwards, you'll be asked to answer a few questions about your project. You'll also be asked to recall whether certain functions and features exist in your code. You do not need to go back and check your code. Do not worry if you are unable to answer these questions correctly, as our goal is to measure how hard these questions are.
-
-![Project Questions](instruction_assets/submit_2.png)
-
-After submitting your project, you can keep working on it, but **any resubmissions will clear your votes** and **only your most recent submission will be considered**. For that reason, we advise making sure you are mostly satisfied with your initial submission.
+![Submission](instruction_assets_phase_one/submission.png)
 
 <br />
 
-### Downloading Projects
+<!-- ### Downloading Projects
 
 Throughout the study, you may see download buttons that will let you save your project. It will also generate files that let you easily play the game locally, or upload the game online with Github Pages so others can play it (for free!):
 
@@ -153,9 +152,9 @@ Specifically, you'll be scored on the following criteria:
 Participants with websites that score highly will be eligible for extra compensation, detailed in the "Compensation" section below.
 
 <br />
-<br />
+<br /> -->
 
-### Step 3: Post-Test Assessment
+<!-- ### Step 3: Post-Test Assessment
 
 After completing all tasks, you will be prompted to complete a "Post-Test" on the [/skill-check](/skill-check) page. This process is the same as the pre-test, except the experience questions will be replaced with ones where you summarize how the study went.
 
@@ -164,78 +163,31 @@ After completing all tasks, you will be prompted to complete a "Post-Test" on th
 
 
 <br />
-<br />
+<br /> -->
 
-### Building Even More Websites
+<!-- ### Follow-up Tasks
 
-Once you have finished the post-test, you can keep building websites in VibeJam if you enjoyed it! You'll have access to 50+ tasks where you can build fun websites, compete against other users, and practice your AI coding skills!
-
-![All Tasks](instruction_assets/browse_all.png)
-
-The submission process is almost exactly the same, except we will include an automated check with an LLM judge to ensure that you are making a good-faith submission that follows the task instructions, and you are not submitting offensive content. These checks will also show you scores from an LLM judge on the four dimensions you will be rated on and an explanation with feedback, which you can use to improve your submission.
-
-The screenshots below have examples of feedback from valid and invalid submissions:
-
-![Valid Submission](instruction_assets/submit_valid.png)
-
-![Invalid Submission](instruction_assets/submit_invalid.png)
-
-These judgments are only to establish minimal requirements for each submission and will not impact your overall website score.
-
-<br />
-<br />
-
-### Skill-Check Statistics
-
-Once you finish the study, you can also navigate to the [/stats](/stats) page to see your AI usage and performance on our skill checks. Each plot will display your scores in different stages over the study over time
-
-![Usage Statistics](instruction_assets/stats.png)
-
-![Score Statistics](instruction_assets/stats_2.png)
-
-If you want to see whether your skills have changed after using VibeJam, you can navigate back to the [/skill-check](/skill-check) page and re-take our skill checks using a larger bank of questions. During these retakes, you can customize the type of questions and their numbers:
-
-![Retake](instruction_assets/retake.png)
-
-<br />
-<br />
+Once you have finished the post-test, you can keep building websites in VibeJam if you enjoyed it! You'll have access to 50+ tasks where you can build fun websites, compete against other users, and practice your AI coding skills! -->
 
 ### Compensation
 
-There are two forms of compensation, described below:
+For completing these tasks, you will receive coursework extra credit, defined by your course instructor. We will also provide an alternative assignment if you do not want to participate in the study. The due date for completing the study for extra credit will be up to your course instructor.
 
-#### Main Study Compensation
+After completing these tasks, you will have the opportunity to complete more tasks where you design games with an AI assistant for **paid compensation**. A new set of instructions will appear once you get to this second set of tasks.
 
-All users who participate in our main research study (pre-test, three website-building projects, post-test) for coursework extra credit will receive the agreed-upon amount of credit from their instructor.
+You can track your compensation progress on the [Compensation page](/compensation)
 
-Users who participate in the study for monetary compensation will receive **$75** for completing all required components.
+<br />
 
-The creators of the 10 highest-scoring websites for the three required website-building projects (30 users total) will receive **$10** each. External human judges will evaluate submissions on task fulfillment, style, enjoyment, and creativity at the end of the study, and the website scores will be computed as the average of these scores. The same user can win multiple bonus rewards across the three projects.
-
-This compensation will be available until May 1, 2026. Any changes to this date will be announced on the About page and over email.
-
-#### Public VibeJam Tasks Compensation
-
-We will also offer monetary rewards for users who complete the 50+ public projects in VibeJam beyond those required as part of our study. The 10 users who submit the most projects, or the first 10 users to submit all projects, will each receive **$10**. The three users with the highest website scores per project will each receive **$5**. The same user can win multiple bonus rewards across projects.
-
-We also plan to award **$100** in bonus compensation for particularly creative, popular, or well-designed websites. You will be notified via email if you win this reward.
-
-This compensation will be available until June 1, 2026. Any changes to this date will be announced on the About page and over email.
-
-#### Multiple Rewards Available
-
-You can win **multiple rewards** across tasks. Each high-performing submission qualifies for its own reward, allowing you to accumulate earnings across all projects.
-
-At the end of the study, all monetary rewards will be distributed via email (online gift cards with Tango). We will intermittently send user study progress updates to your registered email. If you have any questions, please email [nbalepur@umd.edu](mailto:nbalepur@umd.edu).
+### ⚠️ Warnings
 
 <div style="background-color: rgba(220, 38, 38, 0.1); border-left: 4px solid #ef4444; border-radius: 0 0.5rem 0.5rem 0; padding: 1rem; margin: 1.5rem 0;">
-    <div style="color:rgb(246, 41, 41); font-weight: 500; margin-bottom: 0.5rem; display: flex; align-items: center; font-size: 1.25rem;">
-    Warnings
-    </div>
     <ul style="color: #d1d5db; list-style: disc; list-style-position: inside; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-    <li>There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention. We may withdraw your compensation if you fail all checks</li>
+    <li>There will be questions throughout the study that will ask you to select a specific option to make sure that you are paying attention</li>
     <li>Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.</li>
-    <li>Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.</li>
+    <li>For the coding and post-test tasks, do not navigate away from the page to look up answers or ask ChatGPT. We provide an AI assistant so you do not need to leave the page</li>
     </ul>
+    <div>
+    If you are found to intentionally violate these rules or attempt to circumvent our study in any way, we reserve the right to withhold compensation.
+    </div>
 </div>
-

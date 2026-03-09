@@ -89,6 +89,8 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    const normalizedTaskName = (taskNameParam || '').toLowerCase().replace(/_/g, '-');
+    const isZicZacZoeFollowUpTask = normalizedTaskName === 'zic-zac-zoe-follow-up';
     
     const assistantWorkflowDescription =
       label !== 'website_requirements'
@@ -120,8 +122,6 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       
       <p style="margin: 12px 0; color: ${textColor};">Once you're personally satisfied with your work, you can make a submission. Before submitting, you'll need to answer some questions about your project.</p>
     `;
-    const normalizedTaskName = (taskNameParam || '').toLowerCase().replace(/_/g, '-');
-    const isZicZacZoeFollowUpTask = normalizedTaskName === 'zic-zac-zoe-follow-up';
     const zicZacZoeFollowUpDescription = `
       <p style="margin: 12px 0; color: ${textColor};">
         The rules of Zic-Zac-Zoe have changed a bit, so now you need to make changes to your website to reflect them.
@@ -202,6 +202,15 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       </div>
     ` : '';
 
+    const videoEmbedBorderColor = lightMode ? 'rgba(107, 114, 128, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+    const websiteAssistantVideoId = aiAssistantMode === 'agent'
+      ? 'C570JJM8Sd0'
+      : 'N7IsrqiaxjU';
+    const websiteAssistantVideoLabel = aiAssistantMode === 'agent' ? 'Agent Mode' : 'Chat Mode';
+    const aiAssistantOverviewVideoEmbed = label === 'website_requirements'
+      ? `<p style="margin: 12px 0 8px 0; color: ${textColor};">Overview of how the AI assistant works (${websiteAssistantVideoLabel}):</p><div style="margin: 12px auto; width: 75%; max-width: 75%; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border: 1px solid ${videoEmbedBorderColor}; border-radius: 8px; box-sizing: border-box;"><iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 7px;" src="https://www.youtube-nocookie.com/embed/${websiteAssistantVideoId}?rel=0&modestbranding=1" title="AI assistant overview (${websiteAssistantVideoLabel})" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`
+      : '';
+
     const aiAssistantSection = showAIAssistantDetails ? `
       <h2>AI Assistant Details</h2>
       <p style="margin: 0 0 12px 0; color: ${textColor};">
@@ -213,6 +222,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
               : `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.` : `Your AI is currently in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.`} ${label === 'website_requirements' ? 'You can only ask the AI syntax questions (e.g., "How do I make the color of a button red?") and it will answer with text or a code snippet you can copy. It cannot write any code for you.`' : 'The AI can answer questions about your current code and provide examples, but it cannot directly edit your files.'}`
         }
       </p>
+      ${aiAssistantOverviewVideoEmbed}
       ${aiGroupFollowUpReminder}
     ` : '';
     
@@ -265,12 +275,18 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       ? `Below is an abridged version of the instructions for coding with the AI assistant. If you already feel comfortable with our UI, you can skip reading this.`
       : `Below is an abridged version of the instructions for coding with the AI assistant, but more information can be found on the <a href="/about">about page</a>. If you already feel comfortable with our UI, you can skip reading this.`;
 
+    // For website_requirements: show Requirements before AI Assistant Details; otherwise keep original order
+    const middleSections = label === 'website_requirements'
+      ? `${requirementsSection}
+      ${aiAssistantSection}`
+      : `${aiAssistantSection}
+      ${requirementsSection}`;
+
     return `
       <h2>Task Description</h2>
       ${taskTypeInfo}
       ${taskDescription}
-      ${aiAssistantSection}
-      ${requirementsSection}
+      ${middleSections}
       
       ${examplesSection}
       

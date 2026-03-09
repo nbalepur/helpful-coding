@@ -3829,6 +3829,28 @@ async def get_submission_detail(submission_id: int, db: Session = Depends(get_db
         if not submission:
             return JSONResponse(status_code=404, content={"error": "Submission not found"})
 
+        task_description = ""
+        task_name = ""
+        if submission.project_id:
+            project = db.query(Project).filter(Project.id == submission.project_id).first()
+            if project:
+                dummy_meta = _load_dummy_task_metadata()
+                task_meta = dummy_meta.get(_slugify(project.name), {})
+                task_description = task_meta.get("description") or project.description or ""
+                task_name = project.title or project.name or ""
+                if project.label and project.label.lower() == "replication" and task_name:
+                    prefix = f"Create your own version of {task_name}: "
+                    description_stripped = task_description.strip()
+                    if re.match(r"^\s*<p", description_stripped, re.IGNORECASE):
+                        task_description = re.sub(
+                            r"^(\s*<p[^>]*>)",
+                            rf"\1{prefix}",
+                            description_stripped,
+                            flags=re.IGNORECASE,
+                        )
+                    else:
+                        task_description = f"<p><strong>{prefix}</strong></p>{description_stripped}"
+
         return {
             "id": submission.id,
             "title": submission.title,
@@ -3841,6 +3863,8 @@ async def get_submission_detail(submission_id: int, db: Session = Depends(get_db
             "isDisqualified": bool(submission.is_disqualified),
             "disqualificationReason": submission.disqualification_reason,
             "code": submission.code or {},
+            "taskDescription": task_description,
+            "taskName": task_name,
             "ratingSummary": build_rating_summary(
                 db.query(SubmissionFeedback)
                 .filter(SubmissionFeedback.submission_id == submission_id)

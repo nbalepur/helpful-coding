@@ -219,7 +219,7 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
     }
     copyResetTimerRef.current = setTimeout(() => {
       setCopyState('idle');
-    }, 1800);
+    }, 3000);
   }, [rawCode]);
   return (
     <div className="assistant-code-block rounded-md border overflow-hidden mt-0 mb-2" style={{ backgroundColor: '#1e1e1e', borderColor: '#3c3c3c' }}>
@@ -231,7 +231,7 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
           <Code2 size={11} style={{ color: '#9da0a6' }} />
           <span>{languageLabel}</span>
         </div>
-        <div className="relative group">
+        <div className="relative">
           <button
             type="button"
             onClick={handleCopy}
@@ -239,7 +239,7 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
             onMouseLeave={() => setIsCopyButtonHovered(false)}
             onFocus={() => setIsCopyButtonHovered(true)}
             onBlur={() => setIsCopyButtonHovered(false)}
-            className="inline-flex items-center justify-center h-5 w-5 rounded-sm bg-transparent hover:bg-transparent focus:bg-transparent transition-colors"
+            className="inline-flex items-center justify-center h-6 px-2 gap-1 rounded-sm bg-transparent hover:bg-transparent focus:bg-transparent transition-colors text-[11px]"
             style={{
               color:
                 copyState === 'copied'
@@ -254,39 +254,43 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
             aria-label={copyState === 'copied' ? 'Copied' : 'Copy code'}
           >
             {copyState === 'copied' ? <Check size={11} /> : <Copy size={11} />}
+            <span>{copyState === 'copied' ? 'Copied' : 'Copy'}</span>
           </button>
-          <span className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 rounded px-1.5 py-0.5 text-[10px] leading-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" style={{ backgroundColor: '#252526', color: '#cccccc', border: '1px solid #3c3c3c' }}>
-            {copyState === 'copied' ? 'Copied' : 'Copy'}
-          </span>
         </div>
       </div>
       <div
         className={`m-0 rounded-sm overflow-hidden ${cleanedPreClassName}`}
-        style={{ ...mergedPreStyle, backgroundColor: '#1e1e1e' }}
+        style={{
+          ...mergedPreStyle,
+          backgroundColor: '#1e1e1e',
+        }}
       >
         <SyntaxHighlighter
           language={syntaxLanguage}
           style={monacoLikePrismTheme}
           PreTag="div"
-          wrapLongLines
           customStyle={{
             margin: 0,
-            padding: '10px 12px',
+            padding: 0,
             background: 'transparent',
             maxHeight: '360px',
             overflowY: 'auto',
-            overflowX: 'hidden',
+            overflowX: 'auto',
             fontSize: '12px',
             lineHeight: '20px',
             borderRadius: 0,
+            userSelect: 'text',
+            WebkitUserSelect: 'text',
+            cursor: 'text',
           }}
           codeTagProps={{
             style: {
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
               display: 'block',
               background: 'transparent',
-              padding: 0,
-              borderRadius: 0,
+              padding: '10px 12px',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
             },
           }}
         >
@@ -398,6 +402,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 }, ref) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isPointerSelectingMessagesRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const clearBtnRef = useRef<HTMLButtonElement>(null);
   const haltBtnRef = useRef<HTMLButtonElement>(null);
@@ -422,6 +427,32 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   }, []);
 
   const hideTooltip = useCallback(() => setTooltip(null), []);
+
+  const isSelectionActiveInMessages = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return false;
+    if (isPointerSelectingMessagesRef.current) return true;
+    if (typeof window === 'undefined') return false;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+    const range = selection.getRangeAt(0);
+    if (container.contains(range.commonAncestorContainer)) return true;
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode && !focusNode) return false;
+    return Boolean(
+      (anchorNode && container.contains(anchorNode)) ||
+      (focusNode && container.contains(focusNode))
+    );
+  }, []);
+
+  useEffect(() => {
+    const onWindowMouseUp = () => {
+      isPointerSelectingMessagesRef.current = false;
+    };
+    window.addEventListener('mouseup', onWindowMouseUp);
+    return () => window.removeEventListener('mouseup', onWindowMouseUp);
+  }, []);
 
   useEffect(() => {
     if (!isModeMenuOpen) return;
@@ -595,8 +626,10 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       return { messages: [], suggestions: [] };
     }
 
-    const processed = items.map((item) => {
-      const key = item.id ?? `${item.type}-${item.message ?? Math.random()}`;
+    const processed = items.map((item, index) => {
+      // Use deterministic, unique fallback keys to prevent React remount/reconciliation glitches
+      // that can disrupt in-progress text selection in the message list.
+      const key = item.id ?? `${item.type ?? 'assistant'}-${index}`;
       const text = String(item.message ?? item.text ?? '');
       const type = (item.type ?? 'assistant') as AssistantType;
       return { ...item, id: key, text, type };
@@ -710,6 +743,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
     if (!wasVisible && isVisible) {
       const timeout = setTimeout(() => {
+        if (isSelectionActiveInMessages()) return;
         try {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
         } catch {
@@ -723,7 +757,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     }
 
     prevShouldRenderSuggestionPaneRef.current = isVisible;
-  }, [shouldRenderSuggestionPane, suggestionsToRender.length]);
+  }, [shouldRenderSuggestionPane, suggestionsToRender.length, isSelectionActiveInMessages]);
 
   useEffect(() => {
     if (!messagesContainerRef.current) return;
@@ -747,6 +781,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     
     // Auto scroll with a small delay to ensure layout is updated
     const timeout = setTimeout(() => {
+      if (isSelectionActiveInMessages()) return;
       // Only scroll if the message end is not visible (went off screen)
       if (!checkVisibility()) {
         try {
@@ -758,7 +793,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     }, 40);
 
     return () => clearTimeout(timeout);
-  }, [renderedItems.messages]);
+  }, [renderedItems.messages, isSelectionActiveInMessages]);
 
   // Continuous scrolling during text animation
   useEffect(() => {
@@ -800,6 +835,11 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     const scrollLoop = () => {
       const now = Date.now();
       if (now - lastScrollTime >= scrollThrottle) {
+        if (isSelectionActiveInMessages()) {
+          lastScrollTime = now;
+          animationFrameId = requestAnimationFrame(scrollLoop);
+          return;
+        }
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -821,7 +861,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [awaitingResponse, renderedItems.messages, animationCompletionCounter]);
+  }, [awaitingResponse, renderedItems.messages, animationCompletionCounter, isSelectionActiveInMessages]);
 
   // Continuous scrolling during summary animation (when summaryGenerated is true)
   useEffect(() => {
@@ -861,6 +901,11 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     const scrollLoop = () => {
       const now = Date.now();
       if (now - lastScrollTime >= scrollThrottle) {
+        if (isSelectionActiveInMessages()) {
+          lastScrollTime = now;
+          animationFrameId = requestAnimationFrame(scrollLoop);
+          return;
+        }
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -882,7 +927,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [summaryGenerated, renderedItems.messages, animationCompletionCounter]);
+  }, [summaryGenerated, renderedItems.messages, animationCompletionCounter, isSelectionActiveInMessages]);
 
   // Scroll to bottom when coding trace finishes (awaitingResponse changes from true to false)
   const prevAwaitingResponseRef = useRef(awaitingResponse);
@@ -916,6 +961,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       
       // Auto scroll with a small delay to ensure layout is updated
       const timeout = setTimeout(() => {
+        if (isSelectionActiveInMessages()) return;
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -931,7 +977,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     }
     // Update ref for next comparison
     prevAwaitingResponseRef.current = awaitingResponse;
-  }, [awaitingResponse]);
+  }, [awaitingResponse, isSelectionActiveInMessages]);
 
   // Scroll when summary is generated
   const prevSummaryGeneratedRef = useRef(summaryGenerated);
@@ -965,6 +1011,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       
       // Auto scroll with a delay to ensure the summary message is fully rendered
       const timeout = setTimeout(() => {
+        if (isSelectionActiveInMessages()) return;
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -980,7 +1027,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     }
     // Update ref for next comparison
     prevSummaryGeneratedRef.current = summaryGenerated;
-  }, [summaryGenerated]);
+  }, [summaryGenerated, isSelectionActiveInMessages]);
 
   // Auto-resize textarea based on content
   useEffect(() => {
@@ -1054,13 +1101,14 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     };
     
     const timeout = setTimeout(() => {
+      if (isSelectionActiveInMessages()) return;
       // Only scroll if the message end is not visible (went off screen)
       if (!checkVisibility()) {
         messagesEnd.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }
     }, 16);
     return () => clearTimeout(timeout);
-  }, [textareaHeight]);
+  }, [textareaHeight, isSelectionActiveInMessages]);
 
 
   return (
@@ -1221,7 +1269,18 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       {/* Messages area grows to fill available space */}
       <div
         ref={messagesContainerRef}
-        className="w-full bg-black overflow-y-auto flex-1 min-h-0"
+        className="w-full bg-black overflow-y-auto flex-1 min-h-0 select-text"
+        onMouseDownCapture={() => {
+          isPointerSelectingMessagesRef.current = true;
+        }}
+        onMouseUpCapture={() => {
+          isPointerSelectingMessagesRef.current = false;
+        }}
+        onMouseLeaveCapture={(event) => {
+          // Keep selection lock while the pointer is still held down
+          if ((event.buttons & 1) === 1) return;
+          isPointerSelectingMessagesRef.current = false;
+        }}
       >
         <div className="px-3 py-0 space-y-2">
           {renderedItems.messages.length === 0 && initialMessage != null && initialMessage !== '' && (
@@ -1239,7 +1298,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               return (
                 <React.Fragment key={item.id}>
                   {showDivider && <div className="border-t border-white/10 my-4"></div>}
-                  <div className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-100 whitespace-pre-wrap mt-3">
+                  <div className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-[13px] text-gray-100 whitespace-pre-wrap mt-3 select-text">
                     {item.text}
                   </div>
                 </React.Fragment>
@@ -1309,7 +1368,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                 return (
                   <div
                     key={item.id}
-                    className="text-[13px] text-gray-300 markdown-content assistant-markdown-content"
+                    className="text-[13px] text-gray-300 markdown-content assistant-markdown-content select-text"
                     style={{ lineHeight: '1.7em' }}
                   >
                     {comparison.beforeText ? (
@@ -1366,7 +1425,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               return (
                 <div
                   key={item.id}
-                  className="text-[13px] text-gray-300 markdown-content assistant-markdown-content"
+                  className="text-[13px] text-gray-300 markdown-content assistant-markdown-content select-text"
                   style={{ lineHeight: '1.7em' }}
                 >
                   <Markdown
@@ -1395,7 +1454,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
             return (
               <div
                 key={item.id}
-                className="text-[13px] text-gray-300 whitespace-pre-wrap"
+                className="text-[13px] text-gray-300 whitespace-pre-wrap select-text"
                 style={{ lineHeight: item.type === 'assistant' ? '1.7em' : undefined }}
               >
                 <AnimatedTerminalText text={displayText} animate={item.type === 'assistant'} messageId={item.id} onAnimationComplete={handleAnimationComplete} />

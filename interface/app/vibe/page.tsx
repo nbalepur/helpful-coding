@@ -90,6 +90,7 @@ const normalizeTaskNameKey = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   return value.trim().toLowerCase().replace(/-/g, '_');
 };
+const OPEN_ENDED_AI_MODE_SESSION_KEY = 'open-ended-ai-mode-by-task';
 
 function HomeInner() {
   const router = useRouter();
@@ -350,11 +351,38 @@ function HomeInner() {
   ]);
   
   type AssistantMode = 'agent' | 'ask' | 'brainstorm';
+  const isAssistantMode = (value: unknown): value is AssistantMode =>
+    value === 'agent' || value === 'ask' || value === 'brainstorm';
   const defaultAssistantModeState = <T,>(initialValue: T): Record<AssistantMode, T> => ({
     agent: initialValue,
     ask: initialValue,
     brainstorm: initialValue,
   });
+  const getStoredOpenEndedMode = (taskName: string): AssistantMode | null => {
+    if (typeof window === 'undefined' || !taskName) return null;
+    try {
+      const raw = window.sessionStorage.getItem(OPEN_ENDED_AI_MODE_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const savedMode = parsed?.[taskName];
+      return isAssistantMode(savedMode) ? savedMode : null;
+    } catch {
+      return null;
+    }
+  };
+  const setStoredOpenEndedMode = (taskName: string, mode: AssistantMode) => {
+    if (typeof window === 'undefined' || !taskName) return;
+    try {
+      const raw = window.sessionStorage.getItem(OPEN_ENDED_AI_MODE_SESSION_KEY);
+      const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+      window.sessionStorage.setItem(
+        OPEN_ENDED_AI_MODE_SESSION_KEY,
+        JSON.stringify({ ...parsed, [taskName]: mode })
+      );
+    } catch {
+      // Ignore storage parsing/quota errors.
+    }
+  };
 
   // Assistant terminal state
   const [assistantMessagesByMode, setAssistantMessagesByMode] = useState<Record<AssistantMode, AssistantItem[]>>(
@@ -559,7 +587,8 @@ function HomeInner() {
     if (!taskName) return;
 
     if (!WEBSITE_REQUIREMENT_TASKS.includes(taskName as any)) {
-      handleAssistantModeChange('agent');
+      const storedMode = getStoredOpenEndedMode(taskName);
+      handleAssistantModeChange(storedMode ?? 'agent');
       return;
     }
 
@@ -577,6 +606,15 @@ function HomeInner() {
     // Fallback for any other website-requirement task names.
     handleAssistantModeChange('ask');
   }, [selectedTask, currentTaskMeta?.name, user?.settings?.experiment_group, handleAssistantModeChange]);
+
+  // Persist AI mode per open-ended task for the current browser session.
+  useEffect(() => {
+    if (selectedTask === 'playground') return;
+    const taskName = normalizeTaskNameKey(currentTaskMeta?.name);
+    if (!taskName) return;
+    if (WEBSITE_REQUIREMENT_TASKS.includes(taskName as any)) return;
+    setStoredOpenEndedMode(taskName, agentMode);
+  }, [selectedTask, currentTaskMeta?.name, agentMode]);
 
   const [expCondition, setExpCondition] = useState("");
   const [workerId, setWorkerId] = useState("");
@@ -807,6 +845,8 @@ function HomeInner() {
       taskId: currentTaskMeta.id,
       projectId,
       taskName: currentTaskMeta?.name ?? null,
+      // Explicit UI context for downstream analytics (independent from stored code-log mode).
+      editorMode: isDiffMode ? 'diff' : 'regular',
       triggeredAt: new Date().toISOString(),
       leftTab,
       showCodingTerminal,
@@ -826,6 +866,9 @@ function HomeInner() {
       // Include original code in metadata when in diff mode
       ...(isDiffMode && originalCodeByLanguage && Object.keys(originalCodeByLanguage).length > 0 
           ? { originalCode: originalCodeByLanguage } 
+          : {}),
+      ...(event === 'AI-refresh'
+          ? { aiPromptEditorMode: isDiffMode ? 'diff' : 'regular' }
           : {}),
       ...context,
     };
@@ -2143,7 +2186,7 @@ function HomeInner() {
 
         if (timeAwayMs >= NAVIGATION_WARNING_THRESHOLD_MS) {
           showSnackbar(
-            'We logged that you navigated away from the page. You should not leave the page for any reason.',
+            'We have logged that you navigated away from the page. You should not leave the page for any reason. Repeatedly doing this may impact your compensation.',
             5000
           );
         }
@@ -4523,9 +4566,9 @@ function HomeInner() {
 </head>
 <body>
   <div class="pd-root">
-    <div class="field-label">Title</div>
-    <div class="field-value title-value">${escapedTitle}</div>
-    <div class="field-label">Description</div>
+    <div class="field-label">Submitted Title</div>
+    <div class="field-value description-value">${escapedTitle}</div>
+    <div class="field-label">Submitted Description</div>
     <div class="field-value description-value">${escapedDescription}</div>
   </div>
   <script>

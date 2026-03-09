@@ -60,6 +60,22 @@ const generateHeadingId = (text: string): string => {
     .trim();
 };
 
+const extractYouTubeVideoId = (url?: string): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+
+  const shortMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([A-Za-z0-9_-]{11})/i);
+  if (shortMatch?.[1]) return shortMatch[1];
+
+  const embedMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([A-Za-z0-9_-]{11})/i);
+  if (embedMatch?.[1]) return embedMatch[1];
+
+  const watchMatch = trimmed.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+  if (watchMatch?.[1]) return watchMatch[1];
+
+  return null;
+};
+
 function UserStudyPopupInner() {
   const router = useRouter();
   const pathname = usePathname();
@@ -277,6 +293,74 @@ function UserStudyPopupInner() {
     // Access router and setPopupState from outer scope
     const currentRouter = router;
     const currentSetPopupState = setPopupState;
+    const fallbackTutorialVideoId =
+      popupState === 'website-requirements-complete' ? '2gvfy71l7q0' : 'dE0SQlyhvDI';
+
+    const renderYouTubeEmbed = (videoId: string) => {
+      const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
+
+      if (!origin) {
+        return (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: '100%',
+              margin: '16px 0',
+              minHeight: '200px',
+              backgroundColor: '#1f2937',
+              border: '1px solid #4b5563',
+              borderRadius: '8px',
+            }}
+          >
+            <p style={{ color: '#9ca3af' }}>Loading video...</p>
+          </div>
+        );
+      }
+
+      const youtubeEmbedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${origin}&modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1`;
+
+      return (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            width: '100%',
+            margin: '16px 0',
+          }}
+        >
+          <iframe
+            ref={(el) => {
+              if (el && !youtubePlayerRef.current) {
+                const tryInit = () => {
+                  if ((window as any).YT?.Player) {
+                    initYoutubePlayer(el);
+                  } else {
+                    setTimeout(tryInit, 100);
+                  }
+                };
+                tryInit();
+              }
+            }}
+            src={youtubeEmbedUrl}
+            title="Tutorial video"
+            style={{
+              width: '90%',
+              maxWidth: '900px',
+              aspectRatio: '16 / 9',
+              maxHeight: '600px',
+              height: 'auto',
+              border: '1px solid #4b5563',
+              display: 'block',
+              margin: '0 auto',
+            }}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      );
+    };
     
     return {
     h1: ({ children }: any) => (
@@ -444,6 +528,11 @@ function UserStudyPopupInner() {
       </strong>
     ),
     a: ({ href, children }: any) => {
+      const youtubeVideoId = extractYouTubeVideoId(href);
+      if (youtubeVideoId) {
+        return renderYouTubeEmbed(youtubeVideoId);
+      }
+
       const isExternal = href?.startsWith('http://') || href?.startsWith('https://') || href?.startsWith('mailto:');
       const isInternal = href?.startsWith('/');
       
@@ -486,75 +575,9 @@ function UserStudyPopupInner() {
         resolvedSrc = '/' + resolvedSrc;
       }
 
-      // Replace instructions.mp4 with YouTube iframe
+      // Backward compatibility for markdown that still references instructions.mp4
       if (isInstructionsVideo) {
-        const youtubeVideoId = 'cMGgMO6DttE';
-        // Use windowOrigin state to avoid hydration mismatch (Safari is stricter about this)
-        // Only render iframe after windowOrigin is set to prevent hydration errors
-        const origin = windowOrigin || (typeof window !== 'undefined' ? window.location.origin : '');
-        
-        // Don't render iframe until we have a valid origin (prevents Safari hydration errors)
-        if (!origin) {
-          return (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                width: '100%',
-                margin: '16px 0',
-                minHeight: '200px',
-                backgroundColor: '#1f2937',
-                border: '1px solid #4b5563',
-                borderRadius: '8px',
-              }}
-            >
-              <p style={{ color: '#9ca3af' }}>Loading video...</p>
-            </div>
-          );
-        }
-        
-        const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?enablejsapi=1&origin=${origin}&modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1`;
-        
-        return (
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              width: '100%',
-              margin: '16px 0',
-            }}
-          >
-            <iframe
-              ref={(el) => {
-                if (el && !youtubePlayerRef.current) {
-                  // Wait for YT API, then init
-                  const tryInit = () => {
-                    if ((window as any).YT?.Player) {
-                      initYoutubePlayer(el);
-                    } else {
-                      setTimeout(tryInit, 100);
-                    }
-                  };
-                  tryInit();
-                }
-              }}
-              src={youtubeEmbedUrl}
-              style={{
-                width: '90%',
-                maxWidth: '900px',
-                aspectRatio: '16 / 9',
-                maxHeight: '600px',
-                height: 'auto',
-                border: '1px solid #4b5563',
-                display: 'block',
-                margin: '0 auto',
-              }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-        );
+        return renderYouTubeEmbed(fallbackTutorialVideoId);
       }
 
       if (isVideo) {
@@ -620,7 +643,7 @@ function UserStudyPopupInner() {
       );
     },
     };
-  }, [initYoutubePlayer, windowOrigin, isLightMode, router, setPopupState]);
+  }, [initYoutubePlayer, popupState, windowOrigin, isLightMode, router, setPopupState]);
 
   // Helper function to set tutorial cookie
   const setTutorialCookie = (state: TutorialCookieState) => {

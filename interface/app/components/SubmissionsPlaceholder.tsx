@@ -757,6 +757,8 @@ const SubmissionsGallery = ({ projectId, taskId }: SubmissionsGalleryProps = {})
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubmission, setSelectedSubmission] = useState<SubmissionCard | null>(null);
   const [selectedSubmissionCode, setSelectedSubmissionCode] = useState<unknown>(null);
+  const [selectedTaskDescription, setSelectedTaskDescription] = useState<string>("");
+  const [selectedTaskName, setSelectedTaskName] = useState<string>("");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
@@ -1464,6 +1466,8 @@ const getTooltipPosition = useCallback(
           }
         }
         setSelectedSubmissionCode(parsedCode);
+        setSelectedTaskDescription(typeof data?.taskDescription === "string" ? data.taskDescription : "");
+        setSelectedTaskName(typeof data?.taskName === "string" ? data.taskName : "");
     } catch (err: any) {
       if (err?.name === "AbortError") return;
         console.error("[SubmissionsGallery] failed to fetch submission detail", err);
@@ -1757,6 +1761,8 @@ const getTooltipPosition = useCallback(
     detailAbortRef.current?.abort();
     setSelectedSubmission(null);
     setSelectedSubmissionCode(null);
+    setSelectedTaskDescription("");
+    setSelectedTaskName("");
     setDetailError(null);
     setIsDetailLoading(false);
     hideTooltip();
@@ -2709,6 +2715,20 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                   </div>
                   <div className="flex w-80 h-full flex-col overflow-hidden bg-gray-900/70">
         <div className="flex flex-col flex-1 overflow-y-auto min-h-0 p-4 gap-4">
+                      {(selectedTaskName || selectedTaskDescription) && (
+                        <div className="rounded-lg border border-gray-700/70 bg-gray-800/50 p-3">
+                          <p className="text-sm font-medium text-blue-200 mb-2">
+                            Task: {selectedTaskName || "Unknown task"}
+                          </p>
+                          {selectedTaskDescription ? (
+                            <div
+                              className="text-sm text-gray-300 overflow-y-auto max-h-24 prose prose-invert prose-p:my-1 prose-headings:my-1.5 prose-headings:text-gray-200 prose-a:text-blue-400 prose-strong:text-gray-200"
+                              style={{ wordBreak: "break-word" }}
+                              dangerouslySetInnerHTML={{ __html: selectedTaskDescription }}
+                            />
+                          ) : null}
+                        </div>
+                      )}
                       <div>
                         <h3 className="text-sm font-semibold text-white pb-2">Rate this submission</h3>
                         <p className="text-xs text-gray-400 pb-2">

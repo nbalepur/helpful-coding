@@ -873,6 +873,7 @@ export default function CompensationPage() {
   const stage4Unlocked = stage3Unlocked && completedAdditionalWebsiteTasks >= numTasksRequiredUntilPostTest;
   const stage4Completed = stage4Unlocked && completedPostTest;
   const gameBonusTopN = process.env.NEXT_PUBLIC_GAME_TASK_BONUS_TOP_N ?? "N";
+  const studyEndDate = 'May 2026';
   const bonusRewardsEndDate = 'June 1, 2026';
 
   const pillBase =
@@ -1028,15 +1029,15 @@ export default function CompensationPage() {
         <div className="bg-gray-800/60 rounded-lg border border-gray-700/60 p-5 space-y-3">
           <h2 className="text-lg font-semibold text-white">How compensation works</h2>
           <p className="text-gray-300 text-sm leading-relaxed">
-            Compensation is staggered by stage. Later payments unlock only after earlier stages are complete.
+            The study ends in {studyEndDate}. Compensation is staggered by stage; complete required stages by then to be eligible. Later payments unlock only after earlier stages are complete.
           </p>
           <div className="space-y-2 text-sm text-gray-300">
             <ul className="list-disc list-outside pl-5 space-y-1">
               <li>
-                <span className="font-semibold text-blue-300">Step 0:</span> Complete the pre-test (no reward).
+                <span className="font-semibold text-blue-300">Step 0:</span> Complete the pre-test (extra credit only).
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks (i.e., Zic-Zac-Zoe) to receive $40 or extra credit.
+                <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks (i.e., Zic-Zac-Zoe) for extra credit.
               </li>
               <li>
                 <span className="font-semibold text-blue-300">Stage 2:</span> Complete all required game-based design tasks (i.e., Platformer) to receive $10.
@@ -1096,7 +1097,7 @@ export default function CompensationPage() {
                   <p className="text-gray-400 text-sm">
                     Pre-test: {completedPreTest ? "Done" : "Not done"}
                   </p>
-                  <p className="text-gray-400 text-sm font-medium mt-1">No reward</p>
+                  <p className="text-gray-400 text-sm font-medium mt-1">Extra credit only</p>
                 </div>
                 {completedPreTest ? (
                   <CheckCircle2 className="text-green-400 shrink-0" size={20} />
@@ -1117,7 +1118,7 @@ export default function CompensationPage() {
                     {websiteRequirementsSkipped ? " • Your status: Skipped" : ""}
                   </p>
                   <p className={`text-sm font-medium mt-1 ${stage1Skipped ? "text-amber-300" : "text-green-300"}`}>
-                    {stage1Skipped ? "Reward: Skipped" : "Reward: $40 or extra credit"}
+                    {stage1Skipped ? "Reward: Skipped" : "Extra credit only"}
                   </p>
                 </div>
                 {stage1Skipped ? (

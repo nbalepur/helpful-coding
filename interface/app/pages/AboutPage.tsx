@@ -24,6 +24,22 @@ const generateHeadingId = (text: string): string => {
     .trim();
 };
 
+const extractYouTubeVideoId = (url?: string): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+
+  const shortMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([A-Za-z0-9_-]{11})/i);
+  if (shortMatch?.[1]) return shortMatch[1];
+
+  const embedMatch = trimmed.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([A-Za-z0-9_-]{11})/i);
+  if (embedMatch?.[1]) return embedMatch[1];
+
+  const watchMatch = trimmed.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+  if (watchMatch?.[1]) return watchMatch[1];
+
+  return null;
+};
+
 export default function AboutPage() {
   const { user } = useAuth();
   const [markdownContent, setMarkdownContent] = useState<string>('');
@@ -598,23 +614,61 @@ export default function AboutPage() {
                       {children}
                     </strong>
                   ),
-                  a: ({ href, children }) => (
-                    <a 
-                      href={href} 
-                      className="underline"
-                      style={{ 
-                        color: isLightMode ? '#1e40af' : '#60a5fa',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.color = isLightMode ? '#2563eb' : '#93c5fd';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.color = isLightMode ? '#1e40af' : '#60a5fa';
-                      }}
-                    >
-                      {children}
-                    </a>
-                  ),
+                  a: ({ href, children }) => {
+                    const youtubeVideoId = extractYouTubeVideoId(href);
+
+                    if (youtubeVideoId) {
+                      const youtubeEmbedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?modestbranding=1&rel=0&iv_load_policy=3&fs=1&playsinline=1&enablejsapi=0`;
+                      return (
+                        <div className="flex justify-center my-4 w-full">
+                          <div
+                            className="relative"
+                            style={{
+                              width: '90%',
+                              maxWidth: '800px',
+                              paddingBottom: '56.25%',
+                              backgroundColor: isLightMode ? '#f3f4f6' : '#1f2937',
+                              border: isLightMode ? '1px solid #d1d5db' : '1px solid #4b5563',
+                              borderRadius: '4px',
+                              overflow: 'hidden',
+                              position: 'relative'
+                            }}
+                          >
+                            <iframe
+                              src={youtubeEmbedUrl}
+                              title="Tutorial video"
+                              className="absolute top-0 left-0 w-full h-full"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                border: 'none'
+                              }}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <a
+                        href={href}
+                        className="underline"
+                        style={{
+                          color: isLightMode ? '#1e40af' : '#60a5fa',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = isLightMode ? '#2563eb' : '#93c5fd';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = isLightMode ? '#1e40af' : '#60a5fa';
+                        }}
+                      >
+                        {children}
+                      </a>
+                    );
+                  },
                   div: ({ children, ...props }: any) => {
                     // Handle spacer divs
                     if ((props as any)['data-br-spacer'] === 'true') {
