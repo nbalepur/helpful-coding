@@ -49,6 +49,7 @@ import { ENV } from "../config/env";
 import { DiffEditor } from "@monaco-editor/react";
 import UserSubmissions from "../components/UserSubmissions";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
+import { TaskTimer } from "../components/TaskTimer";
 import {
   GAME_REQUIRED_TASKS,
   getRequiredTasksForMode,
@@ -234,19 +235,15 @@ function HomeInner() {
   const [leftTab, setLeftTab] = useState<'task' | 'preview' | 'leaderboard' | 'submissions' | 'project-details'>('task');
   const [rightTab, setRightTab] = useState<'code' | 'submissions'>('code');
   const DEFAULT_TASK_TIMER_DURATION_SECONDS = 120 * 60;
-  const [timeLeftSeconds, setTimeLeftSeconds] = useState(DEFAULT_TASK_TIMER_DURATION_SECONDS);
+  /** Passed to TaskTimer so only the timer badge re-renders every second, not the whole page. */
+  const [initialTimerRemainingSeconds, setInitialTimerRemainingSeconds] = useState<number | null>(null);
+  const [isSubmissionQuestionsPaneOpen, setIsSubmissionQuestionsPaneOpen] = useState(false);
   const [timerAlert, setTimerAlert] = useState<{ message: string; tone: TimerAlertTone; dismissible: boolean } | null>(null);
   const [showTimerExpiredModal, setShowTimerExpiredModal] = useState(false);
   const [hasTimedTaskStarted, setHasTimedTaskStarted] = useState(false);
   const [isStartingTimedTask, setIsStartingTimedTask] = useState(false);
   const [isSubmitModalExitLocked, setIsSubmitModalExitLocked] = useState(false);
   const [viewedSubmission, setViewedSubmission] = useState<ViewedSubmission | null>(null);
-
-  const formattedTimeLeft = useMemo(() => {
-    const minutes = Math.floor(timeLeftSeconds / 60);
-    const seconds = timeLeftSeconds % 60;
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }, [timeLeftSeconds]);
   
   // Vibe page layout state
   const [code, setCode] = useState("");
@@ -413,6 +410,11 @@ function HomeInner() {
   useEffect(() => {
     assistantModeRef.current = agentMode;
   }, [agentMode]);
+  // In-memory count of AI prompts this task session (not reset when user clears chat / trashcan)
+  const assistantPromptCountRef = useRef(0);
+  useEffect(() => {
+    assistantPromptCountRef.current = 0;
+  }, [selectedTask]);
   // Ref to track latest messages for snapshot saving (avoids stale closure issues)
   const assistantMessagesByModeRef = useRef<Record<AssistantMode, AssistantItem[]>>(
     defaultAssistantModeState<AssistantItem[]>([])
@@ -1295,12 +1297,13 @@ function HomeInner() {
     setIsStartingTimedTask(true);
     await sendTaskEvent("timer_started", { source: "manual_start_click" });
     setHasTimedTaskStarted(true);
+    setInitialTimerRemainingSeconds(taskTimerDurationSeconds);
     if (timedTaskFilesPendingRef.current) {
       setInitialFiles(timedTaskFilesPendingRef.current);
       timedTaskFilesPendingRef.current = null;
     }
     setIsStartingTimedTask(false);
-  }, [isStartingTimedTask, isTimedTaskPreStartGateActive, sendTaskEvent]);
+  }, [isStartingTimedTask, isTimedTaskPreStartGateActive, sendTaskEvent, taskTimerDurationSeconds]);
 
   useEffect(() => {
     if (isTimedTaskPreStartGateActive && leftTab === 'preview') {
@@ -1334,6 +1337,7 @@ function HomeInner() {
 
     // Submission questions should pause the active task timer globally.
     isSubmissionQuestionsPaneOpenRef.current = isOpen;
+    setIsSubmissionQuestionsPaneOpen(isOpen);
 
     if (isOpen) {
       setTimerAlert(null);
@@ -1358,7 +1362,9 @@ function HomeInner() {
     timerExpiredModalShownRef.current = false;
     setTimerAlert(null);
     setShowTimerExpiredModal(false);
+    setInitialTimerRemainingSeconds(null);
     setHasTimedTaskStarted(!isTimedTaskSelected);
+    setIsSubmissionQuestionsPaneOpen(false);
     setIsStartingTimedTask(false);
     setIsSubmitModalExitLocked(false);
     isSubmissionQuestionsPaneOpenRef.current = false;
@@ -1393,8 +1399,10 @@ function HomeInner() {
       const context = resolveActiveTaskEventContext();
       if (!context) {
         if (!isCancelled) {
-          setHasTimedTaskStarted(true);
-          setTimeLeftSeconds(taskTimerDurationSeconds);
+          // Keep timed tasks gated until explicit user start.
+          // Missing context should not auto-start countdown.
+          setHasTimedTaskStarted(false);
+          setInitialTimerRemainingSeconds(taskTimerDurationSeconds);
         }
         return;
       }
@@ -1423,7 +1431,7 @@ function HomeInner() {
             void sendTaskEvent("timer_resumed", { reason: "sync_resume_no_submission_pane" });
           }
           setHasTimedTaskStarted(hasStarted);
-          setTimeLeftSeconds(remainingSeconds);
+          setInitialTimerRemainingSeconds(remainingSeconds);
           if (hasStarted && timedTaskFilesPendingRef.current) {
             setInitialFiles(timedTaskFilesPendingRef.current);
             timedTaskFilesPendingRef.current = null;
@@ -1432,12 +1440,9 @@ function HomeInner() {
       } catch (error) {
         console.warn("Failed to initialize persisted timer state", error);
         if (!isCancelled) {
-          setHasTimedTaskStarted(true);
-          setTimeLeftSeconds(taskTimerDurationSeconds);
-          if (timedTaskFilesPendingRef.current) {
-            setInitialFiles(timedTaskFilesPendingRef.current);
-            timedTaskFilesPendingRef.current = null;
-          }
+          // Fail closed: keep pre-start gate active instead of auto-starting.
+          setHasTimedTaskStarted(false);
+          setInitialTimerRemainingSeconds(taskTimerDurationSeconds);
         }
       }
     };
@@ -1454,31 +1459,8 @@ function HomeInner() {
     sendTaskEvent,
   ]);
 
-  useEffect(() => {
-    if (!isTimedTaskSelected || !hasTimedTaskStarted) return;
-
-    const intervalId = window.setInterval(() => {
-      setTimeLeftSeconds((prevSeconds) => {
-        if (isSubmissionQuestionsPaneOpenRef.current) {
-          return prevSeconds;
-        }
-        return prevSeconds <= 1 ? 0 : prevSeconds - 1;
-      });
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [hasTimedTaskStarted, isTimedTaskSelected]);
-
-  useEffect(() => {
-    if (!isTimedTaskSelected) {
-      setTimerAlert(null);
-      setShowTimerExpiredModal(false);
-      return;
-    }
-
-    const warningCheckpoints = [
+  const taskTimerWarningCheckpoints = useMemo(
+    () => [
       {
         key: "halfway",
         thresholdSeconds: Math.floor(taskTimerDurationSeconds * 0.5),
@@ -1500,41 +1482,21 @@ function HomeInner() {
         tone: "critical" as TimerAlertTone,
         dismissible: true,
       },
-    ];
+    ],
+    [taskTimerDurationSeconds]
+  );
 
-    warningCheckpoints.forEach(({ key, thresholdSeconds, message, tone, dismissible }) => {
-      if (
-        thresholdSeconds <= 0 ||
-        thresholdSeconds > taskTimerDurationSeconds ||
-        timerWarningKeysShownRef.current.has(key)
-      ) {
-        return;
-      }
+  const handleTaskTimerWarning = useCallback(
+    (_key: string, message: string, tone: TimerAlertTone, options: { dismissible: boolean; autoDismissMs: number }) => {
+      showProminentTimerAlert(message, tone, options);
+    },
+    [showProminentTimerAlert]
+  );
 
-      if (timeLeftSeconds <= thresholdSeconds && timeLeftSeconds > 0) {
-        timerWarningKeysShownRef.current.add(key);
-        showProminentTimerAlert(message, tone, {
-          dismissible,
-          autoDismissMs: tone === "critical" ? 15000 : 9000,
-        });
-      }
-    });
-
-    if (
-      timeLeftSeconds <= 0 &&
-      !isSubmissionQuestionsPaneOpenRef.current &&
-      !timerExpiredModalShownRef.current
-    ) {
-      timerExpiredModalShownRef.current = true;
-      setTimerAlert(null);
-      setShowTimerExpiredModal(true);
-    }
-  }, [
-    isTimedTaskSelected,
-    showProminentTimerAlert,
-    taskTimerDurationSeconds,
-    timeLeftSeconds,
-  ]);
+  const handleTaskTimerExpired = useCallback(() => {
+    setTimerAlert(null);
+    setShowTimerExpiredModal(true);
+  }, []);
 
   const shouldWarnBeforeLeavingStudyTask = useCallback(() => {
     if (isTimedTaskPreStartGateActive) {
@@ -1605,6 +1567,7 @@ function HomeInner() {
               if (viewedSubmission) {
                 setLeftTab('project-details');
               } else if (rightTab !== 'submissions') {
+                void sendCodeLog('preview-refresh', { refreshSource: 'tab-switch' });
                 setLeftTab('preview');
               }
             }
@@ -1761,7 +1724,7 @@ function HomeInner() {
 
   // Track AI code load timestamp for marking saves as AI_generated
   const aiCodeLoadedTimestampRef = useRef<number | null>(null);
-  const AI_CODE_LOAD_WINDOW_MS = 10000; // 10 seconds window to mark saves as AI_generated
+  const AI_CODE_LOAD_WINDOW_MS = 3000; // 3 seconds window to mark saves as AI_generated (generous to humans: only immediate saves count as AI)
   
   // Reset timestamp when pendingAgentChanges is cleared/rejected
   const prevPendingAgentChangesRef = useRef<any>(null);
@@ -2348,6 +2311,7 @@ function HomeInner() {
     
     setSummaryGeneratedForMode(submitMode, false);
     latestSuggestionsRef.current = [];
+    assistantPromptCountRef.current = (assistantPromptCountRef.current || 0) + 1;
     
     appendMessage({ type: 'user', message: trimmedMessage });
     setAwaitingResponse(true);
@@ -2901,6 +2865,39 @@ function HomeInner() {
     }
   };
 
+  const handleClearAssistantMessages = useCallback(async () => {
+    // Save snapshot before clearing (with current code + current messages)
+    // This allows undo to restore both code and messages
+    saveSnapshot();
+
+    // Clear messages visually first (keep only suggestions) - immediate feedback
+    const clearedMessages = assistantMessages.filter((msg: any) => msg.type === 'suggestions');
+    setAssistantMessagesForMode(agentMode, clearedMessages);
+
+    // Save snapshot after clearing (with current code + empty messages)
+    // This represents the cleared state, so redo can restore it
+    saveSnapshot(clearedMessages);
+
+    // Do time-consuming async operations after visual update
+    try {
+      await fetch(`${ENV.BACKEND_URL}/api/agent-history/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: numericUserId,
+        }),
+      });
+    } catch (e) {
+      // no-op: clearing history is best-effort
+    }
+  }, [agentMode, assistantMessages, numericUserId, saveSnapshot, setAssistantMessagesForMode]);
+
+  const handleAssistantHalt = useCallback(() => {
+    try {
+      assistantAbortControllerRef.current?.abort();
+    } catch {}
+  }, []);
+
   const handleSuggestionSelection = useCallback(async (suggestion: string) => {
     // Skip in playground mode - no database saving or logging
     if (isPlaygroundMode || selectedTask === 'playground') {
@@ -3108,6 +3105,73 @@ function HomeInner() {
     const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
     return getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
   }, [allTasks, websiteRequirementsSkipped]);
+
+  const assistantPaneNode = useMemo(() => (
+    <AssistantTerminalPane
+      ref={assistantTerminalPaneRef}
+      title={assistantPaneTitle}
+      modeLabel={
+        isWebsiteRequirementsTaskSelected
+          ? (agentMode === 'ask' ? 'Chat' : 'Agent')
+          : modeLabelMap[agentMode]
+      }
+      modeValue={agentMode}
+      onModeChange={
+        (selectedTask === 'playground' || !WEBSITE_REQUIREMENT_TASKS.includes(normalizeTaskNameKey(currentTaskMeta?.name) as any))
+          ? handleAssistantModeChange
+          : undefined
+      }
+      modeSwitchDisabled={awaitingResponse}
+      initialMessage={
+        agentMode === 'ask' && isWebsiteRequirementsTaskSelected
+          ? "Hello, I'm in Chat Mode! I can help with syntax questions, but I can't read or edit your code directly."
+          : modeInitialMessageMap[agentMode]
+      }
+      items={assistantMessages}
+      onClearMessages={handleClearAssistantMessages}
+      inputValue={assistantInputValue}
+      onInputChange={setAssistantInputValue}
+      onSubmit={handleAssistantSubmit}
+      onSuggestionClick={handleSuggestionSelection}
+      awaitingResponse={awaitingResponse}
+      summaryGenerated={summaryGenerated}
+      isEditorLoading={isSpinning}
+      onHalt={handleAssistantHalt}
+      assistantPlacement={assistantPlacement}
+      onAssistantPlacementChange={setAssistantPlacement}
+      onUndo={handleUndo}
+      onRedo={handleRedo}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      hideSuggestions={studyTaskMode === 'website-requirements' && selectedTask !== 'playground'}
+      disablePaste={isWebsiteRequirementsTaskSelected}
+    />
+  ), [
+    agentMode,
+    assistantMessages,
+    assistantPaneTitle,
+    assistantPlacement,
+    awaitingResponse,
+    canRedo,
+    canUndo,
+    currentTaskMeta?.name,
+    handleAssistantHalt,
+    handleAssistantModeChange,
+    handleAssistantSubmit,
+    handleClearAssistantMessages,
+    handleRedo,
+    handleSuggestionSelection,
+    handleUndo,
+    isSpinning,
+    isWebsiteRequirementsTaskSelected,
+    selectedTask,
+    setAssistantInputValue,
+    setAssistantPlacement,
+    studyTaskMode,
+    summaryGenerated,
+  ]);
+
+  const renderAssistantPane = useCallback(() => assistantPaneNode, [assistantPaneNode]);
 
   // Filter tasks based on required status, filters, and search query
   useEffect(() => {
@@ -3338,6 +3402,7 @@ function HomeInner() {
             if (rightTab === 'submissions' && viewedSubmission) {
               setLeftTab('project-details');
             } else if (rightTab !== 'submissions') {
+              void sendCodeLog('preview-refresh', { refreshSource: 'tab-switch' });
               setLeftTab('preview');
             }
           }
@@ -4405,6 +4470,7 @@ function HomeInner() {
                           }`}
                           onClick={() => {
                             if (isTimedTaskPreStartGateActive) return;
+                            void sendCodeLog('preview-refresh', { refreshSource: 'tab-switch' });
                             setLeftTab('preview');
                           }}
                           disabled={isTimedTaskPreStartGateActive}
@@ -4686,19 +4752,18 @@ function HomeInner() {
                         )}
                       </button>
                       {isTimedTaskSelected && (
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-all ${
-                            !hasTimedTaskStarted
-                              ? "border border-blue-300/60 bg-blue-900/30 text-blue-100"
-                              : timeLeftSeconds <= 3 * 60
-                              ? "border border-red-300/70 bg-red-900/50 text-red-100"
-                              : timeLeftSeconds <= Math.floor(taskTimerDurationSeconds * 0.25)
-                                ? "border border-amber-300/70 bg-amber-900/40 text-amber-100"
-                                : "border border-gray-700/60 bg-gray-800/40 text-gray-300"
-                          }`}
-                        >
-                          {hasTimedTaskStarted ? `⏳ Time Left: ${formattedTimeLeft}` : `⏳ Starts on click: ${timedTaskLimitMinutes} min`}
-                        </span>
+                        <TaskTimer
+                          isTimedTaskSelected={isTimedTaskSelected}
+                          hasTimedTaskStarted={hasTimedTaskStarted}
+                          taskTimerDurationSeconds={taskTimerDurationSeconds}
+                          initialRemainingSeconds={initialTimerRemainingSeconds}
+                          isPaused={isSubmissionQuestionsPaneOpen}
+                          warningCheckpoints={taskTimerWarningCheckpoints}
+                          onWarning={handleTaskTimerWarning}
+                          onExpired={handleTaskTimerExpired}
+                          warningKeysShownRef={timerWarningKeysShownRef}
+                          expiredModalShownRef={timerExpiredModalShownRef}
+                        />
                       )}
                       <div
                         style={{ position: 'relative' }}
@@ -4877,6 +4942,8 @@ function HomeInner() {
                       projectId={currentTaskMeta?.projectId ?? null}
                       userId={numericUserId}
                       taskName={currentTaskMeta?.name ?? null}
+                      taskLabel={allTasks.find((t: any) => t.id === selectedTask)?.label}
+                      assistantPromptCountRef={assistantPromptCountRef}
                       taskRequirements={getTaskRequirements(selectedTask)}
                       aiAssistantMode={agentMode}
                       sidebarOpen={sidebarOpen}
@@ -4900,74 +4967,7 @@ function HomeInner() {
                       assistantPlacement={assistantPlacement}
                       showAIAssistantForBottom={showAIAssistant}
                       isAIAssistantVisible={showAIAssistant}
-                      renderAssistantPane={() => (
-                        <AssistantTerminalPane
-                          ref={assistantTerminalPaneRef}
-                          title={assistantPaneTitle}
-                          modeLabel={
-                            isWebsiteRequirementsTaskSelected
-                              ? (agentMode === 'ask' ? 'Chat' : 'Agent')
-                              : modeLabelMap[agentMode]
-                          }
-                          modeValue={agentMode}
-                          onModeChange={
-                            (selectedTask === 'playground' || !WEBSITE_REQUIREMENT_TASKS.includes(normalizeTaskNameKey(currentTaskMeta?.name) as any))
-                              ? handleAssistantModeChange
-                              : undefined
-                          }
-                          modeSwitchDisabled={awaitingResponse}
-                          initialMessage={
-                            agentMode === 'ask' && isWebsiteRequirementsTaskSelected
-                              ? "Hello, I'm in Chat Mode! I can help with syntax questions, but I can't read or edit your code directly."
-                              : modeInitialMessageMap[agentMode]
-                          }
-                          items={assistantMessages}
-                        onClearMessages={async () => {
-                          // Save snapshot before clearing (with current code + current messages)
-                          // This allows undo to restore both code and messages
-                          saveSnapshot();
-                          
-                          // Clear messages visually first (keep only suggestions) - immediate feedback
-                          const clearedMessages = assistantMessages.filter((msg: any) => msg.type === 'suggestions');
-                          setAssistantMessagesForMode(agentMode, clearedMessages);
-                          
-                          // Save snapshot after clearing (with current code + empty messages)
-                          // This represents the cleared state, so redo can restore it
-                          saveSnapshot(clearedMessages);
-                          
-                          // Do time-consuming async operations after visual update
-                          try {
-                            await fetch(`${ENV.BACKEND_URL}/api/agent-history/clear`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                userId: numericUserId,
-                              }),
-                            });
-                          } catch (e) {
-                            // no-op: clearing history is best-effort
-                          }
-                        }}
-                          inputValue={assistantInputValue}
-                          onInputChange={setAssistantInputValue}
-                          onSubmit={handleAssistantSubmit}
-                          onSuggestionClick={handleSuggestionSelection}
-                          awaitingResponse={awaitingResponse}
-                          summaryGenerated={summaryGenerated}
-                          isEditorLoading={isSpinning}
-                        onHalt={() => {
-                          try { assistantAbortControllerRef.current?.abort(); } catch {}
-                        }}
-                        assistantPlacement={assistantPlacement}
-                        onAssistantPlacementChange={setAssistantPlacement}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        canUndo={canUndo}
-                          canRedo={canRedo}
-                          hideSuggestions={studyTaskMode === 'website-requirements' && selectedTask !== 'playground'}
-                          disablePaste={isWebsiteRequirementsTaskSelected}
-                        />
-                      )}
+                      renderAssistantPane={renderAssistantPane}
                       // Save shortcut callback for preview updates
                       onSaveShortcut={handleSaveShortcut}
                       // File content change callback for real-time preview updates

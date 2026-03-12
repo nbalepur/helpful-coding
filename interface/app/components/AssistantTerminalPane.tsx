@@ -106,6 +106,14 @@ const monacoLikePrismTheme: Record<string, React.CSSProperties> = {
   constant: { color: '#4fc1ff' },
 };
 
+// Stable component maps for Markdown so the assistant message div doesn't re-render from new inline object refs.
+const ASSISTANT_MARKDOWN_COMPONENTS_SIMPLE: Record<string, React.ComponentType<any>> = {
+  p: ({ node, ...props }: any) => <p className="my-0" {...props} />,
+  ul: ({ node, ...props }: any) => <ul className="my-2 pl-5 list-disc" {...props} />,
+  ol: ({ node, ...props }: any) => <ol className="my-2 pl-5 list-decimal" {...props} />,
+  li: ({ node, ...props }: any) => <li className="my-1" {...props} />,
+};
+
 /** Wraps a <pre> code block with a copy button that copies the block's text to the clipboard. Export for use in other Markdown renderers. */
 export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ children, className, style }) => {
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,6 +307,21 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
       </div>
     </div>
   );
+};
+
+const INLINE_CODE_STYLE = { backgroundColor: '#2d2d2d', color: '#d4d4d4' } as const;
+
+const ASSISTANT_MARKDOWN_COMPONENTS_WITH_CODE: Record<string, React.ComponentType<any>> = {
+  ...ASSISTANT_MARKDOWN_COMPONENTS_SIMPLE,
+  pre: ({ node, ...props }: any) => (
+    <CodeBlockWithCopy className="bg-transparent rounded p-0 pr-0 my-0 text-[12px]" {...props} />
+  ),
+  code: ({ node, className, ...props }: any) =>
+    className ? (
+      <code className={className} {...props} />
+    ) : (
+      <code className="px-1 rounded text-[12px]" style={INLINE_CODE_STYLE} {...props} />
+    ),
 };
 
 interface SideBySideCodeComparison {
@@ -1276,7 +1299,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         onMouseUpCapture={() => {
           isPointerSelectingMessagesRef.current = false;
         }}
-        onMouseLeaveCapture={(event) => {
+        onMouseOutCapture={(event: React.MouseEvent<HTMLDivElement>) => {
           // Keep selection lock while the pointer is still held down
           if ((event.buttons & 1) === 1) return;
           isPointerSelectingMessagesRef.current = false;
@@ -1372,14 +1395,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                     style={{ lineHeight: '1.7em' }}
                   >
                     {comparison.beforeText ? (
-                      <Markdown
-                        components={{
-                          p: ({ node, ...props }) => <p className="my-0" {...props} />,
-                          ul: ({ node, ...props }) => <ul className="my-2 pl-5 list-disc" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="my-2 pl-5 list-decimal" {...props} />,
-                          li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                        }}
-                      >
+                      <Markdown components={ASSISTANT_MARKDOWN_COMPONENTS_SIMPLE}>
                         {comparison.beforeText}
                       </Markdown>
                     ) : null}
@@ -1406,14 +1422,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
                     {comparison.afterText ? (
                       <div className="mt-2">
-                        <Markdown
-                          components={{
-                            p: ({ node, ...props }) => <p className="my-0" {...props} />,
-                            ul: ({ node, ...props }) => <ul className="my-2 pl-5 list-disc" {...props} />,
-                            ol: ({ node, ...props }) => <ol className="my-2 pl-5 list-decimal" {...props} />,
-                            li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                          }}
-                        >
+                        <Markdown components={ASSISTANT_MARKDOWN_COMPONENTS_SIMPLE}>
                           {comparison.afterText}
                         </Markdown>
                       </div>
@@ -1428,23 +1437,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                   className="text-[13px] text-gray-300 markdown-content assistant-markdown-content select-text"
                   style={{ lineHeight: '1.7em' }}
                 >
-                  <Markdown
-                    components={{
-                      p: ({ node, ...props }) => <p className="my-0" {...props} />,
-                      ul: ({ node, ...props }) => <ul className="my-2 pl-5 list-disc" {...props} />,
-                      ol: ({ node, ...props }) => <ol className="my-2 pl-5 list-decimal" {...props} />,
-                      li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                      pre: ({ node, ...props }) => (
-                        <CodeBlockWithCopy className="bg-transparent rounded p-0 pr-0 my-0 text-[12px]" {...props} />
-                      ),
-                      code: ({ node, className, ...props }) =>
-                        className ? (
-                          <code className={className} {...props} />
-                        ) : (
-                          <code className="px-1 rounded text-[12px]" style={{ backgroundColor: '#2d2d2d', color: '#d4d4d4' }} {...props} />
-                        ),
-                    }}
-                  >
+                  <Markdown components={ASSISTANT_MARKDOWN_COMPONENTS_WITH_CODE}>
                     {displayText}
                   </Markdown>
                 </div>
@@ -1615,6 +1608,4 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
 AssistantTerminalPane.displayName = 'AssistantTerminalPane';
 
-export default AssistantTerminalPane;
-
-
+export default React.memo(AssistantTerminalPane);

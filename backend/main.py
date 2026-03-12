@@ -16,7 +16,7 @@ import random
 import litellm
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request, Query, Request
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -31,6 +31,7 @@ from parsers.endpoint_parser import EndpointParser
 from services.onecompiler_service import OneCompilerService
 from auth import verify_password, get_password_hash, create_access_token, verify_token, generate_reset_token, send_password_reset_email
 from agent import OpenAIAgent
+import question_generation_helpers as qgh
 
 from pydantic import BaseModel, Field, AliasChoices
 from database.config import get_db
@@ -400,6 +401,53 @@ def _normalize_project_files(raw_files: Any) -> List[Dict[str, Any]]:
         except Exception as exc:
             print(f"[tasks-db] Could not parse project.files JSON string: {exc}")
     return []
+
+
+def _resolve_project_file_content(file_config: Dict[str, Any]) -> str:
+    """
+    Resolve starter file content from project file config.
+    Supports:
+    - Path strings relative to repo root
+    - Inline code content
+    """
+    content = file_config.get("content", "")
+    if not isinstance(content, str) or not content.strip():
+        return ""
+    raw = content.strip()
+    repo_root = Path(__file__).resolve().parent.parent
+    candidate_path = repo_root / raw
+    if candidate_path.exists() and candidate_path.is_file():
+        try:
+            return candidate_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            print(f"[comprehension/context] failed reading starter file '{candidate_path}': {exc}")
+            return ""
+    return raw
+
+
+def _build_target_selection_context(project: Project) -> Dict[str, Any]:
+    """
+    Build context used by requirement-aware compare target selection.
+    """
+    project_files = _normalize_project_files(project.files)
+    starter_code = {"html": "", "css": "", "js": ""}
+    for file_cfg in project_files:
+        filename = str(file_cfg.get("name", "")).strip().lower()
+        content = _resolve_project_file_content(file_cfg)
+        if not content:
+            continue
+        if filename.endswith(".html"):
+            starter_code["html"] += content + "\n\n"
+        elif filename.endswith(".css"):
+            starter_code["css"] += content + "\n\n"
+        elif filename.endswith(".js") or filename.endswith(".javascript"):
+            starter_code["js"] += content + "\n\n"
+
+    requirements = project.requirements if isinstance(project.requirements, list) else []
+    return {
+        "requirements": requirements,
+        "starter_code": starter_code,
+    }
 
 
 _SYNC_LOCK = threading.Lock()
@@ -886,14 +934,16 @@ def _select_frontend_questions_for_assignment(db: Session) -> tuple[list[str], l
     return frontend_pre, frontend_post
 
 
-def _build_identical_skill_check_assignment_names(db: Session) -> tuple[list[str], list[str], list[str], list[str]]:
+def _build_skill_check_assignment_names_split_pre_post(db: Session) -> tuple[
+    list[str], list[str], list[str], list[str],
+    list[str], list[str], list[str], list[str],
+]:
     """
-    Build deterministic question names for both pre-test and post-test.
+    Build question names for pre-test and post-test with random variant split.
 
-    - Frontend and UX always use `_1` variants.
-    - Coding uses fixed tasks:
-      - normal/from-scratch: paren_1
-      - debug: string_shift_2, prefix_2
+    For each base tag (frontend, ux, code_normal, code_debug), we randomly assign
+    one variant (_1 or _2) to pre-test and the other to post-test.
+    Returns (frontend_pre, frontend_post, ux_pre, ux_post, code_normal_pre, code_normal_post, code_debug_pre, code_debug_post).
     """
     frontend_base_tags = [
         "html_knowledge", "html_recall", "html_trace_code", "html_change_code",
@@ -904,40 +954,49 @@ def _build_identical_skill_check_assignment_names(db: Session) -> tuple[list[str
         "choices", "memory", "mobile", "design_protocol", "error",
         "aesthetics", "object", "cognitive_ease", "visual_order", "excitement"
     ]
-
-    questions_for_two = [
-        "html_knowledge", "html_recall", "html_change_code", "css_knowledge", "css_change_code", "js_knowledge", "js_trace_code", "js_change_code", "choices", "mobile", "design_protocol", "excitement"
+    code_normal_tags = [
+        'paren'
+    ]
+    code_debug_tags = [
+        'string_shift'
     ]
 
-    desired_frontend_names = [f"{base_tag}_2" if base_tag in questions_for_two else f"{base_tag}_1" for base_tag in frontend_base_tags]
-    desired_ux_names = [f"{base_tag}_2" if base_tag in questions_for_two else f"{base_tag}_1" for base_tag in ux_base_tags]
+    def _split_variants(base_tags: list[str]) -> tuple[list[str], list[str]]:
+        pre_names, post_names = [], []
+        for base in base_tags:
+            v1, v2 = f"{base}_1", f"{base}_2"
+            chosen = random.choice((v1, v2))
+            other = v2 if chosen == v1 else v1
+            pre_names.append(chosen)
+            post_names.append(other)
+        return pre_names, post_names
 
-    frontend_rows = db.query(MCQAData.name).filter(
-        MCQAData.type == "frontend",
-        MCQAData.name.in_(desired_frontend_names)
-    ).all()
-    ux_rows = db.query(MCQAData.name).filter(
-        MCQAData.type == "ux",
-        MCQAData.name.in_(desired_ux_names)
-    ).all()
+    frontend_pre, frontend_post = _split_variants(frontend_base_tags)
+    ux_pre, ux_post = _split_variants(ux_base_tags)
+    code_normal_pre, code_normal_post = _split_variants(code_normal_tags)
+    code_debug_pre, code_debug_post = _split_variants(code_debug_tags)
 
-    frontend_existing = {name for (name,) in frontend_rows if name}
-    ux_existing = {name for (name,) in ux_rows if name}
+    return (
+        frontend_pre, frontend_post,
+        ux_pre, ux_post,
+        code_normal_pre, code_normal_post,
+        code_debug_pre, code_debug_post,
+    )
 
-    frontend_names = [name for name in desired_frontend_names if name in frontend_existing]
-    ux_names = [name for name in desired_ux_names if name in ux_existing]
 
-    desired_code_normal = ["paren_2"]
-    desired_code_debug = ["string_shift_2"]
-    code_rows = db.query(CodeData.task_name).filter(
-        CodeData.task_name.in_(desired_code_normal + desired_code_debug)
-    ).all()
-    code_existing = {task_name for (task_name,) in code_rows if task_name}
-
-    code_normal_names = [task_name for task_name in desired_code_normal if task_name in code_existing]
-    code_debug_names = [task_name for task_name in desired_code_debug if task_name in code_existing]
-
-    return frontend_names, ux_names, code_normal_names, code_debug_names
+def _build_identical_skill_check_assignment_names(db: Session) -> tuple[list[str], list[str], list[str], list[str]]:
+    """
+    Build a single set of question names (same for pre and post). Used as fallback when
+    no assignment exists (e.g. anonymous or retake). Delegates to split builder and
+    returns pre-test lists.
+    """
+    (
+        frontend_pre, _,
+        ux_pre, _,
+        code_normal_pre, _,
+        code_debug_pre, _,
+    ) = _build_skill_check_assignment_names_split_pre_post(db)
+    return frontend_pre, ux_pre, code_normal_pre, code_debug_pre
 
 
 def _load_questions_from_jsonl(
@@ -1258,7 +1317,16 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
         .filter(SkillCheckAssignment.user_id == user_id)
         .first()
     )
-    frontend_names, ux_names, code_normal_names, code_debug_names = _build_identical_skill_check_assignment_names(db)
+    if assignment:
+        # Keep existing assignment; do not recompute random split (would change pre/post every time).
+        return assignment
+
+    (
+        frontend_pre, frontend_post,
+        ux_pre, ux_post,
+        code_normal_pre, code_normal_post,
+        code_debug_pre, code_debug_post,
+    ) = _build_skill_check_assignment_names_split_pre_post(db)
 
     def _insert_deterministic(section_names: list[str], question_name: str, preferred_index: int) -> list[str]:
         updated = list(section_names)
@@ -1266,42 +1334,11 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
         updated.insert(insert_position, question_name)
         return updated
 
-    # Deterministic placement for consistency between pre and post.
-    # Keep sanity checks within their respective sections at fixed indices.
-    desired_frontend_with_sanity = _insert_deterministic(frontend_names, "sanity_frontend", preferred_index=3)
-    desired_ux_with_sanity = _insert_deterministic(ux_names, "sanity_ux", preferred_index=7)
-    desired_frontend_pre = desired_frontend_with_sanity
-    desired_ux_pre = desired_ux_with_sanity
-    desired_frontend_post = desired_frontend_with_sanity
-    desired_ux_post = desired_ux_with_sanity
-
-    if assignment:
-        needs_update = any([
-            assignment.frontend_pre_test != desired_frontend_pre,
-            assignment.frontend_post_test != desired_frontend_post,
-            assignment.ux_pre_test != desired_ux_pre,
-            assignment.ux_post_test != desired_ux_post,
-            assignment.code_pre_test != code_normal_names,
-            assignment.code_post_test != code_normal_names,
-            assignment.debug_pre_test != code_debug_names,
-            assignment.debug_post_test != code_debug_names,
-            assignment.sanity_ux_phase is not None,
-            assignment.sanity_frontend_phase is not None,
-        ])
-        if needs_update:
-            assignment.frontend_pre_test = desired_frontend_pre
-            assignment.frontend_post_test = desired_frontend_post
-            assignment.ux_pre_test = desired_ux_pre
-            assignment.ux_post_test = desired_ux_post
-            assignment.code_pre_test = code_normal_names
-            assignment.code_post_test = code_normal_names
-            assignment.debug_pre_test = code_debug_names
-            assignment.debug_post_test = code_debug_names
-            assignment.sanity_ux_phase = None
-            assignment.sanity_frontend_phase = None
-            db.commit()
-            db.refresh(assignment)
-        return assignment
+    # Sanity checks at fixed indices in each section.
+    desired_frontend_pre = _insert_deterministic(frontend_pre, "sanity_frontend", preferred_index=3)
+    desired_frontend_post = _insert_deterministic(frontend_post, "sanity_frontend", preferred_index=3)
+    desired_ux_pre = _insert_deterministic(ux_pre, "sanity_ux", preferred_index=7)
+    desired_ux_post = _insert_deterministic(ux_post, "sanity_ux", preferred_index=7)
 
     assignment = SkillCheckAssignment(
         user_id=user_id,
@@ -1309,10 +1346,10 @@ def _get_or_create_skill_check_assignment(db: Session, user_id: int) -> SkillChe
         frontend_post_test=desired_frontend_post,
         ux_pre_test=desired_ux_pre,
         ux_post_test=desired_ux_post,
-        code_pre_test=code_normal_names,
-        code_post_test=code_normal_names,
-        debug_pre_test=code_debug_names,
-        debug_post_test=code_debug_names,
+        code_pre_test=code_normal_pre,
+        code_post_test=code_normal_post,
+        debug_pre_test=code_debug_pre,
+        debug_post_test=code_debug_post,
         sanity_ux_phase=None,
         sanity_frontend_phase=None,
     )
@@ -3955,10 +3992,6 @@ async def generate_comprehension_questions(
     This endpoint will auto-generate questions based on the submission content.
     """
     try:
-        print(
-            f"[comprehension/generate] start user_id={payload.user_id} project_id={payload.project_id}",
-            flush=True,
-        )
         # Verify user exists
         user = db.query(User).filter(User.id == payload.user_id).first()
         if not user:
@@ -3979,31 +4012,23 @@ async def generate_comprehension_questions(
             'zic_zac_zoe_follow_up',
         }
         is_required_task = project.name and project.name.lower() in REQUIRED_TASK_NAMES
-        print(
-            f"[comprehension/generate] project_name={project.name} required_task={bool(is_required_task)}",
-            flush=True,
-        )
+        target_selection_context = _build_target_selection_context(project)
         
-        generated_questions = await _generate_comprehension_questions(
+        result = await _generate_comprehension_questions(
             submission_title=payload.submission_title,
             submission_description=payload.submission_description,
             submission_code=payload.submission_code,
             is_required_task=is_required_task,
             project_name=project.name.lower() if project.name else None,
             ai_assistant_mode=payload.ai_assistant_mode,
+            target_selection_context=target_selection_context,
         )
-        print(
-            f"[comprehension/generate] generated_count={len(generated_questions)}",
-            flush=True,
-        )
+        generated_questions = result["questions"]
+        generation_warnings = result.get("warnings", [])
         for idx, q in enumerate(generated_questions, start=1):
             q_name = q.get("question_name", "")
             q_type = q.get("question_type", "")
             q_text_preview = str(q.get("question", "")).replace("\n", " ")[:90]
-            print(
-                f"[comprehension/generate] q{idx}: name={q_name} type={q_type} text='{q_text_preview}'",
-                flush=True,
-            )
 
         # Store questions in database
         created_questions = []
@@ -4031,15 +4056,12 @@ async def generate_comprehension_questions(
             })
 
         db.commit()
-        print(
-            f"[comprehension/generate] committed_count={len(created_questions)}",
-            flush=True,
-        )
 
         return {
             "success": True,
             "questions": created_questions,
-            "count": len(created_questions)
+            "count": len(created_questions),
+            "warnings": generation_warnings,
         }
 
     except Exception as e:
@@ -4278,20 +4300,467 @@ Do not generate anything else.
 </format>
 """.format(function_names=function_names).strip()
 
-    for num_tries in range(3):
-        response = litellm.completion(
-            model=random_model if num_tries == 0 else backup_model,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        output = response.choices[0].message.content.replace('`', '').replace('json', '').strip()
-        if "{" in output and "}" in output:
-            output = output[output.index("{"):output.rindex("}")+1].strip()
-        output = json.loads(output)
-        if type(output.get("fake_function_names", [])) == list and len(output.get("fake_function_names", [])) == 5:
-            return output["fake_function_names"]
+    for num_tries in range(5):
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            output = response.choices[0].message.content.replace('`', '').replace('json', '').strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}")+1].strip()
+            output = json.loads(output)
+            if type(output.get("fake_function_names", [])) == list and len(output.get("fake_function_names", [])) == 5:
+                return output["fake_function_names"]
+        except Exception as e:
+            print('failed on distractor func:', str(e))
     return []
+
+
+def _extract_css_property_names(css_code: str) -> List[str]:
+    """
+    Extract unique CSS property names from declarations in appearance order.
+    """
+    if not css_code or not css_code.strip():
+        return []
+
+    # Matches declarations like "background-color: pink;" while avoiding selectors and at-rules.
+    matches = re.findall(r"(^|[;{\s])([a-zA-Z-]{2,})\s*:", css_code)
+    properties: List[str] = []
+    for _, prop in matches:
+        normalized = prop.strip().lower()
+        if not normalized:
+            continue
+        if normalized.startswith("--"):  # Ignore custom property declarations.
+            continue
+        if normalized in {"http", "https"}:
+            continue
+        properties.append(normalized)
+
+    return list(dict.fromkeys(properties))
+
+
+def _extract_class_and_id_selectors(css_code: str) -> List[str]:
+    """
+    Extract class and ID selectors from the CSS stylesheet only. Returns list of strings
+    in selector form: ".className" for classes, "#idName" for IDs, preserving the user's exact casing (deduped by exact string).
+    """
+    if not css_code or not css_code.strip():
+        return []
+    seen: set = set()
+    result: List[str] = []
+
+    def add(selector: str) -> None:
+        s = selector.strip()
+        if s and s not in seen:
+            seen.add(s)
+            result.append(s)
+
+    for m in re.finditer(r"\.([a-zA-Z_-][a-zA-Z0-9_-]*)", css_code):
+        add("." + m.group(1))
+    for m in re.finditer(r"#([a-zA-Z_-][a-zA-Z0-9_-]*)", css_code):
+        add("#" + m.group(1))
+
+    return result
+
+
+def generate_distractor_class_id_selectors(real_selectors: List[str], count: int = 5) -> List[str]:
+    """
+    Generate fake-but-plausible class/ID selectors (e.g. .footer, #sidebar) that do not appear in real_selectors.
+    """
+    if not real_selectors or count <= 0:
+        return []
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+
+    prompt = """
+<task>
+You are an expert at generating fake-but-plausible CSS class and ID selectors for distractor questions.
+
+Given existing class and ID selectors from a project, generate exactly {count} selectors that look like they could belong to the same project but DO NOT appear in the existing list. Use the same style: .name for classes, #name for IDs. Preserve the user's casing: match the casing style of the existing selectors (e.g. if they use .Header and #Main, use PascalCase or similar for your fake selectors; if they use .header and #main, use lowercase).
+</task>
+
+Here are the existing selectors:
+<selectors>
+{selectors}
+</selectors>
+
+<requirements>
+- Output exactly {count} fake selectors.
+- None of the generated selectors may match any existing ones (including different prefix: if .header exists, do not generate .header or #header).
+- Mix of class (.) and id (#) selectors similar to the existing list.
+- Preserve the user's casing style so fake selectors look consistent with the existing list.
+- Return only the selector strings (e.g. .footer, #sidebar). No comments or explanations.
+</requirements>
+
+<format>
+Return JSON:
+{{
+  "fake_selectors": [".footer", "#sidebar", ".card"]
+}}
+</format>
+""".format(selectors="\n".join(real_selectors), count=count).strip()
+
+    existing_set = {s.strip().lower() for s in real_selectors}
+    for num_tries in range(5):
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            output = response.choices[0].message.content.replace("`", "").replace("json", "").strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"): output.rindex("}") + 1].strip()
+            output_obj = json.loads(output)
+            candidates = output_obj.get("fake_selectors", [])
+            if not isinstance(candidates, list):
+                continue
+
+            cleaned: List[str] = []
+            for item in candidates:
+                if not isinstance(item, str):
+                    continue
+                sel = item.strip()
+                if not sel or (not sel.startswith(".") and not sel.startswith("#")):
+                    continue
+                if sel.lower() in existing_set:
+                    continue
+                if len(sel) < 2:
+                    continue
+                cleaned.append(sel)
+                existing_set.add(sel.lower())
+
+            cleaned = list(dict.fromkeys(cleaned))
+            if len(cleaned) >= count:
+                return cleaned[:count]
+        except Exception as e:
+            print("failed on css distractor selectors:", str(e))
+
+    return []
+
+
+def generate_css_selector_descriptions(
+    real_selectors: List[str],
+    fake_selectors: List[str],
+) -> List[Dict[str, str]]:
+    """
+    Generate short descriptions for real and fake CSS class/ID selectors (like JS function descriptions).
+    Returns list of {"selector": ".header", "description": "Targets the page header."}.
+    """
+    if not real_selectors and not fake_selectors:
+        return []
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+
+    real_list_str = "\n".join(
+        [f"<existing selector {i+1}>\n{sel}\n</existing selector {i+1}>" for i, sel in enumerate(real_selectors)]
+    )
+    fake_list_str = "\n".join(
+        [f"<fake selector {i+1}>\n{sel}\n</fake selector {i+1}>" for i, sel in enumerate(fake_selectors)]
+    )
+
+    prompt = """
+<task>
+You are an expert at writing concise descriptions for CSS class and ID selectors.
+
+Given a list of existing selectors (from a stylesheet) and fake selectors (plausible but not in the stylesheet), write one short sentence describing what each selector likely targets or styles. Descriptions for real and fake selectors should have the same tone and style so a user cannot tell which are real from the description alone.
+</task>
+
+Existing selectors (in the stylesheet):
+<existing selectors>
+{real_list_str}
+</existing selectors>
+
+Fake selectors (not in the stylesheet):
+<fake selectors>
+{fake_list_str}
+</fake selectors>
+
+<requirements>
+- Return one description for every selector listed above.
+- Each description must be one sentence and less than 15 words.
+- Start every description with "This selector..." (e.g. "This selector targets the main navigation bar.").
+- Copy selector names exactly (e.g. .header, #main). Keep style consistent across real and fake.
+</requirements>
+
+<format>
+Return JSON:
+{{
+  "selector_objects": [
+    {{ "selector": ".header", "description": "This selector targets the page header." }},
+    {{ "selector": "#main", "description": "This selector styles the main content area." }}
+  ]
+}}
+</format>
+""".format(real_list_str=real_list_str, fake_list_str=fake_list_str).strip()
+
+    expected = set(real_selectors + fake_selectors)
+    for num_tries in range(5):
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            output = response.choices[0].message.content.replace("`", "").replace("json", "").strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"): output.rindex("}") + 1].strip()
+            output_obj = json.loads(output)
+            objects = output_obj.get("selector_objects", [])
+            if not isinstance(objects, list) or len(objects) != len(expected):
+                continue
+            found = set()
+            cleaned: List[Dict[str, str]] = []
+            for item in objects:
+                if not isinstance(item, dict):
+                    continue
+                sel = str(item.get("selector", "")).strip()
+                desc = str(item.get("description", "")).strip()
+                if not sel or not desc:
+                    continue
+                found.add(sel)
+                cleaned.append({"selector": sel, "description": desc})
+            if found == expected and len(cleaned) == len(expected):
+                return cleaned
+        except Exception as e:
+            print("failed on css selector descriptions:", str(e))
+
+    # Fallback
+    fallback = []
+    for sel in real_selectors + fake_selectors:
+        kind = "class" if sel.startswith(".") else "id"
+        name = sel[1:] if len(sel) > 1 else sel
+        fallback.append({
+            "selector": sel,
+            "description": f"This selector applies styles to the {name.replace('-', ' ')} {kind}.",
+        })
+    return fallback
+
+
+def generate_distractor_css_properties(property_names: List[str], count: int = 5) -> List[str]:
+    """
+    Prompt 1: Generate plausible CSS property names that do not exist in the stylesheet.
+    """
+    if not property_names or count <= 0:
+        return []
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+
+    prompt = """
+<task>
+You are an expert at generating fake-but-plausible CSS property names for distractor questions.
+
+Given existing CSS property names used in a stylesheet, generate exactly {count} CSS property names that are plausible in the same project style but DO NOT appear in the existing list.
+</task>
+
+Here are the existing CSS property names:
+<css_property_names>
+{property_names}
+</css_property_names>
+
+<requirements>
+- Output exactly {count} fake CSS property names.
+- None of the generated names may match any existing property names.
+- Keep names realistic and style-consistent (e.g., kebab-case CSS properties).
+- Do not generate comments or explanations.
+</requirements>
+
+<format>
+Return JSON:
+{{
+  "fake_css_property_names": ["property_1", "property_2", "property_3"]
+}}
+</format>
+""".format(property_names=property_names, count=count).strip()
+
+    existing_set = {x.strip().lower() for x in property_names}
+    for num_tries in range(5):
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            output = response.choices[0].message.content.replace("`", "").replace("json", "").strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}") + 1].strip()
+            output_obj = json.loads(output)
+            candidates = output_obj.get("fake_css_property_names", [])
+            if not isinstance(candidates, list):
+                continue
+
+            cleaned: List[str] = []
+            for item in candidates:
+                if not isinstance(item, str):
+                    continue
+                prop = item.strip().lower()
+                if not prop:
+                    continue
+                if prop in existing_set:
+                    continue
+                if not re.match(r"^[a-z][a-z0-9-]*$", prop):
+                    continue
+                cleaned.append(prop)
+
+            cleaned = list(dict.fromkeys(cleaned))
+            if len(cleaned) >= count:
+                return cleaned[:count]
+        except Exception as e:
+            print("failed on css distractor properties:", str(e))
+
+    return []
+
+
+def generate_css_property_descriptions(
+    real_property_names: List[str],
+    fake_property_names: List[str],
+) -> List[Dict[str, str]]:
+    """
+    Prompt 2: Generate short descriptions for real and fake CSS property names.
+    """
+    if not real_property_names and not fake_property_names:
+        return []
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+
+    real_list_str = "\n".join(
+        [
+            f"<existing property {idx+1}>\n<property name>\n{name}\n</property name>\n</existing property {idx+1}>"
+            for idx, name in enumerate(real_property_names)
+        ]
+    )
+    fake_list_str = "\n".join(
+        [
+            f"<fake property {idx+1}>\n<property name>\n{name}\n</property name>\n</fake property {idx+1}>"
+            for idx, name in enumerate(fake_property_names)
+        ]
+    )
+
+    prompt = """
+<task>
+You are an expert at writing concise CSS property descriptions.
+
+Given existing and fake CSS property names, write one short sentence describing what each property modifies.
+Descriptions for real and fake properties should have the same tone and style.
+</task>
+
+Existing properties:
+<existing properties>
+{real_list_str}
+</existing properties>
+
+Fake properties:
+<fake properties>
+{fake_list_str}
+</fake properties>
+
+<requirements>
+- Return one description for every property listed above.
+- Each description must be one sentence and less than 12 words.
+- Start every description with "This style...".
+- Copy property names exactly.
+- Keep style consistent across real and fake entries.
+</requirements>
+
+<format>
+Return JSON:
+{{
+  "property_objects": [
+    {{
+      "property_name": "background-color",
+      "description": "This style changes the element background color."
+    }}
+  ]
+}}
+</format>
+""".format(real_list_str=real_list_str, fake_list_str=fake_list_str).strip()
+
+    expected_names = set(real_property_names + fake_property_names)
+    for num_tries in range(5):
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            output = response.choices[0].message.content.replace("`", "").replace("json", "").strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}") + 1].strip()
+            output_obj = json.loads(output)
+            property_objects = output_obj.get("property_objects", [])
+            if not isinstance(property_objects, list):
+                continue
+            if len(property_objects) != len(expected_names):
+                continue
+
+            found_names = set()
+            cleaned_objects: List[Dict[str, str]] = []
+            for item in property_objects:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("property_name", "")).strip().lower()
+                description = str(item.get("description", "")).strip()
+                if not name or not description:
+                    continue
+                found_names.add(name)
+                cleaned_objects.append({"property_name": name, "description": description})
+
+            if found_names == expected_names and len(cleaned_objects) == len(expected_names):
+                return cleaned_objects
+        except Exception as e:
+            print("failed on css property descriptions:", str(e))
+
+    # Fallback deterministic descriptions
+    fallback = []
+    for name in real_property_names + fake_property_names:
+        fallback.append(
+            {
+                "property_name": name,
+                "description": f"This style changes the element's {name.replace('-', ' ')}.",
+            }
+        )
+    return fallback
+
+
+def generate_css_style_questions(css_code: str) -> List[Dict[str, Any]]:
+    """
+    Build a CSS distractor question: which class and ID selectors exist in your CSS stylesheet?
+    Extracts .class and #id from CSS only, generates fake ones and descriptions (like JS), multi_select.
+    """
+    real_selectors_all = _extract_class_and_id_selectors(css_code or "")
+    if len(real_selectors_all) < 2:
+        return []
+
+    target_count = min(5, len(real_selectors_all))
+    sampled_real = random.sample(real_selectors_all, k=target_count)
+    fake_selectors = generate_distractor_class_id_selectors(sampled_real, count=target_count)
+    if len(fake_selectors) != target_count:
+        return []
+
+    description_objects = generate_css_selector_descriptions(sampled_real, fake_selectors)
+    if not description_objects:
+        return []
+
+    fake_set = {s.lower() for s in fake_selectors}
+    random.shuffle(description_objects)
+    description_objects = description_objects[: min(4, len(description_objects))]
+
+    choices = [f"`{obj['selector']}`: {obj['description']}" for obj in description_objects]
+    answers = [0 if obj["selector"].strip().lower() in fake_set else 1 for obj in description_objects]
+
+    return [
+        {
+            "question_name": "css_style_distractors",
+            "question": "Which of these selectors exist in your CSS stylesheet? Each option shows a class or ID selector and a description of what it modifies. It is possible all or none are used.",
+            "question_type": "multi_select",
+            "choices": choices,
+            "answer": answers,
+        }
+    ]
+
 
 def generate_ui_features(html_code: str, css_code: str, js_code: str) -> List[str]:
 
@@ -4344,102 +4813,11 @@ Do not generate anything else.
 </format>
 """.format(html=html_code, css=css_code, js=js_code).strip()
 
-    for num_tries in range(3):
-        response = litellm.completion(
-            model=random_model if num_tries == 0 else backup_model,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        output = response.choices[0].message.content.replace('`', '').replace('json', '').strip()
-        if "{" in output and "}" in output:
-            output = output[output.index("{"):output.rindex("}")+1].strip()
-        output = json.loads(output)
-        if type(output.get("real_features", [])) == list and type(output.get("fake_features", [])) == list and len(output.get("real_features", [])) == 5 and len(output.get("fake_features", [])) == 5:
-            return output["real_features"], output["fake_features"]
-    return [], []
+    for num_tries in range(5):
 
-
-def _is_code_compare_debug_enabled() -> bool:
-    return os.getenv("DEBUG_CODE_COMPARE", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _code_compare_debug_log(message: str) -> None:
-    if _is_code_compare_debug_enabled():
-        print(message)
-
-MAX_CODE_COMPARE_BLOCK_LINES = 20
-
-
-def _count_code_lines(code: str) -> int:
-    if not code or not code.strip():
-        return 0
-    return len(code.strip().splitlines())
-
-
-def generate_distractor_code_block(code: str, context_label: str = "") -> str:
-
-    random_model = "openai/gpt-5.2-2025-12-11"
-    backup_model = "openai/gpt-5.2-2025-12-11"
-    code_line_count = _count_code_lines(code)
-    _code_compare_debug_log(f"[distractor] called | lines={code_line_count}")
-
-    prompt = """
-<task>
-You are an expert at generating **distractor versions** of a user's code (JavaScript, HTML, or CSS).
-
-Your goal is to produce an alternative implementation that is **clearly different when visually scanned**, but still **valid, functional, and realistic** code that a developer might plausibly write.
-
-The distractor should make it difficult for a user who was not paying close attention to immediately recognize which code block was originally theirs.
-
-The distractor does NOT need to implement the exact same internal logic. However, it must remain syntactically correct and usable.
-
-The key objective is to introduce **one meaningful behavioral or structural change** that would noticeably alter how the website behaves or how the rest of the website logic must be implemented to accomdate this change, while keeping the code believable.
-
-The difference should be **noticeable when the site runs**, but **not instantly obvious from a quick glance at the code**.
-
-Avoid subtle micro-changes that only modify small details (such as renaming variables or slightly changing values). The distractor should feel like a **plausible alternate solution**, not a minor variation.
-
-There should be **exactly one main conceptual difference** between the original code and the distractor. Do not introduce multiple independent changes.
-</task>
-
-Here is the user's code block:
-<code>
-{code}
-</code>
-
-<requirements>
-- The distractor must remain **correct and non-buggy**.
-- Maintain roughly the **same length** as the original code. The number of lines should not differ by more than five lines.
-- Preserve the following identifiers exactly:
-  - The function name (if present)
-  - The top-level CSS selector or block name
-  - The highest-level HTML element and its ID
-- The generated code must look **natural and realistic**, as if written by a developer solving the same task in a different way.
-- Do not add explanatory comments unless the original code contains them.
-- Do not introduce multiple major behavioral changes. Focus on **one primary difference**.
-- The generated code should use the same style as the original. Do not introduce stylistic cues that make it obviously different.
-</requirements>
-
-<format>
-Generate your output as a JSON object with exactly one key: "code".
-- "code" must be a single string containing the full distractor code (no Markdown fences or backticks).
-- Do not include any other keys or any other text outside the JSON.
-
-{{
-  "code": "INSERT_DISTRACTOR_CODE_HERE"
-}}
-</format>
-""".format(code=code).strip()
-
-    context_suffix = f" context={context_label}" if context_label else ""
-
-    for num_tries in range(3):
-        model_name = random_model if num_tries == 0 else backup_model
-        _code_compare_debug_log(f"[distractor] attempt={num_tries + 1}/3 model={model_name}")
         try:
             response = litellm.completion(
-                model=model_name,
+                model=random_model if num_tries == 0 else backup_model,
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -4448,43 +4826,12 @@ Generate your output as a JSON object with exactly one key: "code".
             if "{" in output and "}" in output:
                 output = output[output.index("{"):output.rindex("}")+1].strip()
             output = json.loads(output)
-            candidate = output.get("code", None)
-            if not isinstance(candidate, str):
-                print(
-                    f"[distractor] rejected attempt={num_tries + 1}: invalid 'code' field type="
-                    f"{type(candidate).__name__} (expected str){context_suffix}",
-                    flush=True,
-                )
-                _code_compare_debug_log(
-                    f"[distractor] attempt={num_tries + 1} invalid output type={type(candidate).__name__}"
-                )
-                continue
-
-            candidate_line_count = _count_code_lines(candidate)
-            line_diff = abs(candidate_line_count - code_line_count)
-            if line_diff <= 5:
-                _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1}")
-                return candidate
-            print(
-                f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
-                f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
-                f"(allowed<=2){context_suffix}",
-                flush=True,
-            )
-            _code_compare_debug_log(
-                f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
-            )
+            if type(output.get("real_features", [])) == list and type(output.get("fake_features", [])) == list and len(output.get("real_features", [])) == 5 and len(output.get("fake_features", [])) == 5:
+                return output["real_features"], output["fake_features"]
         except Exception as e:
-            print(
-                f"[distractor] rejected attempt={num_tries + 1}: exception={type(e).__name__} "
-                f"details={e}{context_suffix}",
-                flush=True,
-            )
-            _code_compare_debug_log(f"[distractor] attempt={num_tries + 1} failed: {e}")
-            continue
-    print(f"[distractor] exhausted attempts; returning empty string{context_suffix}", flush=True)
-    _code_compare_debug_log("[distractor] exhausted attempts, returning empty string")
-    return ''
+            print('failed on UI:', str(e))
+    return [], []
+
 
 def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any]]:
 
@@ -4520,6 +4867,127 @@ def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
     })
     return questions
 
+
+def generate_css_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Generate CSS-only comprehension questions from submitted code."""
+    css_code = ""
+    for filename, code_content in submission_code.items():
+        if filename.endswith('.css'):
+            css_code += code_content + "\n\n"
+    return generate_css_style_questions(css_code)
+
+def generate_js_descriptions(real_names: list[str], fake_names: list[str], real_implementations: list[str]) -> list[str]:
+    """
+    Generate descriptions for real and fake models
+    """
+    
+    existing_functions_str = "\n".join([f"<existing function {idx+1}>\n<function name>\n{name}\n</function name>\n<function implementation>\n{real_implementations[idx]}\n</function implementation>\n</existing function {idx+1}>" for idx, name in enumerate(real_names)])
+
+    fake_functions_str = "\n".join([f"<fake function {len(real_names)+idx+1}>\n<function name>\n{name}\n</function name>\n</fake function {idx+1}>" for idx, name in enumerate(fake_names)])
+
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+
+    prompt = """
+<task>
+You are an expert at generating descriptions for user functions, regardless of whether they are real and have accompanying implementation, or whether they are fake and have no implementations.
+
+Given a list of function names, you will generate a description that describes the code at a high-level. You will see two function types: 1) existing function names; and 2) fake function names. Existing function names will come with a name and a implementation code block, so the generated description will faithfully describe how the code works. Fake functions will only come with the function name, and you need to come up with a description that describes how the function could work if it actually existed, using the exact same style as the existing function names. The goal is to eventually show these to users and have them pick which actually exist in their code, so do not add any obvious differences between the real and fake descriptions.
+</task>
+
+Each existing function will be in the form:
+<existing function [function_idx]>
+<function name>
+...
+</function name>
+<function implementation>
+...
+</function implementation>
+</existing function [function_idx]>
+
+Each fake function will be in the form:
+<fake function [function_idx]>
+<function name>
+...
+</function name>
+</fake function [function_idx]>
+
+Here are the existing functions with their name and implementation:
+<existing functions>
+{existing_functions_str}
+</existing functions>
+
+Here are the fake functions which only have a name:
+<fake functions>
+{fake_functions_str}
+</fake functions>
+
+<requirements>
+- Mimic the style and content of the existing function names
+- All of the descriptions should be a single sentence and less than 15 words
+- For the existing function names, the descriptions should be a high-level overview of how the function works (e.g., "This function checks whether a user has won the game")
+- For the fake function names, the descriptions should be feasible descriptions of what the function could do if it actually existed based on its name 
+- The descriptions for fake and existing functions should be written in identical styles. The length, punctuation, specificity, and word choice should be similar.
+- Do not introduce any surface-level stylistic cues or artifacts where it is shallowly possible to tell whether the function is existing or fake; it shouldn't be obvious for someone who hasn't written the code. 
+- All descriptions should start with the phrase "This function..."
+- Copy the function names EXACTLY. Do not generate any new function names. They should exactly match the names in the existing and fake functions blocks. This is extremely important.
+</requirements>
+
+<format>
+Generate your output as a JSON object with exactly one key: "function_objects". The value must be an array of objects. The array must have exactly {total_count} items (one per function: {real_count} existing + {fake_count} fake). Each object must have exactly two string keys: "function_name" and "description". Use the exact function names from the input; do not change spelling, casing, or punctuation.
+
+Example structure (replace with your {total_count} items):
+{{
+    "function_objects": [
+        {{ "function_name": "<exact name from input>", "description": "This function ..." }},
+        {{ "function_name": "<exact name from input>", "description": "This function ..." }}
+    ]
+}}
+
+Do not generate anything else. No other keys. Raw JSON only.
+</format>
+""".format(
+        existing_functions_str=existing_functions_str,
+        fake_functions_str=fake_functions_str,
+        total_count=len(real_names) + len(fake_names),
+        real_count=len(real_names),
+        fake_count=len(fake_names),
+    ).strip()
+
+    for num_tries in range(5):
+
+        try:
+            response = litellm.completion(
+                model=random_model if num_tries == 0 else backup_model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            output = response.choices[0].message.content.replace('`', '').replace('json', '').strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}")+1].strip()
+            output = json.loads(output)
+            if output.get("function_objects", []) and len(output.get("function_objects", [])) == len(real_names) + len(fake_names):
+
+                all_function_names = set()
+                for item in output["function_objects"]:
+                    if item.get("function_name", "") and item.get("description", ""):
+                        all_function_names.add(item.get("function_name", ""))
+
+                if all_function_names == set(real_names + fake_names):
+                    print(output["function_objects"])
+                    return output["function_objects"]
+        except Exception as e:
+            print(f"[generate_js_descriptions] Try {num_tries + 1}/5 failed: {e}", flush=True)
+
+    print(
+        "[generate_js_descriptions] Returning empty: no valid response after 5 tries "
+        "(LLM error or response failed validation: need 'function_objects' with correct length and all function_name/description present).",
+        flush=True,
+    )
+    return []
+
+
 def generate_js_questions(submission_code: Dict[str, str], include_explanation: bool = True) -> List[Dict[str, Any]]:
     """ 
     Generate comprehension questions based on the user's submitted code.
@@ -4548,9 +5016,14 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
             css_code += code_content + "\n\n"
 
     # Parse JavaScript functions
-    functions_map = _parse_javascript_functions(js_code)
+    functions_map = qgh._parse_javascript_functions(js_code)
 
     if len(functions_map) == 0:
+        print(
+            "[generate_js_questions] Skipping all JS questions (including 'Which of the following JavaScript functions exist in your code?'): "
+            "no JavaScript functions were parsed from the submission (missing or empty .js/.javascript files, or parser found no functions).",
+            flush=True,
+        )
         return []
 
     real_function_names = list(functions_map.keys())
@@ -4568,32 +5041,40 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         eligible_functions = {
             name: code
             for name, code in functions_map.items()
-            if _count_code_lines(code) <= MAX_CODE_COMPARE_BLOCK_LINES
+            if name not in qgh.JS_FUNCTIONS_EXCLUDED_FROM_CODE_BLOCK_SAMPLING
+            and qgh._count_code_lines(code) <= qgh.MAX_CODE_COMPARE_BLOCK_LINES
         }
         if eligible_functions:
             sampled_function_name = random.choice(list(eligible_functions.keys()))
             sampled_function_code = eligible_functions[sampled_function_name]
-            sampled_line_count = _count_code_lines(sampled_function_code)
-            _code_compare_debug_log(
-                f"[code-compare] sampled js function='{sampled_function_name}' lines={sampled_line_count} max_lines={MAX_CODE_COMPARE_BLOCK_LINES}"
+            sampled_line_count = qgh._count_code_lines(sampled_function_code)
+            qgh._code_compare_debug_log(
+                f"[code-compare] sampled js function='{sampled_function_name}' lines={sampled_line_count} max_lines={qgh.MAX_CODE_COMPARE_BLOCK_LINES}"
             )
-        elif functions_map:
-            sampled_function_name = random.choice(list(functions_map.keys()))
-            sampled_function_code = functions_map[sampled_function_name]
-            sampled_line_count = _count_code_lines(sampled_function_code)
-            _code_compare_debug_log(
-                f"[code-compare] sampled fallback js function='{sampled_function_name}' lines={sampled_line_count} (no <= {MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
-            )
+        else:
+            fallback_functions = {
+                name: code
+                for name, code in functions_map.items()
+                if name not in qgh.JS_FUNCTIONS_EXCLUDED_FROM_CODE_BLOCK_SAMPLING
+            }
+            if fallback_functions:
+                sampled_function_name = random.choice(list(fallback_functions.keys()))
+                sampled_function_code = fallback_functions[sampled_function_name]
+                sampled_line_count = qgh._count_code_lines(sampled_function_code)
+                qgh._code_compare_debug_log(
+                    f"[code-compare] sampled fallback js function='{sampled_function_name}' lines={sampled_line_count} (no <= {qgh.MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
+                )
 
-        sampled_html_component = _sample_html_component_for_explanation(html_code)
+        sampled_html_component = qgh._sample_html_component_for_explanation(html_code)
         if sampled_html_component:
             sampled_html_component_name, sampled_html_component_code = sampled_html_component
-            _code_compare_debug_log(f"[code-compare] sampled html component='{sampled_html_component_name}'")
+            qgh._code_compare_debug_log(f"[code-compare] sampled html component='{sampled_html_component_name}'")
 
-        sampled_css_block = _sample_css_block_for_explanation(css_code)
+        sampled_css_block = qgh._sample_css_block_for_explanation(css_code)
         if sampled_css_block:
             sampled_css_block_name, sampled_css_block_code = sampled_css_block
-            _code_compare_debug_log(f"[code-compare] sampled css block='{sampled_css_block_name}'")
+            qgh._code_compare_debug_log(f"[code-compare] sampled css block='{sampled_css_block_name}'")
+        # For CSS code-compare we use the full stylesheet (not a single block); distractor is entire sheet.
 
     # For the MCQA question, exclude the sampled function (if any) from the choices
     real_function_names_for_mcqa = [name for name in real_function_names if name != sampled_function_name] if sampled_function_name else real_function_names
@@ -4609,14 +5090,26 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         random.shuffle(all_function_names_to_show)
         all_function_names_to_show = all_function_names_to_show[:MAX_FUNCTION_NAMES_TO_SHOW]
 
-    function_name_choices = [x + '()' for x in all_function_names_to_show]
+    real_functions_final = [x for x in all_function_names_to_show if x in real_function_names_for_mcqa]
+    fake_functions_final = [x for x in all_function_names_to_show if x in fake_function_names]
+
+    description_object = generate_js_descriptions(real_functions_final, fake_functions_final, [functions_map[x] for x in real_functions_final])
+    random.shuffle(description_object)
+
+    function_name_choices = [f"`{x['function_name']}()`: {x['description']}" for x in description_object]
+    if not function_name_choices:
+        print(
+            "[generate_js_questions] 'Which of the following JavaScript functions exist in your code?' question not generated: "
+            "generate_js_descriptions returned no descriptions (LLM call failed or response validation failed after retries).",
+            flush=True,
+        )
     if function_name_choices:
         questions.append({
             "question_name": "function_names_distractors",
-            "question": f"Which of the following JavaScript functions exist in your code? It is possible that all of these or none of these exist.",
+            "question": f"Which of the following JavaScript functions exist in your code? Each option shows a function name and a description of its implementation. It is possible that all of these or none of these exist.",
             "question_type": "multi_select",
             "choices": function_name_choices,
-            "answer": [0 if name in fake_function_names else 1 for name in all_function_names_to_show]
+            "answer": [0 if x['function_name'] in fake_function_names else 1 for x in description_object]
         })
 
     # Add code-comparison questions in explicit display order:
@@ -4635,13 +5128,14 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         },
         {
             "question_name": "identify_own_css_block",
-            "code_kind_label": f"CSS block {sampled_css_block_name}" if sampled_css_block_name else "CSS block",
+            "code_kind_label": "CSS stylesheet",
             "code_language": "css",
-            "original_code": sampled_css_block_code,
-            "has_sampled_name": bool(sampled_css_block_name),
-            "has_sampled_code": bool(sampled_css_block_code),
+            "original_code": css_code,
+            "full_context_code": None,
+            "has_sampled_name": bool(css_code.strip()),
+            "has_sampled_code": bool(css_code.strip()),
             "log_label": "css",
-            "attempt_message": f"[code-compare] attempting css question block='{sampled_css_block_name}'",
+            "attempt_message": "[code-compare] attempting css question (full stylesheet)",
         },
         {
             "question_name": "identify_own_js_function",
@@ -4659,10 +5153,10 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
     if include_explanation:
         for spec in compare_specs:
             if spec["has_sampled_name"] and spec["has_sampled_code"]:
-                _code_compare_debug_log(spec["attempt_message"])
+                qgh._code_compare_debug_log(spec["attempt_message"])
                 pending_specs.append(spec)
             else:
-                _code_compare_debug_log(
+                qgh._code_compare_debug_log(
                     f"[code-compare] skipping {spec['log_label']} compare question "
                     f"(include_explanation={include_explanation}, "
                     f"has_sampled_name={spec['has_sampled_name']}, "
@@ -4670,7 +5164,7 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
                 )
     else:
         for spec in compare_specs:
-            _code_compare_debug_log(
+            qgh._code_compare_debug_log(
                 f"[code-compare] skipping {spec['log_label']} compare question "
                 f"(include_explanation={include_explanation}, "
                 f"has_sampled_name={spec['has_sampled_name']}, "
@@ -4682,11 +5176,12 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         with ThreadPoolExecutor(max_workers=len(pending_specs)) as executor:
             futures = [
                 executor.submit(
-                    _build_code_compare_question,
+                    qgh._build_code_compare_question,
                     question_name=spec["question_name"],
                     code_kind_label=spec["code_kind_label"],
                     code_language=spec["code_language"],
                     original_code=spec["original_code"],
+                    full_context_code=spec.get("full_context_code"),
                 )
                 for spec in pending_specs
             ]
@@ -4697,531 +5192,13 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         result = compare_results_by_name.get(spec["question_name"])
         if result:
             questions.append(result)
-            _code_compare_debug_log(f"[code-compare] appended {spec['question_name']}")
+            qgh._code_compare_debug_log(f"[code-compare] appended {spec['question_name']}")
         elif spec["question_name"] in compare_results_by_name:
-            _code_compare_debug_log(
+            qgh._code_compare_debug_log(
                 f"[code-compare] {spec['log_label']} compare question build returned None"
             )
 
     return questions
-
-
-def generate_single_code_compare_question(
-    submission_code: Dict[str, str],
-    language: str,
-    include_explanation: bool = True,
-    project_name: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """
-    Generate one code-compare question for a specific language family.
-    Supported languages: html, css, js/javascript.
-    project_name is passed through for task-specific HTML sampling (e.g. zic_zac_zoe).
-    """
-    if not include_explanation:
-        return None
-
-    js_code = ""
-    html_code = ""
-    css_code = ""
-    for filename, code_content in submission_code.items():
-        if filename.endswith('.js') or filename.endswith('.javascript'):
-            js_code += code_content + "\n\n"
-        elif filename.endswith('.html'):
-            html_code += code_content + "\n\n"
-        elif filename.endswith('.css'):
-            css_code += code_content + "\n\n"
-
-    normalized = (language or "").strip().lower()
-
-    if normalized == "html":
-        sampled_html_component = _sample_html_component_for_explanation(html_code, project_name=project_name)
-        if not sampled_html_component:
-            _code_compare_debug_log("[code-compare] html single compare skipped: no sampled component")
-            return None
-        sampled_name, sampled_code = sampled_html_component
-        return _build_code_compare_question(
-            question_name="identify_own_html_component",
-            code_kind_label=f"HTML component {sampled_name}",
-            code_language="html",
-            original_code=sampled_code,
-        )
-
-    if normalized == "css":
-        sampled_css_block = _sample_css_block_for_explanation(css_code)
-        if not sampled_css_block:
-            _code_compare_debug_log("[code-compare] css single compare skipped: no sampled block")
-            return None
-        sampled_name, sampled_code = sampled_css_block
-        return _build_code_compare_question(
-            question_name="identify_own_css_block",
-            code_kind_label=f"CSS block {sampled_name}",
-            code_language="css",
-            original_code=sampled_code,
-        )
-
-    if normalized in ("js", "javascript"):
-        functions_map = _parse_javascript_functions(js_code)
-        if len(functions_map) == 0:
-            _code_compare_debug_log("[code-compare] js single compare skipped: no functions")
-            return None
-
-        eligible_functions = {
-            name: code
-            for name, code in functions_map.items()
-            if _count_code_lines(code) <= MAX_CODE_COMPARE_BLOCK_LINES
-        }
-        if eligible_functions:
-            sampled_function_name = random.choice(list(eligible_functions.keys()))
-            sampled_function_code = eligible_functions[sampled_function_name]
-            sampled_line_count = _count_code_lines(sampled_function_code)
-            _code_compare_debug_log(
-                f"[code-compare] js single compare sampled function='{sampled_function_name}' lines={sampled_line_count} max_lines={MAX_CODE_COMPARE_BLOCK_LINES}"
-            )
-        else:
-            sampled_function_name = random.choice(list(functions_map.keys()))
-            sampled_function_code = functions_map[sampled_function_name]
-            sampled_line_count = _count_code_lines(sampled_function_code)
-            _code_compare_debug_log(
-                f"[code-compare] js single compare sampled fallback function='{sampled_function_name}' lines={sampled_line_count} (no <= {MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
-            )
-
-        return _build_code_compare_question(
-            question_name="identify_own_js_function",
-            code_kind_label=f"JavaScript function {sampled_function_name}()",
-            code_language="javascript",
-            original_code=sampled_function_code,
-        )
-
-    _code_compare_debug_log(f"[code-compare] unsupported single compare language='{language}'")
-    return None
-
-
-def _build_code_compare_question(
-    question_name: str,
-    code_kind_label: str,
-    code_language: str,
-    original_code: str
-) -> Optional[Dict[str, Any]]:
-    """
-    Build a two-block "which one is yours?" question using a distractor block.
-    """
-    if not original_code or not original_code.strip():
-        _code_compare_debug_log(
-            f"[code-compare] skip question={question_name} language={code_language}: empty original code"
-        )
-        return None
-
-    _code_compare_debug_log(f"[code-compare] building question={question_name} language={code_language}")
-    distractor_code = generate_distractor_code_block(
-        original_code,
-        context_label=f"question={question_name} language={code_language}",
-    )
-    if not distractor_code or not distractor_code.strip():
-        _code_compare_debug_log(
-            f"[code-compare] skip question={question_name} language={code_language}: empty distractor"
-        )
-        return None
-
-    original_on_left = random.choice([True, False])
-    left_code = original_code if original_on_left else distractor_code
-    right_code = distractor_code if original_on_left else original_code
-    answer_index = 1 if original_on_left else 2
-    language_display = {
-        "javascript": "JS",
-        "html": "HTML",
-        "css": "CSS",
-    }.get(code_language.lower(), code_language.upper())
-
-    _code_compare_debug_log(
-        f"[code-compare] built question={question_name} language={code_language} original_on_left={original_on_left}"
-    )
-    return {
-        "question_name": question_name,
-        "question": (
-            f"Exactly one of these two {language_display} code blocks is from your project. "
-            f"Which one is yours?\n\n"
-            f"Left block:\n```{code_language}\n{left_code}\n```\n\n"
-            f"Right block:\n```{code_language}\n{right_code}\n```"
-        ),
-        "question_type": "mcqa",
-        "choices": ["The Left Code is Mine", "The Right Code is Mine"],
-        "answer": answer_index
-    }
-
-
-def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
-    """
-    Parse JavaScript code to extract functions and their definitions.
-    Uses esprima to parse the AST and extract:
-    - Function declarations: function foo() { ... }
-    - Arrow functions: const bar = () => {}
-    - Function expressions: const baz = function() {}
-    
-    Falls back to regex-based parsing if esprima fails (e.g., due to modern syntax).
-    
-    Returns a dictionary mapping function names to their complete definitions.
-    """
-    import esprima
-    import re
-    
-    functions_map = {}
-    
-    if not js_code:
-        return functions_map
-    
-    def extract_function_code(node):
-        """Extract the source code for a function node using range."""
-        if hasattr(node, 'range') and node.range:
-            # Use range to extract the exact source code
-            start, end = node.range
-            return js_code[start:end]
-        return None
-    
-    def parse_with_esprima():
-        """Try to parse with esprima, returning functions_map if successful."""
-        result = {}
-        
-        # Try with tolerant mode first (handles some syntax errors)
-        try:
-            tree = esprima.parseScript(js_code, loc=True, range=True, tolerant=True)
-        except Exception:
-            # If tolerant mode fails, try parseModule for ES6 modules
-            try:
-                tree = esprima.parseModule(js_code, loc=True, range=True, tolerant=True)
-            except Exception:
-                # Both failed, return empty
-                return result
-        
-        # Traverse the top-level statements in the program
-        for node in tree.body:
-            # Function declarations: function foo() { ... }
-            if node.type == "FunctionDeclaration":
-                if hasattr(node, 'id') and node.id:
-                    func_name = node.id.name
-                    func_code = extract_function_code(node)
-                    if func_code:
-                        result[func_name] = func_code
-            
-            # Variable declarations that hold functions: const bar = () => {}
-            elif node.type == "VariableDeclaration":
-                for decl in node.declarations:
-                    if hasattr(decl, 'id') and hasattr(decl, 'init') and decl.init:
-                        var_name = decl.id.name if hasattr(decl.id, 'name') else None
-                        init = decl.init
-                        
-                        # Arrow functions: const bar = () => {}
-                        if init.type == "ArrowFunctionExpression":
-                            if var_name:
-                                func_code = extract_function_code(decl)
-                                if func_code:
-                                    result[var_name] = func_code
-                        
-                        # Function expressions: const baz = function() {}
-                        elif init.type == "FunctionExpression":
-                            if var_name:
-                                func_code = extract_function_code(decl)
-                                if func_code:
-                                    result[var_name] = func_code
-        
-        return result
-    
-    def parse_with_regex_fallback():
-        """Fallback regex-based parser for basic function extraction."""
-        result = {}
-        
-        # Pattern 1: Function declarations: function name() { ... }
-        pattern1 = r'function\s+(\w+)\s*\([^)]*\)\s*\{'
-        for match in re.finditer(pattern1, js_code):
-            func_name = match.group(1)
-            start = match.start()
-            # Find matching closing brace
-            brace_count = 0
-            in_string = False
-            string_char = None
-            i = start
-            while i < len(js_code):
-                char = js_code[i]
-                # Handle string literals
-                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
-                    if not in_string:
-                        in_string = True
-                        string_char = char
-                    elif char == string_char:
-                        in_string = False
-                        string_char = None
-                elif not in_string:
-                    if char == '{':
-                        brace_count += 1
-                    elif char == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            result[func_name] = js_code[start:i+1]
-                            break
-                i += 1
-        
-        # Pattern 2: Arrow functions: const name = () => { ... } or const name = () => ...
-        pattern2 = r'(?:const|let|var)\s+(\w+)\s*=\s*\([^)]*\)\s*=>\s*\{'
-        for match in re.finditer(pattern2, js_code):
-            func_name = match.group(1)
-            start = match.start()
-            # Find matching closing brace
-            brace_count = 0
-            in_string = False
-            string_char = None
-            i = start
-            # Skip to the => and then to the {
-            arrow_pos = js_code.find('=>', start)
-            if arrow_pos == -1:
-                continue
-            i = js_code.find('{', arrow_pos)
-            if i == -1:
-                continue
-            
-            while i < len(js_code):
-                char = js_code[i]
-                # Handle string literals
-                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
-                    if not in_string:
-                        in_string = True
-                        string_char = char
-                    elif char == string_char:
-                        in_string = False
-                        string_char = None
-                elif not in_string:
-                    if char == '{':
-                        brace_count += 1
-                    elif char == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            result[func_name] = js_code[start:i+1]
-                            break
-                i += 1
-        
-        # Pattern 3: Function expressions: const name = function() { ... }
-        pattern3 = r'(?:const|let|var)\s+(\w+)\s*=\s*function\s*\([^)]*\)\s*\{'
-        for match in re.finditer(pattern3, js_code):
-            func_name = match.group(1)
-            start = match.start()
-            # Find matching closing brace
-            brace_count = 0
-            in_string = False
-            string_char = None
-            i = start
-            # Skip to the first {
-            func_start = js_code.find('function', start)
-            if func_start == -1:
-                continue
-            i = js_code.find('{', func_start)
-            if i == -1:
-                continue
-            
-            while i < len(js_code):
-                char = js_code[i]
-                # Handle string literals
-                if char in ('"', "'", '`') and (i == 0 or js_code[i-1] != '\\'):
-                    if not in_string:
-                        in_string = True
-                        string_char = char
-                    elif char == string_char:
-                        in_string = False
-                        string_char = None
-                elif not in_string:
-                    if char == '{':
-                        brace_count += 1
-                    elif char == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            result[func_name] = js_code[start:i+1]
-                            break
-                i += 1
-        
-        return result
-    
-    # Try esprima first
-    try:
-        functions_map = parse_with_esprima()
-        if functions_map:
-            return functions_map
-    except Exception as e:
-        print(f"Error parsing JavaScript with esprima (attempting fallback): {e}")
-    
-    # Fall back to regex-based parsing
-    try:
-        functions_map = parse_with_regex_fallback()
-        if functions_map:
-            print(f"Used regex fallback parser, extracted {len(functions_map)} functions")
-            return functions_map
-    except Exception as e:
-        print(f"Error parsing JavaScript with regex fallback: {e}")
-    
-    # Return empty dict if both methods fail
-    return functions_map
-
-
-def _sample_html_component_for_explanation(
-    html_code: str,
-    project_name: Optional[str] = None,
-) -> Optional[tuple[str, str]]:
-    """
-    Extract a non-trivial HTML component with threshold backoff and random sampling.
-    For project_name "zic_zac_zoe", prefers a <p> tag or an element containing the text "Status".
-    """
-    if not html_code or not html_code.strip():
-        return None
-
-    normalized_project_name = (project_name or "").strip().lower()
-    prefer_status_or_p = normalized_project_name == "zic_zac_zoe"
-
-    tag_regex = re.compile(r"<!--.*?-->|</?([a-zA-Z][\w:-]*)\b[^>]*?>", re.DOTALL)
-    void_tags = {
-        "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr"
-    }
-    skip_tags = {"html", "head", "body", "script", "style"}
-    candidates: List[Dict[str, Any]] = []
-
-    matches = list(tag_regex.finditer(html_code))
-    for idx, match in enumerate(matches):
-        token = match.group(0)
-        tag_name = (match.group(1) or "").lower()
-        if not tag_name or token.startswith("</") or token.startswith("<!--"):
-            continue
-        if tag_name in void_tags or tag_name in skip_tags or token.rstrip().endswith("/>"):
-            continue
-
-        depth = 1
-        closing_end = None
-        for inner_match in matches[idx + 1:]:
-            inner_token = inner_match.group(0)
-            inner_tag = (inner_match.group(1) or "").lower()
-            if not inner_tag or inner_token.startswith("<!--"):
-                continue
-            if inner_tag != tag_name:
-                continue
-            if inner_token.startswith("</"):
-                depth -= 1
-                if depth == 0:
-                    closing_end = inner_match.end()
-                    break
-            elif inner_tag not in void_tags and not inner_token.rstrip().endswith("/>"):
-                depth += 1
-
-        if closing_end is None:
-            continue
-
-        component_code = html_code[match.start():closing_end].strip()
-        if not component_code:
-            continue
-
-        line_count = len([line for line in component_code.splitlines() if line.strip()])
-        visible_text = re.sub(r"<[^>]+>", " ", component_code)
-        is_preferred_candidate = (
-            tag_name == "p" or bool(re.search(r"\bstatus\b", visible_text, re.IGNORECASE))
-        )
-        # Keep the original non-triviality filter for all tasks except zic_zac_zoe.
-        # For zic_zac_zoe, allow short preferred candidates (common for status labels).
-        if line_count < 4 and not (prefer_status_or_p and is_preferred_candidate):
-            continue
-
-        open_tag_text = token
-        id_match = re.search(r'id\s*=\s*["\']([^"\']+)["\']', open_tag_text, re.IGNORECASE)
-        class_match = re.search(r'class\s*=\s*["\']([^"\']+)["\']', open_tag_text, re.IGNORECASE)
-        name = tag_name
-        if id_match:
-            name += f"#{id_match.group(1)}"
-        if class_match:
-            first_class = class_match.group(1).strip().split()[0] if class_match.group(1).strip() else ""
-            if first_class:
-                name += f".{first_class}"
-
-        candidates.append({
-            "name": name,
-            "code": component_code,
-            "line_count": line_count,
-            "tag_name": tag_name,
-        })
-
-    if not candidates:
-        return None
-
-    def _is_preferred(c: Dict[str, Any]) -> bool:
-        if not prefer_status_or_p:
-            return False
-        if c["tag_name"] == "p":
-            return True
-        # Strip HTML tags and check for "status" in visible text.
-        text = re.sub(r"<[^>]+>", " ", c["code"])
-        return bool(re.search(r"\bstatus\b", text, re.IGNORECASE))
-
-    eligible = [c for c in candidates if c["line_count"] <= MAX_CODE_COMPARE_BLOCK_LINES]
-    if eligible:
-        preferred = [c for c in eligible if _is_preferred(c)]
-        pool = preferred if preferred else eligible
-        chosen = random.choice(pool)
-        return chosen["name"], chosen["code"]
-
-    preferred = [c for c in candidates if _is_preferred(c)]
-    pool = preferred if preferred else candidates
-    chosen = random.choice(pool)
-    return chosen["name"], chosen["code"]
-
-
-def _sample_css_block_for_explanation(css_code: str) -> Optional[tuple[str, str]]:
-    """
-    Extract a reasonably sized CSS block using simple brace parsing.
-    """
-    if not css_code or not css_code.strip():
-        return None
-
-    blocks: List[str] = []
-    depth = 0
-    token_start = None
-
-    for i, ch in enumerate(css_code):
-        if depth == 0 and token_start is None and not ch.isspace():
-            token_start = i
-
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            if depth > 0:
-                depth -= 1
-            if depth == 0 and token_start is not None:
-                block = css_code[token_start:i + 1].strip()
-                if block:
-                    blocks.append(block)
-                token_start = None
-        elif ch == ";" and depth == 0 and token_start is not None:
-            # Handles top-level statements such as @import;
-            token_start = None
-
-    if not blocks:
-        return None
-
-    scored: List[Dict[str, Any]] = []
-    for block in blocks:
-        header = block.split("{", 1)[0].strip()
-        declaration_count = block.count(":")
-        line_count = len([line for line in block.splitlines() if line.strip()])
-        if line_count < 3 and declaration_count < 3:
-            continue
-        scored.append({
-            "name": header if header else "CSS block",
-            "code": block,
-            "line_count": line_count,
-            "declaration_count": declaration_count
-        })
-
-    if not scored:
-        return None
-
-    eligible = [b for b in scored if b["line_count"] <= MAX_CODE_COMPARE_BLOCK_LINES]
-    if eligible:
-        chosen = random.choice(eligible)
-        return chosen["name"], chosen["code"]
-
-    chosen = random.choice(scored)
-    return chosen["name"], chosen["code"]
 
 
 def _generate_distractor_functions(existing_functions: List[str]) -> List[str]:
@@ -5308,7 +5285,8 @@ async def _generate_comprehension_questions(
     is_required_task: bool = True,
     project_name: Optional[str] = None,
     ai_assistant_mode: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    target_selection_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Generate comprehension questions based on the submission.
     Combines self-report questions with code-based questions.
@@ -5322,7 +5300,7 @@ async def _generate_comprehension_questions(
                          excluding explanation question.
         project_name: Lowercase name of the project/task (e.g., "snake", "platformer")
     
-    Returns a list of question dictionaries with the following structure:
+    Returns a dict with "questions" (list of question dicts) and "warnings" (list of str). Each question has the structure:
     {
         "question_name": str,  # e.g., "purpose_1", "technology_2"
         "question": str,  # The actual question text/stem
@@ -5378,21 +5356,22 @@ async def _generate_comprehension_questions(
             f"[comprehension/generate-helper] returning warmup_count={len(questions)}",
             flush=True,
         )
-        return questions
-    
+        return {"questions": questions, "warnings": []}
+
     if is_required_task:
         print("[comprehension/generate-helper] required-task question set", flush=True)
         # For required tasks, include all self-report questions
 
-        questions = [
-            {
-                "question_name": "self_report_confidence",
-                "question": f"I am confident this submission meets the task requirements.",
-                "question_type": "mcqa",
-                "choices": self_report_options,
-                "answer": ""
-            },
-        ]
+        # questions = [
+        #     {
+        #         "question_name": "self_report_confidence",
+        #         "question": f"I am confident this submission meets the task requirements.",
+        #         "question_type": "mcqa",
+        #         "choices": self_report_options,
+        #         "answer": ""
+        #     },
+        # ]
+        questions = []
 
         agent_mode_questions = [
             {
@@ -5506,30 +5485,49 @@ async def _generate_comprehension_questions(
             },
         ])
 
+    questions = []
     num_self_report_questions = len(questions)
     
     # Add code-based questions (run in parallel).
     # Launch JS/UI generation and the three compare-question generations together.
-    code_questions, ui_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
+    code_questions, ui_questions, css_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
         asyncio.to_thread(generate_js_questions, submission_code, include_explanation=False),
         asyncio.to_thread(generate_ui_questions, submission_code),
+        asyncio.to_thread(generate_css_questions, submission_code),
         asyncio.to_thread(
-            generate_single_code_compare_question,
+            qgh.generate_single_code_compare_question,
             submission_code,
             "html",
             is_required_task,
             project_name,
+            target_selection_context,
         ),
-        asyncio.to_thread(generate_single_code_compare_question, submission_code, "css", is_required_task),
-        asyncio.to_thread(generate_single_code_compare_question, submission_code, "js", is_required_task),
+        asyncio.to_thread(
+            qgh.generate_single_code_compare_question,
+            submission_code,
+            "css",
+            is_required_task,
+            project_name,
+            target_selection_context,
+        ),
+        asyncio.to_thread(
+            qgh.generate_single_code_compare_question,
+            submission_code,
+            "js",
+            is_required_task,
+            project_name,
+            target_selection_context,
+        ),
     )
     print(
-        f"[comprehension/generate-helper] code_questions={len(code_questions)} ui_questions={len(ui_questions)} "
+        f"[comprehension/generate-helper] code_questions={len(code_questions)} ui_questions={len(ui_questions)} css_questions={len(css_questions)} "
         f"html_compare={bool(html_compare_question)} css_compare={bool(css_compare_question)} js_compare={bool(js_compare_question)}",
         flush=True,
     )
     
+    warnings: List[str] = []
     questions.extend(ui_questions)
+    questions.extend(css_questions)
     questions.extend(code_questions)
     # Deterministic compare question order: html -> css -> js
     if html_compare_question:
@@ -5578,7 +5576,7 @@ async def _generate_comprehension_questions(
         flush=True,
     )
 
-    return questions
+    return {"questions": questions, "warnings": warnings}
 
 
 async def _evaluate_submission(
@@ -7333,15 +7331,22 @@ def _is_eligible_for_experiment_group_sampling(user_settings: Any) -> bool:
 
 
 def _get_experiment_group_counts(db: Session) -> Dict[str, int]:
-    """Count assigned experiment groups across eligible non-skipping users."""
+    """Count assigned experiment groups across eligible non-skipping users.
+    When on_or_after is set below, only users with created_at >= that date are included.
+    """
+    on_or_after: Optional[datetime] = datetime(2026, 3, 12)  # e.g. datetime(2025, 3, 1, tzinfo=timezone.utc)
     counts = {
         SIGNUP_GROUP_CHAT: 0,
         SIGNUP_GROUP_AGENT: 0,
         "unassigned": 0,
     }
 
-    existing_users = db.query(User.settings).all()
-    for (user_settings,) in existing_users:
+    query = db.query(User.settings, User.created_at)
+    if on_or_after is not None:
+        query = query.filter(User.created_at >= on_or_after)
+    existing_users = query.all()
+
+    for (user_settings, created_at) in existing_users:
         if not _is_eligible_for_experiment_group_sampling(user_settings):
             continue
 
@@ -7368,9 +7373,6 @@ def _assign_signup_group(
     settings: Dict[str, Any],
     db: Session,
 ) -> str:
-
-    # FOR TESTING: Always return chat mode
-    return SIGNUP_GROUP_CHAT
 
     """Assign signup to one 50/50 experiment group: 'chat' or 'agent'."""
     explicit_group = _normalize_experiment_group(

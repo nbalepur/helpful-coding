@@ -13,6 +13,7 @@ import { useIframeTheme } from '../utils/IframeThemeContext';
 import { useAuth } from '../utils/auth';
 import { getStudyTaskMode } from '../config/tasks';
 import { isWebsiteRequirementsSkippedFromSettings } from '../utils/userSettings';
+import { PRE_TEST_SKIPPED_KEY } from '../components/UserStudyPopupProvider';
 
 // Generate ID from heading text
 const generateHeadingId = (text: string): string => {
@@ -124,7 +125,10 @@ export default function AboutPage() {
       let instructionsPath = websiteInstructionsPath;
 
       try {
-        const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+        const fromSettingsOrLocal = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+        const fromSessionSkip =
+          typeof window !== 'undefined' && sessionStorage.getItem(PRE_TEST_SKIPPED_KEY) === 'true';
+        const websiteRequirementsSkipped = fromSettingsOrLocal || fromSessionSkip;
         let mode = getStudyTaskMode([], websiteRequirementsSkipped);
 
         const tasksResponse = await fetch('/api/tasks');

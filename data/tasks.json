@@ -1555,13 +1555,13 @@
       "description": "<p>In this task, you'll create a variation of tic-tac-toe on a 5x5 grid with two human players: Player A and Player B. You'll start with a blank board, helper JavaScript functions, and logic to connect the HTML, JS, and CSS, which you must update to fulfill a list of given requirements.</p>",
       "requirements": [
         "Turns alternate between Player A and Player B, starting with A. Each player places exactly two symbols per turn (A -> A -> B -> B -> ...)",
-        "Players can only place a symbol by clicking on a square that does not already have a symbol, which should display 'A' or 'B' based on who clicked it.",
-        "The game is over when a player has five symbols in a row horizontally or vertically (not diagonally), or no more moves can be played (Tie Game)",
-        "Each cell on the 5x5 board should have a pink background color",
+        "When a players clicks on a square, it should display 'A' or 'B' based on who clicked it. Players cannot place symbols on squares that already have a symbol.",
+        "The game is over when a player has five symbols in a row horizontally or vertically (not diagonally), or no more moves can be played (Tie Game). Players cannot place symbols when the game ends.",
+        "Modify your CSS file to center the entire web page horizontally",
         "Add a status element in a paragraph tag underneath the header 'Zic-Zac-Zoe'. It should show whose turn it is ('Player A Turn' or 'Player B Turn') and a message when the game is over (e.g., 'Player A Wins!', 'Player B Wins!', 'Tie Game!'), prefixed by 'Status:'"
       ],
       "label": "website_requirements",
-      "example": "<iframe width='420' height='315' src='https://www.youtube.com/watch?v=gzmw8_eowlc'></iframe>",
+      "example": "<iframe width='420' height='315' src='https://www.youtube.com/embed/TVVXZIxqqVY?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
       "code_start_date": "2025-01-01",
       "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
@@ -1588,11 +1588,11 @@
       "title": "Mystery Challenge",
       "description": "<p>This task is a mystery! It will only be revealed once you open it 👀</p>",
       "label": "website_requirements",
-      "example": "<iframe width='420' height='315' src='https://www.youtube.com/watch?v=B1yEDqqXuVU'></iframe>",
+      "example": "<iframe width='420' height='315' src='https://www.youtube.com/embed/Ilqua-EDkzM?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
       "requirements": [
-        "Along with your previous win condition logic, a player can also win zic-zac-zoe by placing their symbol in all four corners of the board",
-        "Change the colors of symbols on the board: 'A' should be red and 'B' should be blue",
-        "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe."
+        "Along with your previous win condition logic, a player can also win zic-zac-zoe if they occupy all four corners of the board.",
+        "Style the text color of the board symbols in your CSS file so that 'A' appears red and 'B' appears blue. Colors must be defined in the CSS file and not set directly in JavaScript.",
+        "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe. This must be a button on the page; resetting the game by refreshing the webpage does not count."
       ],
       "code_start_date": "2025-01-01",
       "voting_start_date": "2027-02-08",

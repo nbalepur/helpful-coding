@@ -204,12 +204,12 @@ After completing a certain number of tasks, you may be prompted to complete a "P
 ### Compensation
 
 Compensation is as follows:
-1. For completing the required Platformer task, you will be awarded $10
-2. For every 5 tasks you submit in VibeJam after that, you will be awarded $10
+1. You must complete the required Platformer task to unlock paid stages; there is no reward for Platformer itself.
+2. For every 5 tasks you submit in VibeJam after that, you will be awarded $15
 3. If you are selected to take a post-test, you will be awarded an additional $10
-4. The 5 users with the highest-scoring websites according to our judges will each receive $5
+4. The top 10 users with the highest-scoring websites (by user voting) will each receive $10. If we find issues with public user voting, we will recruit our own judges.
 
-All monetary rewards will be distributed to your email as online gift cards with Tango. We plan to distribute these rewards in May 2026, but will update these instructions, the compensation page, and all users via email if there are extensions.
+All monetary rewards will be distributed to your email as online gift cards with Tango. We plan to distribute these rewards in June 2026, but will update these instructions, the compensation page, and all users via email if there are extensions.
 
 You can track your compensation progress on the [Compensation page](/compensation)
 

@@ -82,6 +82,9 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     const brainstormModeColor = lightMode ? '#4338ca' : '#c4b5fd';
     const accentColor = lightMode ? '#2563eb' : '#8ac4ff'; // Darker blue for light mode
     const linkColor = lightMode ? '#1e40af' : '#8ac4ff'; // Darker blue for light mode
+    const warningTextColor = lightMode ? '#78350f' : '#d1d5db';
+    const warningBackgroundColor = lightMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(148, 163, 184, 0.08)';
+    const warningBorderColor = lightMode ? 'rgba(180, 83, 9, 0.25)' : 'rgba(148, 163, 184, 0.22)';
     const escapeHtml = (value: string) =>
       value
         .replace(/&/g, '&amp;')
@@ -126,7 +129,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       <p style="margin: 12px 0; color: ${textColor};">
         The rules of Zic-Zac-Zoe have changed a bit, so now you need to make changes to your website to reflect them.
         You'll start with your website that you previously submitted and update it based on the items listed in the <strong style="color: ${strongColor};">Requirements</strong> section below.
-        Don't worry about trying to fix issues in your previous submission, just try to complete as many requirements as you can.
+        <strong>Don't worry about trying to fix issues in your previous submission</strong>, just try to complete as many of the new requirements as you can.
       </p>
     `;
 
@@ -144,10 +147,11 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     
     // Task type indicator
     let taskTypeInfo = '';
+    const gamePrizeReminder = `<p style="margin: 8px 0 12px 0; color: ${textColor};">🏆 The top 10 highest-scoring submissions (by user voting) each win $10—see the <a href="/compensation" target="_blank" rel="noopener noreferrer" style="color: ${linkColor}; text-decoration: underline;">Compensation</a> page for details.</p>`;
     if (label === 'replication') {
-      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is a <span style="color: ${accentColor}; font-weight: 600;">replication</span> task based on an existing game. You will see a list of requirements, and your project will be judged by how well you fulfill them.</p>`;
+      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is a <span style="color: ${accentColor}; font-weight: 600;">replication</span> task based on an existing game. You will see a list of requirements, and your project will be judged by how well you fulfill them.</p>${gamePrizeReminder}`;
     } else if (label === 'open-ended') {
-      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is an <span style="color: ${accentColor}; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Your submission will be judged by other users from 1-5 on theme fulfillment, style, enjoyment, and creativity, so try to make your website fun and engaging!</p>`;
+      taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is an <span style="color: ${accentColor}; font-weight: 600;">open-ended</span> task: there is much more room for creativity, and you can do anything that adheres to the high-level theme. Your submission will be judged by other users from 1-5 on theme fulfillment, style, enjoyment, and creativity, so try to make your website fun and engaging!</p>${gamePrizeReminder}`;
     }
     
     // Split examples by newline and create individual example divs
@@ -179,13 +183,18 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     const timerInstruction = showTimerInstruction
       ? `<p style="margin: 0; color: ${textColor};">This task has a time limit, and there is a <strong>timer</strong> next to the "Code" tab.</p>`
       : '';
+    const pageLeaveWarning = `
+      <p style="margin: 14px 0 2px 0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${warningBorderColor}; background: ${warningBackgroundColor}; color: ${warningTextColor}; font-size: 12px; line-height: 1.25;">
+        ⚠️ Reminder: Do not leave the page while completing this task.
+      </p>
+    `;
     const storageKeyEncoded = taskNameParam
       ? encodeURIComponent(`task-instruction-requirements:${taskNameParam}`)
       : '';
     const requirementsSection = requirementsList && requirementsList.length > 0 ? `
       <h2>Requirements</h2>
       <div class="requirements-checklist" data-storage-key="${storageKeyEncoded}" style="display: flex; flex-direction: column; gap: 8px;">
-        <p style="margin: 0; color: ${textColor};">Here are the <strong style="color: ${strongColor};">${numberToWord(requirementsList.length)}</strong> requirements you must fulfill. You can check them off as you complete them to track your own progress.</p>
+        <p style="margin: 0; color: ${textColor};">Your goal is to implement the following <strong style="color: ${strongColor};">${numberToWord(requirementsList.length)}</strong> requirements. You can work on them in any order. You can check them off as you complete them to track your progress.</p>
         ${requirementsList
           .map(
             (requirement, index) => `
@@ -208,7 +217,17 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       : 'N7IsrqiaxjU';
     const websiteAssistantVideoLabel = aiAssistantMode === 'agent' ? 'Agent Mode' : 'Chat Mode';
     const aiAssistantOverviewVideoEmbed = label === 'website_requirements'
-      ? `<p style="margin: 12px 0 8px 0; color: ${textColor};">Overview of how the AI assistant works (${websiteAssistantVideoLabel}):</p><div style="margin: 12px auto; width: 75%; max-width: 75%; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border: 1px solid ${videoEmbedBorderColor}; border-radius: 8px; box-sizing: border-box;"><iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 7px;" src="https://www.youtube-nocookie.com/embed/${websiteAssistantVideoId}?rel=0&modestbranding=1" title="AI assistant overview (${websiteAssistantVideoLabel})" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`
+      ? `<p style="margin: 12px 0 8px 0; color: ${textColor};">Overview of how the AI assistant works (${websiteAssistantVideoLabel}):</p><div style="margin: 12px auto; width: 75%; max-width: 75%; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border: 1px solid ${videoEmbedBorderColor}; border-radius: 8px; box-sizing: border-box;"><iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 7px;" src="https://www.youtube-nocookie.com/embed/${websiteAssistantVideoId}?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1" title="AI assistant overview (${websiteAssistantVideoLabel})" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`
+      : '';
+
+    const isFollowUpTask = taskNameParam === 'website_tutorial_follow_up' || taskNameParam === 'zic_zac_zoe_follow_up';
+    const userWasInChatGroup = !isAiGroupUser;
+    const chatIdenticalSentence = isFollowUpTask && userWasInChatGroup
+      ? `<p style="margin: 0 0 12px 0; color: ${textColor};">This is <strong>identical</strong> to the AI you used in the first zic-zac-zoe task.</p>`
+      : '';
+    const userWasInAgentGroup = isAiGroupUser;
+    const agentDifferentSentence = isFollowUpTask && userWasInAgentGroup
+      ? `<p style="margin: 0 0 12px 0; color: ${textColor};">This is <strong>different</strong> from the AI agent you used in the first zic-zac-zoe task.</p>`
       : '';
 
     const aiAssistantSection = showAIAssistantDetails ? `
@@ -219,12 +238,14 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
             ? `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${agentModeColor};">Agent Mode</strong>.` : `Your AI is currently in <strong style="color: ${agentModeColor};">Agent Mode</strong>.`} You can ask the AI to make changes to your code (e.g., "Make the reset button red"), and you can review the AI's proposed changes to your code.`
             : aiAssistantMode === 'brainstorm'
               ? `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${brainstormModeColor};">Brainstorm Mode</strong>.` : `Your AI is currently in <strong style="color: ${brainstormModeColor};">Brainstorm Mode</strong>.`} The AI can help you generate ideas, compare implementation approaches, and plan what to build next, but it cannot directly edit your files.`
-              : `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.` : `Your AI is currently in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.`} ${label === 'website_requirements' ? 'You can only ask the AI syntax questions (e.g., "How do I make the color of a button red?") and it will answer with text or a code snippet you can copy. It cannot write any code for you.`' : 'The AI can answer questions about your current code and provide examples, but it cannot directly edit your files.'}`
+              : `${isTutorialTask ? `For this warm-up and the next website task, you will have access to an AI assistant in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.` : `Your AI is currently in <strong style="color: ${askModeColor};">${label === 'website_requirements' ? 'Chat Mode' : 'Ask Mode'}</strong>.`} ${label === 'website_requirements' ? 'You can only ask the AI syntax questions (e.g., "How do I make the color of a button red?") and it will answer with text or a code snippet you can copy. It cannot write any code for you.' : 'The AI can answer questions about your current code and provide examples, but it cannot directly edit your files.'}`
         }
       </p>
+      ${chatIdenticalSentence}
+      ${agentDifferentSentence}
       ${aiAssistantOverviewVideoEmbed}
       ${aiGroupFollowUpReminder}
-    ` : '';
+` : '';
     
     const judgmentCriteria = `
       <p style="margin: 6px 0; color: ${textColor};">Your submission will be evaluated by other users through voting. They will rate your work on the following criteria, each on a scale from 1 to 5 (higher scores are better):</p>
@@ -286,6 +307,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
       <h2>Task Description</h2>
       ${taskTypeInfo}
       ${taskDescription}
+      ${pageLeaveWarning}
       ${middleSections}
       
       ${examplesSection}

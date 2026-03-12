@@ -865,7 +865,7 @@ export default function CompensationPage() {
   const stage2Completed = stage2Unlocked && completedGameRequiredTasks >= gameRequiredTaskCount;
   const stage3Unlocked = stage2Completed;
   const stage3RewardBlocks = Math.floor(completedAdditionalWebsiteTasks / 5);
-  const stage3RewardDollars = stage3RewardBlocks * 20;
+  const stage3RewardDollars = stage3RewardBlocks * 15;
   const stage3ProgressInCurrentBlock = completedAdditionalWebsiteTasks % 5;
   const stage3Completed =
     totalAdditionalWebsiteTasks > 0 && completedAdditionalWebsiteTasks >= totalAdditionalWebsiteTasks;
@@ -1040,16 +1040,16 @@ export default function CompensationPage() {
                 <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks (i.e., Zic-Zac-Zoe) for extra credit.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Stage 2:</span> Complete all required game-based design tasks (i.e., Platformer) to receive $10.
+                <span className="font-semibold text-blue-300">Stage 2:</span> Complete all required game-based design tasks (i.e., Platformer) to unlock Stage 3. No monetary reward for this stage.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Stage 3:</span> Complete additional website tasks to receive $20 for every 5 tasks.
+                <span className="font-semibold text-blue-300">Stage 3:</span> Complete additional website tasks to receive $15 for every 5 tasks.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Stage 4:</span> After 10 additional website tasks, complete the post-test to receive $10.
+                <span className="font-semibold text-blue-300">Stage 4:</span> After {numTasksRequiredUntilPostTest} additional website tasks, complete the post-test to receive $10.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Bonus rewards:</span> Additional rewards are available through {bonusRewardsEndDate} for the users with the highest-scoring websites in game-based tasks.
+                <span className="font-semibold text-blue-300">Bonus rewards:</span> The top 10 users with the highest-scoring websites (by user voting) will each receive $10. Rewards are available through {bonusRewardsEndDate}.
               </li>
             </ul>
             <p className="text-gray-300 mt-2">
@@ -1159,7 +1159,7 @@ export default function CompensationPage() {
                       ? `Task progress: ${completedGameRequiredTasks}/${gameRequiredTaskCount}`
                       : "Locked until Stage 1 is complete"}
                   </p>
-                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10</p>
+                  <p className="text-gray-400 text-sm font-medium mt-1">Required to unlock Stage 3 (no reward)</p>
                 </div>
                 {stage2Completed ? (
                   <CheckCircle2 className="text-green-400 shrink-0" size={20} />
@@ -1197,7 +1197,7 @@ export default function CompensationPage() {
                       : "Locked until Stage 2 is complete"}
                   </p>
                   <p className="text-green-300 text-sm font-medium mt-1">
-                    Reward earned so far: ${stage3RewardDollars} ({stage3RewardBlocks} × $20 per 5 tasks)
+                    Reward earned so far: ${stage3RewardDollars} ({stage3RewardBlocks} × $15 per 5 tasks)
                   </p>
                 </div>
                 {stage3RewardBlocks > 0 ? (
@@ -1216,7 +1216,7 @@ export default function CompensationPage() {
                       <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
                         Browse page
                       </a>{" "}
-                      adds a $20 reward.
+                      adds a $15 reward.
                     </>
                   }
                   disabled={!stage3Unlocked}

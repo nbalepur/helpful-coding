@@ -1,7 +1,6 @@
 body {
-  margin: 0;
+  margin: 10;
   display: flex;
-  justify-content: center;
 }
 
 .board {

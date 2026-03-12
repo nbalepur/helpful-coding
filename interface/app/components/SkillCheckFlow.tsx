@@ -2382,11 +2382,19 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
       overflow-x: auto;
       background: rgba(55, 65, 81, 0.8);
       border-radius: 4px;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     .choice-markdown pre code {
       display: block;
       background: transparent;
       padding: 0;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     .choice-markdown p {
       margin: 0;
@@ -2424,10 +2432,40 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
       border-radius: 8px;
       overflow-x: auto;
       margin: 8px 0;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     pre code {
       background: transparent;
       padding: 0;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    /* Left/Right code block comparison: highlight the selected block */
+    .question-text .skill-check-left-code-block,
+    .question-text .skill-check-right-code-block {
+      margin: 8px 0;
+      border-radius: 8px;
+      border: 1px solid #374151;
+      overflow: hidden;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .question-text .skill-check-left-code-block pre,
+    .question-text .skill-check-right-code-block pre {
+      margin: 0;
+      border-radius: 0;
+    }
+    .question-text.selected-left .skill-check-left-code-block {
+      background: rgba(37, 99, 235, 0.2);
+      border-color: #3b82f6;
+    }
+    .question-text.selected-right .skill-check-right-code-block {
+      background: rgba(37, 99, 235, 0.2);
+      border-color: #3b82f6;
     }
     /* Matrix-style rating table for experience questions */
     .matrix-container {
@@ -3182,6 +3220,36 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
         }
       }
       
+      // For "Left block / Right block" code comparison questions, wrap the two pre elements
+      // so we can highlight the selected block (left vs right) with a background.
+      const isLeftRightCodeQuestion = choicesArray.length === 2 &&
+        choicesArray[0] === 'The Left Code is Mine' &&
+        choicesArray[1] === 'The Right Code is Mine';
+      if (questionTextEl && isLeftRightCodeQuestion) {
+        const pres = questionTextEl.querySelectorAll('pre');
+        if (pres.length >= 2) {
+          const leftWrap = document.createElement('div');
+          leftWrap.className = 'skill-check-left-code-block';
+          pres[0].parentNode.insertBefore(leftWrap, pres[0]);
+          leftWrap.appendChild(pres[0]);
+          const rightWrap = document.createElement('div');
+          rightWrap.className = 'skill-check-right-code-block';
+          pres[1].parentNode.insertBefore(rightWrap, pres[1]);
+          rightWrap.appendChild(pres[1]);
+        }
+      }
+      
+      function updateCodeBlockHighlight() {
+        if (!questionTextEl || !isLeftRightCodeQuestion) return;
+        const checked = document.querySelector('input[type="radio"][name="question-' + questionId + '"]:checked');
+        questionTextEl.classList.remove('selected-left', 'selected-right');
+        if (checked) {
+          const idx = parseInt(checked.getAttribute('data-choice-index'), 10);
+          if (idx === 0) questionTextEl.classList.add('selected-left');
+          else if (idx === 1) questionTextEl.classList.add('selected-right');
+        }
+      }
+      
       const container = document.getElementById('choices-container');
       if (container) {
         try {
@@ -3354,7 +3422,11 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
             label.classList.remove('selected');
           }
         });
+        updateCodeBlockHighlight();
       }
+      
+      // Initial code block highlight for left/right comparison (e.g. when restoring answer)
+      updateCodeBlockHighlight();
       
       // Handle radio buttons (non-matrix)
       document.querySelectorAll('input[type="radio"]').forEach(radio => {
@@ -4005,12 +4077,15 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
       {/* Navigation Buttons - Sticky Footer */}
       <div className="sticky bottom-0 bg-gray-900 flex-shrink-0 z-10">
         <div className="flex items-center justify-between gap-2 pt-2 px-0">
-          {/* Left side - Exit Survey button (ONLY in retake mode, NOT in pre-test/post-test) */}
-          <div className="flex items-center">
+          {/* Left side - Stay-on-page reminder + Exit button (retake only) */}
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-amber-400/90 text-sm">
+              Do not navigate away from this page. You will not be rewarded for scoring highly or poorly.
+            </span>
             {mode === 'retake' && (
               <button
                 onClick={onCancel}
-                className="flex items-center px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                className="flex items-center px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors flex-shrink-0"
               >
                 Exit Skill Check
               </button>

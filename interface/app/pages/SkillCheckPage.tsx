@@ -6,6 +6,7 @@ import { useAuth } from "../utils/auth";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { PRE_TEST_SKIPPED_KEY } from "../components/UserStudyPopupProvider";
+import { setWebsiteRequirementsChoiceLocal } from "../utils/userSettings";
 
 interface SkillCheckPageProps {
   skillCheckMode: 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
@@ -19,6 +20,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
   const handleSkipPreTest = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.setItem(PRE_TEST_SKIPPED_KEY, 'true');
+      setWebsiteRequirementsChoiceLocal(true);
     }
     setCompletionStatus(prev => ({ ...prev, completed: true, loading: false }));
     recalculateState?.();
@@ -391,7 +393,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
               <button
                 type="button"
                 onClick={handleSkipPreTest}
-                className="text-gray-400 hover:text-gray-300 text-sm underline"
+                className="hidden text-gray-400 hover:text-gray-300 text-sm underline"
               >
                 Skip pre-test (do NOT click this if you are in CMSC848Q)
               </button>
