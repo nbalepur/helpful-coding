@@ -40,7 +40,7 @@ interface MultiFileEditorProps {
   isAIAssistantVisible?: boolean;
   // Agent changes for diff view
   pendingAgentChanges?: any;
-  onAcceptAgentChanges?: (fileType?: string, content?: string) => void;
+  onAcceptAgentChanges?: (fileType?: string, content?: string, action?: 'keep' | 'reject') => void;
   onRejectAgentChanges?: (actionType?: 'keep_all' | 'reject_all') => void;
   // Loading state
   isLoadingFiles?: boolean;
@@ -848,7 +848,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     });
     
     if (onAcceptAgentChanges) {
-      onAcceptAgentChanges(activeFileId, modified);
+      onAcceptAgentChanges(activeFileId, modified, 'keep');
     }
     
     // Navigate to next file with diffs if available; do not forcibly clear global state here
@@ -896,7 +896,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     });
     
     if (onAcceptAgentChanges) {
-      onAcceptAgentChanges(activeFileId, original);
+      onAcceptAgentChanges(activeFileId, original, 'reject');
     }
     
     // Navigate to next file with diffs if available; do not forcibly clear global state here
@@ -937,7 +937,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
           return next;
         });
         if (onAcceptAgentChanges) {
-          onAcceptAgentChanges(fileId, modified);
+          onAcceptAgentChanges(fileId, modified, 'keep');
         }
       }
     });

@@ -581,7 +581,7 @@ interface CodingEditorProps {
   isAIAssistantVisible?: boolean;
   // Agent changes for diff view
   pendingAgentChanges?: any;
-  onAcceptAgentChanges?: (fileType?: string, content?: string) => void;
+  onAcceptAgentChanges?: (fileType?: string, content?: string, action?: 'keep' | 'reject') => void;
   onRejectAgentChanges?: () => void;
   projectId?: number | null;
   userId?: number | null;

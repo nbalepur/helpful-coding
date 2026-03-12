@@ -2690,6 +2690,23 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
             </div>
           </div>
         )}
+        {!isDetailView && (
+          <p className="flex-shrink-0 px-4 py-2 text-sm text-slate-400 border-b border-gray-700/50 bg-gray-900/40">
+            These are all the submissions you can vote on. Hit{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setSubmissions([]);
+                setHasLoaded(false);
+                fetchSubmissions();
+              }}
+              className="text-blue-400 hover:underline hover:bg-transparent focus:bg-transparent active:bg-transparent cursor-pointer p-0 align-baseline border-0 bg-transparent"
+            >
+              refresh
+            </button>{" "}
+            to see the latest submissions.
+          </p>
+        )}
         <div className="flex-1 overflow-hidden" ref={isDetailView ? undefined : containerRef}>
           {isDetailView ? (
             <div className="flex h-full w-full bg-gray-950/40">

@@ -14,6 +14,8 @@ interface PreviewTabProps {
   taskName?: string;
   actualEditorRef?: React.RefObject<any>;
   onRefresh?: (source: PreviewRefreshSource) => void;
+  /** When true, hide the Pop Out Preview button (e.g. for website_requirement tasks). */
+  disablePopout?: boolean;
 }
 
 export interface PreviewTabRef {
@@ -21,7 +23,7 @@ export interface PreviewTabRef {
   addConsoleMessage: (message: any, level: string, source?: string, meta?: ConsoleMessageMeta) => void;
 }
 
-const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh }, ref) => {
+const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh, disablePopout = false }, ref) => {
   const DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY = 'vibecode.preview.debugConsoleVisible';
   const previewRef = useRef<any>(null);
   const debugPanelRef = useRef<PreviewDebugPanelRef>(null);
@@ -460,25 +462,27 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
           />
         </div>
         
-        {/* Popout Button */}
-        <div className="relative group">
-          <button
-            onClick={handlePopout}
-            className="p-2 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
-          >
-            {/* Use an external/open icon fallback if Popout isn't available */}
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gray-300">
-              <path d="M14 3h7v7" />
-              <path d="M10 14 21 3" />
-              <path d="M21 14v7h-7" />
-              <path d="M3 10 14 21" />
-            </svg>
-          </button>
-          {/* Tooltip */}
-          <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-            Pop Out Preview
+        {/* Popout Button - hidden for website_requirement tasks */}
+        {!disablePopout && (
+          <div className="relative group">
+            <button
+              onClick={handlePopout}
+              className="p-2 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
+            >
+              {/* Use an external/open icon fallback if Popout isn't available */}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gray-300">
+                <path d="M14 3h7v7" />
+                <path d="M10 14 21 3" />
+                <path d="M21 14v7h-7" />
+                <path d="M3 10 14 21" />
+              </svg>
+            </button>
+            {/* Tooltip */}
+            <div className="absolute left-1/2 bottom-full mb-2 transform -translate-x-1/2 px-2 py-1 bg-white text-black text-xs rounded border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              Pop Out Preview
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Debug Toggle Button */}
         <div className="relative group">

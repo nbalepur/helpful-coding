@@ -4754,7 +4754,7 @@ def generate_css_style_questions(css_code: str) -> List[Dict[str, Any]]:
     return [
         {
             "question_name": "css_style_distractors",
-            "question": "Which of these selectors exist in your CSS stylesheet? Each option shows a class or ID selector and a description of what it modifies. It is possible all or none are used.",
+            "question": "Which of these selectors exist in your CSS stylesheet? Each option shows a class or ID selector and a description of what it modifies. It is possible that all of these or none of these exist.",
             "question_type": "multi_select",
             "choices": choices,
             "answer": answers,
@@ -5376,7 +5376,7 @@ async def _generate_comprehension_questions(
         agent_mode_questions = [
             {
                 "question_name": "self_report_easy_with_agent",
-                "question": f"It was easy to complete the task with the AI in Agent Mode (where it directly edited files).",
+                "question": f"The AI in Agent Mode (where it directly edited files) was helpful for this task.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -5407,7 +5407,7 @@ async def _generate_comprehension_questions(
         chat_mode_questions = [
             {
                 "question_name": "self_report_easy_with_chat",
-                "question": f"It was easy to complete the task with the AI in Chat Mode (where it generated code/syntax help).",
+                "question": f"The AI in Chat Mode (where it generated code/syntax help) was helpful for this task.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -5468,8 +5468,8 @@ async def _generate_comprehension_questions(
         ])
         questions.extend([
             {
-                "question_name": "self_report_review_game",
-                "question": f"I reviewed the AI-generated code.",
+                "question_name": "self_report_AI_helpful",
+                "question": f"The AI assistant was helpful for this task.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""

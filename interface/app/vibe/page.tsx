@@ -1251,6 +1251,14 @@ function HomeInner() {
     return false;
   }, [allTasks, selectedTask, currentTaskMeta, isPlaygroundMode]);
 
+  // For website_requirements tasks, only show the task UI once task type and experiment_group have loaded
+  const isWebsiteRequirementsDataReady = useMemo(() => {
+    if (!isWebsiteRequirementsTaskSelected) return true;
+    const hasTaskType = !!currentTaskMeta?.name;
+    const hasExperimentGroup = user != null; // user.settings (incl. experiment_group) comes with auth
+    return hasTaskType && hasExperimentGroup;
+  }, [isWebsiteRequirementsTaskSelected, currentTaskMeta?.name, user]);
+
   const selectedTaskName = useMemo(() => {
     if (selectedTask === 'playground' || isPlaygroundMode) return null;
 
@@ -3109,12 +3117,19 @@ function HomeInner() {
   }, [allTasks, websiteRequirementsSkipped]);
 
   const handleCopyFromAssistant = useCallback((payload: AssistantCopyPayload) => {
+    const assistantModeForLog =
+      agentMode === 'ask' && isWebsiteRequirementsTaskSelected
+        ? 'debug'
+        : agentMode === 'ask'
+          ? 'chat'
+          : agentMode;
     sendCodeLog('copy_from_assistant', {
       copy_source: payload.source,
       copy_language: payload.language ?? undefined,
       copied_text_preview: payload.text != null ? String(payload.text).slice(0, 500) : undefined,
+      assistantMode: assistantModeForLog,
     });
-  }, [sendCodeLog]);
+  }, [sendCodeLog, agentMode, isWebsiteRequirementsTaskSelected]);
 
   const assistantPaneNode = useMemo(() => (
     <AssistantTerminalPane
@@ -4020,6 +4035,30 @@ function HomeInner() {
     );
   }
 
+  // When on /vibe?task=X, stay in loading until tasks have loaded so we can resolve task type
+  if (pathname === '/vibe' && taskParam && isLoadingTasks) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner size="xl" color="white" className="mx-auto mb-4" />
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // For website_requirements tasks, stay in initial loading until task type and experiment_group have loaded
+  if (isWebsiteRequirementsTaskSelected && showCodingTerminal && !isWebsiteRequirementsDataReady) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner size="xl" color="white" className="mx-auto mb-4" />
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   // (removed duplicate useEffects that were placed after auth guards)
 
   const handleTaskClick = (taskId: string) => {
@@ -4697,6 +4736,7 @@ function HomeInner() {
                         taskName={allTasks.find(t => t.id === selectedTask)?.name || 'preview'}
                         actualEditorRef={actualEditorRef}
                         onRefresh={handlePreviewRefresh}
+                        disablePopout={isWebsiteRequirementsTaskSelected || (!!selectedTaskName && GAME_REQUIRED_TASKS.includes(selectedTaskName as any))}
                       />
                     </div>
                   )}
@@ -4986,13 +5026,14 @@ function HomeInner() {
                       onFileContentChange={handleFileContentChange}
                       // Agent changes for diff view
                       pendingAgentChanges={pendingAgentChanges}
-                      onAcceptAgentChanges={(fileId?: string, content?: string) => {
+                      onAcceptAgentChanges={(fileId?: string, content?: string, action?: 'keep' | 'reject') => {
                         // Changes are already applied in real-time, just clear pending state
                         const prevPending = pendingAgentChanges;
-                        const isKeepAction = fileId && content && prevPending?.modified?.[fileId] && 
-                                           String(content).trim() === String(prevPending.modified[fileId]).trim();
-                        const isRejectAction = fileId && content && prevPending?.original?.[fileId] && 
-                                             String(content).trim() === String(prevPending.original[fileId]).trim();
+                        // Use explicit action from editor when provided; otherwise infer from content match (for backwards compatibility)
+                        const isKeepAction = action === 'keep' || (fileId && content && prevPending?.modified?.[fileId] &&
+                                           String(content).trim() === String(prevPending.modified[fileId]).trim());
+                        const isRejectAction = action === 'reject' || (fileId && content && prevPending?.original?.[fileId] &&
+                                             String(content).trim() === String(prevPending.original[fileId]).trim());
                         
                         if (fileId && content) {
                           // Remove this file type from pending changes
@@ -5010,8 +5051,7 @@ function HomeInner() {
                             return { ...prev, modified: newModified, original: newOriginal };
                           });
                           
-                          // Log code with appropriate mode and refresh preview
-                          // refreshPreview calls onRefresh with 'external', which handlePreviewRefresh skips logging for
+                          // Always log keep/reject when we know the user's intent (explicit action or inferred from content), so we log even after user edits
                           if (isKeepAction) {
                             setTimeout(() => {
                               void sendCodeLog('keep', { fileId });

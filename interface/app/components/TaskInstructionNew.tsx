@@ -178,7 +178,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     const showSubmitProjectInstruction = label === 'website_requirements';
     const showTimerInstruction = label === 'website_requirements' && !isTutorialTask;
     const submitProjectInstruction = showSubmitProjectInstruction
-      ? `<p style="margin: 0; color: ${textColor};">If you've finished all the changes, or you're feeling stuck and can't make any more changes, you can hit <strong style="color: ${accentColor};">Submit Project</strong>. Focus on fulfilling the requirements versus trying to make the website look nice.</p>`
+      ? `<p style="margin: 0; color: ${textColor};">As soon as you've finished all the changes, or you're feeling stuck and can't make any more changes, click <strong style="color: ${accentColor};">Submit Project</strong>. Focus on fulfilling the requirements versus trying to make the website look nice.</p>`
       : '';
     const timerInstruction = showTimerInstruction
       ? `<p style="margin: 0; color: ${textColor};">This task has a time limit, and there is a <strong>timer</strong> next to the "Code" tab.</p>`

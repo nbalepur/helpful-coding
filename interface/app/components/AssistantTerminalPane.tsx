@@ -1262,7 +1262,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
           )}
         </div>
         <div className="flex items-center gap-1">
-          {onUndo && (
+          {currentModeValue === 'agent' && onUndo && (
             <button
               onClick={onUndo}
               disabled={!canUndo}
@@ -1275,7 +1275,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               <Undo size={14} />
             </button>
           )}
-          {onRedo && (
+          {currentModeValue === 'agent' && onRedo && (
             <button
               onClick={onRedo}
               disabled={!canRedo}
