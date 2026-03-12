@@ -391,7 +391,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
               <button
                 type="button"
                 onClick={handleSkipPreTest}
-                className="text-gray-400 hover:text-gray-300 text-sm underline"
+                className="hidden text-gray-400 hover:text-gray-300 text-sm underline"
               >
                 Skip pre-test (do NOT click this if you are in CMSC848Q)
               </button>
