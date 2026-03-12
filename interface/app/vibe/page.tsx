@@ -41,7 +41,7 @@ import TaskInstructionNew from "../components/TaskInstructionNew";
 import CodingEditor from "../components/CodingEditor";
 import PreviewTab, { PreviewTabRef } from "../components/PreviewTab";
 import { MessageData } from "../components/Message";
-import AssistantTerminalPane, { AssistantItem, AssistantTerminalPaneRef } from "../components/AssistantTerminalPane";
+import AssistantTerminalPane, { AssistantItem, AssistantTerminalPaneRef, type AssistantCopyPayload } from "../components/AssistantTerminalPane";
 import IRBIframe from "../components/IRBIframe";
 import SubmissionsGallery from "../components/SubmissionsPlaceholder";
 import { load_next_task } from "../functions/task_logic";
@@ -65,7 +65,7 @@ import { PASSWORD_HASH, hashString } from "../utils/password";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
 import { downloadProjectAsRepository } from "../utils/downloadProject";
 
-type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download" | "undo" | "redo";
+type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download" | "undo" | "redo" | "copy_from_assistant";
 type TaskEventName =
   | "loaded_in"
   | "timer_started"
@@ -875,7 +875,7 @@ function HomeInner() {
       ...context,
     };
     
-    // Determine mode: keep/reject actions take precedence, then download, then undo/redo, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
+    // Determine mode: keep/reject actions take precedence, then download, then undo/redo, then copy_from_assistant, then AI (for automatic AI refreshes), then AI_generated (for saves after AI code), then diff, then regular
     let mode: string;
     if (event === 'keep' || event === 'keep_all') {
       mode = event === 'keep_all' ? 'keep_all' : 'keep';
@@ -885,6 +885,8 @@ function HomeInner() {
       mode = 'download';
     } else if (event === 'undo' || event === 'redo') {
       mode = event;
+    } else if (event === 'copy_from_assistant') {
+      mode = 'copy';
     } else if (event === 'AI-refresh') {
       mode = 'AI';
     } else if (isAiGeneratedMode) {
@@ -3106,6 +3108,14 @@ function HomeInner() {
     return getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
   }, [allTasks, websiteRequirementsSkipped]);
 
+  const handleCopyFromAssistant = useCallback((payload: AssistantCopyPayload) => {
+    sendCodeLog('copy_from_assistant', {
+      copy_source: payload.source,
+      copy_language: payload.language ?? undefined,
+      copied_text_preview: payload.text != null ? String(payload.text).slice(0, 500) : undefined,
+    });
+  }, [sendCodeLog]);
+
   const assistantPaneNode = useMemo(() => (
     <AssistantTerminalPane
       ref={assistantTerminalPaneRef}
@@ -3145,6 +3155,7 @@ function HomeInner() {
       canRedo={canRedo}
       hideSuggestions={studyTaskMode === 'website-requirements' && selectedTask !== 'playground'}
       disablePaste={isWebsiteRequirementsTaskSelected}
+      onCopyFromAssistant={handleCopyFromAssistant}
     />
   ), [
     agentMode,
@@ -3159,6 +3170,7 @@ function HomeInner() {
     handleAssistantModeChange,
     handleAssistantSubmit,
     handleClearAssistantMessages,
+    handleCopyFromAssistant,
     handleRedo,
     handleSuggestionSelection,
     handleUndo,

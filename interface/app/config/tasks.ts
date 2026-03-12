@@ -80,6 +80,8 @@ export const LEADERBOARD_FILTERED_USERNAMES: string[] = [
   'testtest',
   'test-example',
   'test',
+  'eek',
+  'swagswag',
   ...Array.from({ length: 100 }, (_, idx) => `test${idx + 1}`)
 ];
 

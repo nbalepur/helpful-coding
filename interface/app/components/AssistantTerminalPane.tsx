@@ -30,6 +30,17 @@ export interface AssistantTerminalPaneRef {
   focusInput: () => void;
 }
 
+/** Payload when user copies from the assistant (code block button or selection). */
+export type AssistantCopyPayload = {
+  source: 'code_block_button' | 'selection' | 'code_block_selection';
+  /** Copied text (full code for button, selected text for selection). */
+  text?: string;
+  /** Code block language when source is 'code_block_button'. */
+  language?: string;
+};
+
+const AssistantCopyContext = React.createContext<((payload: AssistantCopyPayload) => void) | null>(null);
+
 interface AssistantTerminalPaneProps {
   items?: AssistantItem[];
   className?: string;
@@ -59,6 +70,8 @@ interface AssistantTerminalPaneProps {
   hideSuggestions?: boolean;
   /** When true, pasting into the input is disabled (e.g. for website_requirement tasks). */
   disablePaste?: boolean;
+  /** Called when user copies from the assistant: code block Copy button or native copy (selection) within assistant content. */
+  onCopyFromAssistant?: (payload: AssistantCopyPayload) => void;
 }
 
 // Track which messages have been fully animated (persists across re-renders)
@@ -116,6 +129,7 @@ const ASSISTANT_MARKDOWN_COMPONENTS_SIMPLE: Record<string, React.ComponentType<a
 
 /** Wraps a <pre> code block with a copy button that copies the block's text to the clipboard. Export for use in other Markdown renderers. */
 export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ children, className, style }) => {
+  const onCopyFromAssistant = React.useContext(AssistantCopyContext);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [isCopyButtonHovered, setIsCopyButtonHovered] = useState(false);
@@ -218,6 +232,7 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
     try {
       await navigator.clipboard.writeText(text);
       setCopyState('copied');
+      onCopyFromAssistant?.({ source: 'code_block_button', text, language: normalizedLanguage || undefined });
     } catch {
       setCopyState('idle');
     }
@@ -228,9 +243,9 @@ export const CodeBlockWithCopy: React.FC<React.ComponentProps<'pre'>> = ({ child
     copyResetTimerRef.current = setTimeout(() => {
       setCopyState('idle');
     }, 3000);
-  }, [rawCode]);
+  }, [rawCode, normalizedLanguage, onCopyFromAssistant]);
   return (
-    <div className="assistant-code-block rounded-md border overflow-hidden mt-0 mb-2" style={{ backgroundColor: '#1e1e1e', borderColor: '#3c3c3c' }}>
+    <div className="assistant-code-block rounded-md border overflow-hidden mt-0 mb-2" data-assistant-code-block style={{ backgroundColor: '#1e1e1e', borderColor: '#3c3c3c' }}>
       <div
         className="h-8 px-2.5 border-b flex items-center justify-between select-none"
         style={{ backgroundColor: '#252526', borderColor: '#3c3c3c', userSelect: 'none' }}
@@ -422,6 +437,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   modeValue,
   onModeChange,
   modeSwitchDisabled = false,
+  onCopyFromAssistant,
 }, ref) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1135,6 +1151,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
 
 
   return (
+    <AssistantCopyContext.Provider value={onCopyFromAssistant ?? null}>
     <div className={`w-full h-full flex flex-col bg-black ${className}`} aria-label={title}>
       {tooltip && typeof window !== 'undefined' && createPortal(
         <div style={{ 
@@ -1304,6 +1321,21 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
           if ((event.buttons & 1) === 1) return;
           isPointerSelectingMessagesRef.current = false;
         }}
+        onCopy={() => {
+          if (!onCopyFromAssistant || !messagesContainerRef.current) return;
+          const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+          if (!sel || sel.isCollapsed) return;
+          const anchorNode = sel.anchorNode;
+          const el = anchorNode?.nodeType === Node.ELEMENT_NODE ? anchorNode as Element : anchorNode?.parentElement;
+          if (!el || !messagesContainerRef.current.contains(el)) return;
+          const fromAssistant = el.closest('[data-copy-from-assistant]');
+          if (!fromAssistant) return;
+          const fromCodeBlock = el.closest('[data-assistant-code-block]');
+          onCopyFromAssistant({
+            source: fromCodeBlock ? 'code_block_selection' : 'selection',
+            text: sel.toString(),
+          });
+        }}
       >
         <div className="px-3 py-0 space-y-2">
           {renderedItems.messages.length === 0 && initialMessage != null && initialMessage !== '' && (
@@ -1391,6 +1423,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
                 return (
                   <div
                     key={item.id}
+                    data-copy-from-assistant
                     className="text-[13px] text-gray-300 markdown-content assistant-markdown-content select-text"
                     style={{ lineHeight: '1.7em' }}
                   >
@@ -1434,6 +1467,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
               return (
                 <div
                   key={item.id}
+                  data-copy-from-assistant
                   className="text-[13px] text-gray-300 markdown-content assistant-markdown-content select-text"
                   style={{ lineHeight: '1.7em' }}
                 >
@@ -1447,6 +1481,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
             return (
               <div
                 key={item.id}
+                data-copy-from-assistant={item.type === 'assistant' ? '' : undefined}
                 className="text-[13px] text-gray-300 whitespace-pre-wrap select-text"
                 style={{ lineHeight: item.type === 'assistant' ? '1.7em' : undefined }}
               >
@@ -1603,6 +1638,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         </div>
       </div>
     </div>
+    </AssistantCopyContext.Provider>
   );
 });
 

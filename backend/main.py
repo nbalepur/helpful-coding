@@ -5485,7 +5485,7 @@ async def _generate_comprehension_questions(
             },
         ])
 
-    questions = []
+    #questions = []
     num_self_report_questions = len(questions)
     
     # Add code-based questions (run in parallel).
@@ -7363,7 +7363,7 @@ def _get_experiment_group_counts(db: Session) -> Dict[str, int]:
             counts[SIGNUP_GROUP_AGENT] += 1
         else:
             counts["unassigned"] += 1
-
+    print(counts)
     return counts
 
 
@@ -7400,6 +7400,7 @@ def _assign_signup_group(
         return SIGNUP_GROUP_CHAT
     if agent_count < chat_count:
         return SIGNUP_GROUP_AGENT
+    print('randomly picking!')
     return random.choice([SIGNUP_GROUP_CHAT, SIGNUP_GROUP_AGENT])
 
 
