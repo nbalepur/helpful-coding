@@ -1216,6 +1216,9 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
             edit_lines = []
             raw_lines: List[str] = []
             message_accum = ""
+            # Per-edit index so frontend can show multiple "Editing frontend.js" blocks (one per patch)
+            tool_edit_index = 0
+            current_tool_edit_index: int | None = None
 
             filenames = {"index.html", "frontend.js", "styles.css"}
             filetype_map = {
@@ -1273,13 +1276,16 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 in_tool = True
                                 current_filename = basename
                                 raw_lines = [line]
-                                # Emit a tool start without assistant text; frontend will show the loading card
+                                tool_edit_index += 1
+                                current_tool_edit_index = tool_edit_index
+                                # Emit a tool start without assistant text; frontend will show one block per edit (index ties signpost to tool_result)
                                 target_type = filetype_map.get(current_filename)
                                 yield (json.dumps({
                                     "state": "signpost",
                                     "data": {
                                         "signpost": "",  # no assistant message
                                         "target_files": [target_type] if target_type else [],
+                                        "index": current_tool_edit_index,
                                     },
                                 }) + "\n").encode("utf-8")
                                 continue
@@ -1330,32 +1336,32 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                             changed_edit_blocks[target_name] = content_str
                                         except Exception:
                                             pass
-                                        # Only send tool_result if we haven't already sent it for this file
-                                        if target_name not in files_sent_tool_result:
-                                            try:
-                                                import difflib
-                                                # Compare against initial content, not intermediate state
-                                                old_text_initial = initial_contents.get(target_name, "")
-                                                a_lines = old_text_initial.splitlines()
-                                                b_lines = new_text_stripped.splitlines()
-                                                additions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('+ '))
-                                                deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                                            except Exception:
-                                                additions = 0
-                                                deletions = 0
-                                            # Store final diff stats (not accumulated)
-                                            file_diff_stats[target_name] = {"additions": additions, "deletions": deletions}
-                                            diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                                            yield (json.dumps({
-                                                "state": "tool_result",
-                                                "data": {
-                                                    "target_files": [target_type] if target_type else [],
-                                                    "diff_stats": diff_stats,
-                                                    "filename": target_name,
-                                                    "updated_content": new_text_stripped,
-                                                },
-                                            }) + "\n").encode("utf-8")
-                                            files_sent_tool_result.add(target_name)
+                                        # Always send tool_result when a file is updated (so multiple edits to same file all get applied)
+                                        try:
+                                            import difflib
+                                            # Compare against initial content for cumulative diff stats
+                                            old_text_initial = initial_contents.get(target_name, "")
+                                            a_lines = old_text_initial.splitlines()
+                                            b_lines = new_text_stripped.splitlines()
+                                            additions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('+ '))
+                                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                                        except Exception:
+                                            additions = 0
+                                            deletions = 0
+                                        # Store final diff stats (not accumulated)
+                                        file_diff_stats[target_name] = {"additions": additions, "deletions": deletions}
+                                        diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                        yield (json.dumps({
+                                            "state": "tool_result",
+                                            "data": {
+                                                "target_files": [target_type] if target_type else [],
+                                                "diff_stats": diff_stats,
+                                                "filename": target_name,
+                                                "updated_content": new_text_stripped,
+                                                "index": current_tool_edit_index,
+                                            },
+                                        }) + "\n").encode("utf-8")
+                                        files_sent_tool_result.add(target_name)
                                         # reset state
                                         in_tool = False
                                         in_fence = False
@@ -1382,34 +1388,33 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 content_str_stripped = _strip_trailing_code_fence(content_str)
                                 file_contents[current_filename] = content_str_stripped
                                 target_type = filetype_map.get(current_filename)
-                                # Only send tool_result if we haven't already sent it for this file
-                                if current_filename not in files_sent_tool_result:
-                                    # basic diff stats
-                                    try:
-                                        import difflib
-                                        # Compare against initial content, not intermediate state
-                                        old_text_initial = initial_contents.get(current_filename, "")
-                                        a_lines = old_text_initial.splitlines()
-                                        b_lines = content_str_stripped.splitlines()
-                                        diff = difflib.ndiff(a_lines, b_lines)
-                                        additions = sum(1 for d in diff if d.startswith('+ ') )
-                                        deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                                    except Exception:
-                                        additions = 0
-                                        deletions = 0
-                                    # Store final diff stats (not accumulated)
-                                    file_diff_stats[current_filename] = {"additions": additions, "deletions": deletions}
-                                    diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                                    yield (json.dumps({
-                                        "state": "tool_result",
-                                        "data": {
-                                            "target_files": [target_type] if target_type else [],
-                                            "diff_stats": diff_stats,
-                                            "filename": current_filename,
-                                            "updated_content": content_str_stripped,
-                                        },
-                                    }) + "\n").encode("utf-8")
-                                    files_sent_tool_result.add(current_filename)
+                                # Always send tool_result when a file is updated (so multiple edits to same file all get applied)
+                                try:
+                                    import difflib
+                                    # Compare against initial content for cumulative diff stats
+                                    old_text_initial = initial_contents.get(current_filename, "")
+                                    a_lines = old_text_initial.splitlines()
+                                    b_lines = content_str_stripped.splitlines()
+                                    diff = difflib.ndiff(a_lines, b_lines)
+                                    additions = sum(1 for d in diff if d.startswith('+ ') )
+                                    deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                                except Exception:
+                                    additions = 0
+                                    deletions = 0
+                                # Store final diff stats (not accumulated)
+                                file_diff_stats[current_filename] = {"additions": additions, "deletions": deletions}
+                                diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                yield (json.dumps({
+                                    "state": "tool_result",
+                                    "data": {
+                                        "target_files": [target_type] if target_type else [],
+                                        "diff_stats": diff_stats,
+                                        "filename": current_filename,
+                                        "updated_content": content_str_stripped,
+                                        "index": current_tool_edit_index,
+                                    },
+                                }) + "\n").encode("utf-8")
+                                files_sent_tool_result.add(current_filename)
                                 # Log assistant ideation step (implicit content in messages already handled via restate)
                                 # reset state for possible next tool
                                 in_tool = False
@@ -1470,33 +1475,33 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                     # Only send tool_result if search/replace succeeded or it wasn't a search/replace block
                     if not search_replace_failed and updated_payload_text is not None:
                         target_type = filetype_map.get(updated_target_name)
-                        # Only send tool_result if we haven't already sent it for this file
-                        if updated_target_name not in files_sent_tool_result:
-                            try:
-                                import difflib
-                                # Compare against initial content, not intermediate state
-                                old_text_initial = initial_contents.get(updated_target_name, "")
-                                a_lines = old_text_initial.splitlines()
-                                b_lines = updated_payload_text.splitlines()
-                                diff = difflib.ndiff(a_lines, b_lines)
-                                additions = sum(1 for d in diff if d.startswith('+ ') )
-                                deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
-                            except Exception:
-                                additions = 0
-                                deletions = 0
-                            # Store final diff stats (not accumulated)
-                            file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
-                            diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
-                            yield (json.dumps({
-                                "state": "tool_result",
-                                "data": {
-                                    "target_files": [target_type] if target_type else [],
-                                    "diff_stats": diff_stats,
-                                    "filename": updated_target_name,
-                                    "updated_content": (updated_payload_text or content_str),
-                                },
-                            }) + "\n").encode("utf-8")
-                            files_sent_tool_result.add(updated_target_name)
+                        # Always send tool_result when a file is updated (so multiple edits to same file all get applied)
+                        try:
+                            import difflib
+                            # Compare against initial content for cumulative diff stats
+                            old_text_initial = initial_contents.get(updated_target_name, "")
+                            a_lines = old_text_initial.splitlines()
+                            b_lines = updated_payload_text.splitlines()
+                            diff = difflib.ndiff(a_lines, b_lines)
+                            additions = sum(1 for d in diff if d.startswith('+ ') )
+                            deletions = sum(1 for d in difflib.ndiff(a_lines, b_lines) if d.startswith('- '))
+                        except Exception:
+                            additions = 0
+                            deletions = 0
+                        # Store final diff stats (not accumulated)
+                        file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
+                        diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                        yield (json.dumps({
+                            "state": "tool_result",
+                            "data": {
+                                "target_files": [target_type] if target_type else [],
+                                "diff_stats": diff_stats,
+                                "filename": updated_target_name,
+                                "updated_content": (updated_payload_text or content_str),
+                                "index": current_tool_edit_index,
+                            },
+                        }) + "\n").encode("utf-8")
+                        files_sent_tool_result.add(updated_target_name)
                     
                     # Only reset state if we didn't already reset it due to search/replace failure
                     if not search_replace_failed:

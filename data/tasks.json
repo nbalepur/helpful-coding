@@ -1590,9 +1590,9 @@
       "label": "website_requirements",
       "example": "<iframe width='420' height='315' src='https://www.youtube.com/embed/Ilqua-EDkzM?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
       "requirements": [
-        "Along with your previous win condition logic, a player can also win zic-zac-zoe if they occupy all four corners of the board.",
-        "Style the text color of the board symbols in your CSS file so that 'A' appears red and 'B' appears blue. Colors must be defined in the CSS file and not set directly in JavaScript.",
-        "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe. This must be a button on the page; resetting the game by refreshing the webpage does not count."
+        "Along with your previous win condition logic, a player can also win zic-zac-zoe if they occupy ALL four corners of the board.",
+        "Style the text color of the board symbols in your CSS file so that 'A' appears red and 'B' appears blue. The red and blue colors must be defined in the CSS file and not set directly in JavaScript.",
+        "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe. This button must reset the game without refreshing the page."
       ],
       "code_start_date": "2025-01-01",
       "voting_start_date": "2027-02-08",

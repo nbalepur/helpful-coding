@@ -16,6 +16,8 @@ interface PreviewTabProps {
   onRefresh?: (source: PreviewRefreshSource) => void;
   /** When true, hide the Pop Out Preview button (e.g. for website_requirement tasks). */
   disablePopout?: boolean;
+  /** Called when the debug console is opened or closed (for code-log metadata). */
+  onDebugConsoleVisibilityChange?: (open: boolean) => void;
 }
 
 export interface PreviewTabRef {
@@ -23,18 +25,18 @@ export interface PreviewTabRef {
   addConsoleMessage: (message: any, level: string, source?: string, meta?: ConsoleMessageMeta) => void;
 }
 
-const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh, disablePopout = false }, ref) => {
+const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, className = '', taskName = 'preview', actualEditorRef, onRefresh, disablePopout = false, onDebugConsoleVisibilityChange }, ref) => {
   const DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY = 'vibecode.preview.debugConsoleVisible';
   const previewRef = useRef<any>(null);
   const debugPanelRef = useRef<PreviewDebugPanelRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [internalRefreshKey, setInternalRefreshKey] = useState(0);
   const [isDebugOpen, setIsDebugOpen] = useState(() => {
-    if (typeof window === 'undefined') return true;
+    if (typeof window === 'undefined') return false;
     const storedValue = window.localStorage.getItem(DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY);
     if (storedValue === 'true') return true;
     if (storedValue === 'false') return false;
-    return true;
+    return false;
   });
   const [url, setUrl] = useState(`https://vibecode.io/${taskName.toLowerCase().replace(/\s+/g, '-')}`);
   
@@ -86,6 +88,11 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY, String(isDebugOpen));
   }, [isDebugOpen, DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY]);
+
+  // Notify parent when debug console visibility changes (for code-log metadata).
+  useEffect(() => {
+    onDebugConsoleVisibilityChange?.(isDebugOpen);
+  }, [isDebugOpen, onDebugConsoleVisibilityChange]);
 
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({

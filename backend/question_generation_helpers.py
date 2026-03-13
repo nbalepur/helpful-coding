@@ -580,6 +580,7 @@ For zic_zac_zoe_follow_up symbol-color CSS, choose a plausible near-miss in this
 - Do NOT use typo-based bugs (e.g., "centre"), invalid property names, or invalid CSS values.
 - The bug should be a plausible but wrong styling strategy for symbol colors, not a spelling mistake.
 - Impact on website behavior: symbol color styling is wrong (A/B colors appear incorrectly or do not apply) or would not work with the user's actual code.
+- Keep it realistic and mirroring the original style. Do not introduce stylistic differences like adding/removing comments that were/were not in the original, using different spacing/indents/newlines, or different syntax conventions that are logically equivalent in this case 
 </task-specific-css-focus>
 """
     elif "language=css" in lowered_context and "task=zic_zac_zoe" in lowered_context:
@@ -592,22 +593,22 @@ For zic_zac_zoe centering-related CSS, prefer a plausible near-miss:
 - Do NOT use typo-based bugs (e.g., "centre"), invalid property names, or invalid CSS values.
 - The bug should be a plausible but wrong styling strategy, not a spelling mistake.
 - Impact on website behavior: layout/alignment looks wrong (positioning/centering is incorrect).
-- Keep it realistic and close to the original style.
+- Keep it realistic and mirroring the original style. Do not introduce stylistic differences like adding/removing comments that were/were not in the original, using different spacing/indents/newlines, or different syntax conventions that are logically equivalent in this case 
 </task-specific-css-focus>
 """
 
     elif "language=javascript" in lowered_context and "task=zic_zac_zoe_follow_up" in lowered_context:
         css_js_task_focus_instructions = """
 <task-specific-js-focus>
-For zic_zac_zoe_follow_up, prefer a subtle near-miss in diagonal-win logic
-or in how it composes with prior winner/tie logic.
-- Avoid trivial or obvious literal tweaks (e.g., 25->24, 5->4, 0->1).
-- Prefer deeper misconception-style bugs:
-  - winner/tie branching order that checks tie too early and masks a valid diagonal win,
-  - diagonal bounds/indexing mismatch in one direction only (out-of-bounds or skipped edge),
-  - diagonal check runs with stale board state timing,
-  - precedence/composition issue between diagonal check and base winner check.
-- Impact on website behavior: win detection is wrong, such as premature winner/tie decisions or missed valid diagonal wins by looping over diagonals incorrectly.
+For zic_zac_zoe_follow_up, prefer a subtle near-miss when checking the winner in all four corners of the board that would change the win detection
+- Avoid trivial or obvious literal tweaks (e.g., changing numbers)
+- Prefer deeper misconception-style bugs that would break intergration with the rest of the code:
+  - winner/tie branching order that checks for ties too early
+  - Not actually comparing all four corners due to an overlap
+  - a for loop that doesn't actually detect all four corners of the board
+  - Returning different values that are incompatible with the rest of the codebase
+- Impact on website behavior: win detection is wrong, such as premature winner/tie decisions or missed valid four-corner wins by looping over corners incorrectly.
+- Keep it realistic and mirroring the original style. Do not introduce stylistic differences like adding/removing comments that were/were not in the original, using different spacing/indents/newlines, or different syntax conventions that are logically equivalent in this case (e.g., == versus ===)
 </task-specific-js-focus>
 """
 
@@ -617,8 +618,13 @@ or in how it composes with prior winner/tie logic.
 For zic_zac_zoe board rendering / move placement logic, add an error related to indexing or looping
 that still looks correct at first glance.
 - Avoid trivial or obvious literal tweaks, like changing a certain number or just one index
+- Prefer deeper misconception-style bugs that would break intergration with the rest of the code:
+  - Incorrectly indexing the input board (e.g., swapping rows and columns)
+  - Off-by-one errors when counting the number of player turns and whose turn it is
+  - Setting the value of HTML elements incorrectly or prematurely
 - Impact on website behavior: move play flow is wrong (whose turn it is, move counter tracking, or where a symbol gets placed).
-- The code should not have any self-contradictions: for example, if you change the board indexing in one location, it should be changed in all locations.
+- The code should not have any self-contradictions: for example, if you change the board indexing or return type in one location, it should be changed in all relevant locations.
+- Keep it realistic and mirroring the original style. Do not introduce stylistic differences like adding/removing comments that were/were not in the original, using different spacing/indents/newlines, or different syntax conventions that are logically equivalent in this case (e.g., == versus ===)
 </task-specific-js-focus>
 """
 
@@ -627,7 +633,7 @@ that still looks correct at first glance.
 Generate a distractor for this code block.
 - The distractor code block
 - Introduce one major bug that could probe a common misconception of students. Basically, someone who did not actually implement this code themselves may not realize the error
-- Do not add obvious stylistic differences or artifacts. For example, if the original code block did not have comments, you should not add comments to the distractor block
+- Do not add obvious stylistic differences or artifacts. For example, if the original code block did not have comments, you should not add comments to the distractor block. If the original code block did have comments, you should preserve them.
 - For JavaScript specifically: do NOT make reorder-only edits or stylistic rewrites that are logically equivalent.
 - For JavaScript specifically: the distractor must introduce a genuine behavioral difference that changes outcomes for at least one realistic input path.
 - For JavaScript specifically: do not merely rename variables, reorder condition checks with same semantics, or swap equivalent expressions.

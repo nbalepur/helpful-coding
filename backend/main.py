@@ -14,7 +14,7 @@ from functools import lru_cache
 import json
 import random
 import litellm
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime, timedelta, date, timezone
 
@@ -4013,7 +4013,13 @@ async def generate_comprehension_questions(
         }
         is_required_task = project.name and project.name.lower() in REQUIRED_TASK_NAMES
         target_selection_context = _build_target_selection_context(project)
-        
+        task_description = getattr(project, "description", None) or ""
+        task_requirements = (
+            (target_selection_context or {}).get("requirements")
+            if isinstance((target_selection_context or {}).get("requirements"), list)
+            else None
+        )
+
         result = await _generate_comprehension_questions(
             submission_title=payload.submission_title,
             submission_description=payload.submission_description,
@@ -4022,6 +4028,8 @@ async def generate_comprehension_questions(
             project_name=project.name.lower() if project.name else None,
             ai_assistant_mode=payload.ai_assistant_mode,
             target_selection_context=target_selection_context,
+            task_description=task_description or None,
+            task_requirements=task_requirements,
         )
         generated_questions = result["questions"]
         generation_warnings = result.get("warnings", [])
@@ -4762,13 +4770,42 @@ def generate_css_style_questions(css_code: str) -> List[Dict[str, Any]]:
     ]
 
 
-def generate_ui_features(html_code: str, css_code: str, js_code: str) -> List[str]:
-
+def generate_ui_features(
+    html_code: str,
+    css_code: str,
+    js_code: str,
+    task_description: Optional[str] = None,
+    task_requirements: Optional[List[str]] = None,
+) -> Tuple[List[str], List[str]]:
+    """
+    Generate real and fake UI features for distractor questions.
+    Optional task_description and task_requirements give context about what the user was asked to build.
+    """
     # random_model = random.choice(["openai/gpt-5.1-2025-11-13", "anthropic/claude-sonnet-4-5-20250929", "gemini/gemini-3-pro-preview"])
     # backup_model = "gemini/gemini-3-pro-preview"
 
     random_model = "openai/gpt-5.2-2025-12-11"
     backup_model = "openai/gpt-5.2-2025-12-11"
+
+    task_context_section = ""
+    if task_description or (task_requirements and len(task_requirements) > 0):
+        parts = []
+        if task_description and task_description.strip():
+            parts.append(
+                "<task_description>\nThis is what the user was asked to build:\n{desc}\n</task_description>".format(
+                    desc=task_description.strip()
+                )
+            )
+        if task_requirements and len(task_requirements) > 0:
+            req_list = "\n".join(f"- {r}" for r in task_requirements if r and str(r).strip())
+            if req_list:
+                parts.append(
+                    "<task_requirements>\nRequired features or requirements from the assignment:\n{reqs}\n</task_requirements>".format(
+                        reqs=req_list
+                    )
+                )
+        if parts:
+            task_context_section = "\n\n" + "\n\n".join(parts) + "\n\n"
 
     prompt = """
 <task>
@@ -4776,8 +4813,7 @@ You are an expert at generating a set of features that exist in a user's website
 
 Given the user's HTML, CSS, and JavaScript code, generate a set of five features that exist in the website, and a set of five features that do not exist in the website but plausibly could exist in the website. We will eventually show these features to users and ask them to identify which features exist and which do not exist, testing their comprehension of their own website.
 </task>
-
-Here is the HTML code:
+{task_context}Here is the HTML code:
 <html>
 {html}
 </html>
@@ -4793,13 +4829,17 @@ Here is the JavaScript code:
 </javascript>
 
 <feature requirements>
-- Each feature should be a concise sentence/phrase, no more than 10 words.
+- Each feature should be a concise sentence/phrase, no more than 15 words.
 - All features should be user-centered, describing elements that the users can see and interact with, or certain functionalities present in the website.
-- Features can span visual elements, certain stylings, and features. For example, "There is a button to toggle between light and dark mode" or "Users can upload a profile picture".
-- When generating features that do exist in the webiste, make sure that they actually exist.
+- When generating features that do exist in the website, make sure that they actually exist.
 - When generating features that do not exist in the website, make sure that they do not exist. However, they should be things that plausibly could exist in this website.
+- The fake features should not be over-the-top for a simple website. For example, instead of mentioning something like "a special animation", if the website is relatively plain, you could just say "highlighted", "distinct", etc.
 - You never hallucinate.
 - Generate exactly five real features and five fake features.
+- Remember, the fake and real features should be EXACTLY the same in style, including sentence structure, words, level of detail, etc.
+- Do not add any stylistic differences between real and fake features. For example, if a real feature says "The user can win the game via X, Y, or Z", a bad fake feature would be "The user can win the game via A". They should be consistent, like making the real feature just "The user can win the game via X"
+- None of the features should use words like "also" or "in addition". This is a giveaway that it is fake.
+- All of the features will be merged into a single list, so do not generate fake features that reveal that other features are real. For example, if one real feature says "Players place symbols via X and O", a bad fake feature is "Players can switch from symbols X and O", since it's obvious then that the game does have X and O.
 </feature requirements>
 
 <format>
@@ -4811,7 +4851,12 @@ Generate your output as a JSON with two keys: 1) "real_features" - an array of f
 
 Do not generate anything else.
 </format>
-""".format(html=html_code, css=css_code, js=js_code).strip()
+""".format(
+        task_context=task_context_section,
+        html=html_code,
+        css=css_code,
+        js=js_code,
+    ).strip()
 
     for num_tries in range(5):
 
@@ -4833,8 +4878,11 @@ Do not generate anything else.
     return [], []
 
 
-def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any]]:
-
+def generate_ui_questions(
+    submission_code: Dict[str, str],
+    task_description: Optional[str] = None,
+    task_requirements: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     MAX_FEATURES_TO_SHOW = 4
     questions = []
 
@@ -4851,7 +4899,13 @@ def generate_ui_questions(submission_code: Dict[str, str]) -> List[Dict[str, Any
         elif filename.endswith('.css'):
             css_code += code_content + "\n\n"
 
-    real_features, fake_features = generate_ui_features(html_code, css_code, js_code)
+    real_features, fake_features = generate_ui_features(
+        html_code,
+        css_code,
+        js_code,
+        task_description=task_description,
+        task_requirements=task_requirements,
+    )
     if len(real_features) == 0 or len(fake_features) == 0:
         return []
     all_features = real_features + fake_features
@@ -5286,6 +5340,8 @@ async def _generate_comprehension_questions(
     project_name: Optional[str] = None,
     ai_assistant_mode: Optional[str] = None,
     target_selection_context: Optional[Dict[str, Any]] = None,
+    task_description: Optional[str] = None,
+    task_requirements: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Generate comprehension questions based on the submission.
@@ -5299,6 +5355,8 @@ async def _generate_comprehension_questions(
                          If False, only include self_report_understanding and MCQA questions,
                          excluding explanation question.
         project_name: Lowercase name of the project/task (e.g., "snake", "platformer")
+        task_description: Optional description of what the user was asked to build (for UI feature distractors).
+        task_requirements: Optional list of assignment requirements (for UI feature distractors).
     
     Returns a dict with "questions" (list of question dicts) and "warnings" (list of str). Each question has the structure:
     {
@@ -5448,7 +5506,7 @@ async def _generate_comprehension_questions(
             },
             {
                 "question_name": "self_report_modify",
-                "question": f"I could easily add new features to my code without using AI tools.",
+                "question": f"I could easily add new features (e.g., new game rules, UI components, CSS styles) to my code without using AI tools.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
                 "answer": ""
@@ -5492,7 +5550,12 @@ async def _generate_comprehension_questions(
     # Launch JS/UI generation and the three compare-question generations together.
     code_questions, ui_questions, css_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
         asyncio.to_thread(generate_js_questions, submission_code, include_explanation=False),
-        asyncio.to_thread(generate_ui_questions, submission_code),
+        asyncio.to_thread(
+            generate_ui_questions,
+            submission_code,
+            task_description,
+            task_requirements,
+        ),
         asyncio.to_thread(generate_css_questions, submission_code),
         asyncio.to_thread(
             qgh.generate_single_code_compare_question,

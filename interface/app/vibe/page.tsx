@@ -301,6 +301,8 @@ function HomeInner() {
   const [showTaskInstructions, setShowTaskInstructions] = useState(true);
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [showTerminal, setShowTerminal] = useState(true);
+  /** Debug console (terminal) open state in Preview tab, for code-log metadata. */
+  const [debugTerminalOpen, setDebugTerminalOpen] = useState(false);
   
   // Task data
   const [taskDescriptions, setTaskDescriptions] = useState<string[]>([]);
@@ -853,6 +855,7 @@ function HomeInner() {
       leftTab,
       showCodingTerminal,
       isPreviewVisible: showCodingTerminal && selectedTask && leftTab === 'preview',
+      debug_terminal_open: leftTab === 'preview' ? debugTerminalOpen : false,
       codeLengths: Object.fromEntries(
         Object.entries(codeByLanguage).map(([key, value]) => [key, String(value ?? '').length])
       ),
@@ -906,7 +909,7 @@ function HomeInner() {
       code: codeByLanguage,
       metadata,
     };
-  }, [user, selectedTask, currentTaskMeta, getCodeByLanguage, leftTab, showCodingTerminal, allTasks, pendingAgentChanges]);
+  }, [user, selectedTask, currentTaskMeta, getCodeByLanguage, leftTab, showCodingTerminal, debugTerminalOpen, allTasks, pendingAgentChanges]);
 
   const sendCodeLog = useCallback(async (event: CodeLogEvent, context: Record<string, any> = {}) => {
     const payload = buildCodeLogPayload(event, context);
@@ -2495,20 +2498,19 @@ function HomeInner() {
             if (signpost) {
               appendMessage({ type: 'assistant', message: signpost });
             }
+            // One block per edit (backend sends index so key is unique: "1-js", "2-js", etc.)
             targetFiles.forEach((fileType: string) => {
               const key = `${data.index ?? ''}-${fileType}`;
-              if (!toolMessageIds.has(key)) {
-                const displayName = fallbackNames[fileType] || defaultFileName(fileType);
-                const id = createMessageId();
-                toolMessageIds.set(key, id);
-                appendMessage({
-                  id,
-                  type: 'tool',
-                  message: `Editing ${displayName}`,
-                  fileName: displayName,
-                  status: 'pending',
-                });
-              }
+              const displayName = fallbackNames[fileType] || defaultFileName(fileType);
+              const id = createMessageId();
+              toolMessageIds.set(key, id);
+              appendMessage({
+                id,
+                type: 'tool',
+                message: `Editing ${displayName}`,
+                fileName: displayName,
+                status: 'pending',
+              });
             });
             break;
           }
@@ -2522,7 +2524,7 @@ function HomeInner() {
               const messageId = toolMessageIds.get(key);
               if (messageId) {
                 completedToolMessages.add(messageId);
-                filesWereEdited = true; // Mark that files were edited
+                filesWereEdited = true;
                 markStartedEdits("ai_agent");
                 updateMessage(messageId, {
                   status: 'done',
@@ -4737,6 +4739,7 @@ function HomeInner() {
                         actualEditorRef={actualEditorRef}
                         onRefresh={handlePreviewRefresh}
                         disablePopout={isWebsiteRequirementsTaskSelected || (!!selectedTaskName && GAME_REQUIRED_TASKS.includes(selectedTaskName as any))}
+                        onDebugConsoleVisibilityChange={setDebugTerminalOpen}
                       />
                     </div>
                   )}
