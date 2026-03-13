@@ -2409,6 +2409,7 @@ function HomeInner() {
     // Track modified files during the stream for snapshot saving
     const modifiedFilesDuringStream: Record<string, string> = {};
     let snapshotSaved = false; // Flag to ensure we only save snapshot once per agent completion
+    let lastAssistantLogId: number | null = null; // Link codes row -> assistant_logs (stored in codes.metadata)
 
     let wasAborted = false;
     let askStreamMessageId: string | null = null;
@@ -2541,12 +2542,7 @@ function HomeInner() {
               setTimeout(() => {
                 try {
                   previewTabRef.current?.refreshPreview();
-                  // Automatically save code with mode "AI" when automatic refresh happens
-                  void sendCodeLog('AI-refresh', { 
-                    refreshSource: 'tool_result',
-                    targetFiles,
-                    filename 
-                  });
+                  // Code log is sent once at stream end, not per tool_result
                 } catch (error) {
                   console.warn('Failed to refresh preview when file editing completed:', error);
                 }
@@ -2731,6 +2727,12 @@ function HomeInner() {
             finalPayload = data;
             break;
           }
+          case 'session_uuid': {
+            if (data.assistantLogId != null) {
+              lastAssistantLogId = Number(data.assistantLogId);
+            }
+            break;
+          }
           default: {
             break;
           }
@@ -2758,6 +2760,25 @@ function HomeInner() {
           updateMessage(msgId, { status: 'failed' });
         }
       });
+
+      // Log code once at stream end (final merged state) instead of per tool_result
+      if (filesWereEdited && Object.keys(modifiedFilesDuringStream).length > 0) {
+        let currentState: Record<string, string> = {};
+        if (actualEditorRef?.current?.getAllFileContents) {
+          currentState = actualEditorRef.current.getAllFileContents() || {};
+        }
+        const codeByLanguage: Record<string, string> = {};
+        (['html', 'css', 'js'] as const).forEach((type) => {
+          const fileId = fileIdsByType[type];
+          const content = fileId ? (modifiedFilesDuringStream[fileId] ?? currentState[fileId] ?? '') : '';
+          codeByLanguage[type] = typeof content === 'string' ? content : String(content ?? '');
+        });
+        void sendCodeLog('AI-refresh', {
+          refreshSource: 'stream_end',
+          codeByLanguage,
+          ...(lastAssistantLogId != null ? { assistant_log_id: lastAssistantLogId } : {}),
+        });
+      }
 
     } catch (error: any) {
       console.error('Error during agent stream:', error);

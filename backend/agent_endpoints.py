@@ -1192,6 +1192,8 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
             # Track raw SEARCH/REPLACE blocks per filename for summarization
             changed_edit_blocks: Dict[str, str] = {}
             file_diff_stats: Dict[str, Dict[str, int]] = {}
+            # Fine-grained edit history for assistant_logs (one entry per "Editing..." patch)
+            edit_history: List[Dict[str, Any]] = []
             # Track which files have already had tool_result sent to prevent duplicates
             files_sent_tool_result: set = set()
             summary_text: str = ""
@@ -1351,6 +1353,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                         # Store final diff stats (not accumulated)
                                         file_diff_stats[target_name] = {"additions": additions, "deletions": deletions}
                                         diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                        edit_history.append({
+                                            "index": current_tool_edit_index,
+                                            "filename": target_name,
+                                            "file_type": target_type,
+                                            "content": new_text_stripped,
+                                            "diff_stats": {"additions": additions, "deletions": deletions},
+                                            "edit_block": content_str,
+                                        })
                                         yield (json.dumps({
                                             "state": "tool_result",
                                             "data": {
@@ -1404,6 +1414,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 # Store final diff stats (not accumulated)
                                 file_diff_stats[current_filename] = {"additions": additions, "deletions": deletions}
                                 diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                                edit_history.append({
+                                    "index": current_tool_edit_index,
+                                    "filename": current_filename,
+                                    "file_type": target_type,
+                                    "content": content_str_stripped,
+                                    "diff_stats": {"additions": additions, "deletions": deletions},
+                                    "edit_block": content_str,
+                                })
                                 yield (json.dumps({
                                     "state": "tool_result",
                                     "data": {
@@ -1491,6 +1509,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                         # Store final diff stats (not accumulated)
                         file_diff_stats[updated_target_name] = {"additions": additions, "deletions": deletions}
                         diff_stats = {target_type: {"additions": additions, "deletions": deletions}} if target_type else {}
+                        edit_history.append({
+                            "index": current_tool_edit_index,
+                            "filename": updated_target_name,
+                            "file_type": target_type,
+                            "content": updated_payload_text or content_str,
+                            "diff_stats": {"additions": additions, "deletions": deletions},
+                            "edit_block": content_str,
+                        })
                         yield (json.dumps({
                             "state": "tool_result",
                             "data": {
@@ -1502,7 +1528,7 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                             },
                         }) + "\n").encode("utf-8")
                         files_sent_tool_result.add(updated_target_name)
-                    
+
                     # Only reset state if we didn't already reset it due to search/replace failure
                     if not search_replace_failed:
                         in_tool = False
@@ -1638,10 +1664,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                                 "total_changes": additions + deletions,
                             },
                         }
+                # Attach fine-grained edit history (one entry per "Editing..." patch)
+                if edit_history:
+                    generated_code_payload["edits"] = edit_history
 
+                created_assistant_log = None
                 try:
                     if generated_code_payload and resolved_project_id and user_id_value is not None:
-                        AssistantLogCRUD.create(
+                        created_assistant_log = AssistantLogCRUD.create(
                             db,
                             AssistantLogCreate(
                                 user_id=user_id_value,
@@ -1655,11 +1685,14 @@ async def agent_chat_stream(request_data: dict, db: Session = Depends(get_db)):
                 except Exception as log_error:
                     logger.error("Failed to persist assistant log entry: %s", log_error, exc_info=True)
                 
-                # Emit the temp_dir UUID so frontend can reuse it
+                # Emit the temp_dir UUID and assistant_log id so frontend can link code log -> assistant_log (in codes.metadata)
                 temp_dir_uuid_emitted = _extract_uuid_from_temp_dir(temp_dir)
+                session_data = {"tempDirUuid": temp_dir_uuid_emitted}
+                if created_assistant_log is not None:
+                    session_data["assistantLogId"] = created_assistant_log.id
                 yield (json.dumps({
                     "state": "session_uuid",
-                    "data": {"tempDirUuid": temp_dir_uuid_emitted},
+                    "data": session_data,
                 }) + "\n").encode("utf-8")
 
                 # yield (json.dumps({
