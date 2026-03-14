@@ -15,7 +15,7 @@ REQUIREMENT_TARGET_MAP: Dict[str, Dict[str, str]] = {
     "zic_zac_zoe": {
         "html": "Add a status element in a paragraph tag underneath the header 'Zic-Zac-Zoe'. It should show whose turn it is ('Player A Turn' or 'Player B Turn') and a message when the game is over (e.g., 'Player A Wins!', 'Player B Wins!', 'Tie Game!'), prefixed by 'Status:'",
         "css": "Center the entire web page horizontally",
-        "js": "Turns alternate between Player A and Player B, starting with A. Each player places exactly two symbols per turn (A -> A -> B -> B -> ...)",
+        "js": "The board renders A and B moves in a 2x2 grid",
     },
     "zic_zac_zoe_follow_up": {
         "html": "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe. This must be a button on the page; resetting the game by refreshing the webpage does not count.",
@@ -147,8 +147,10 @@ def _extract_css_block_by_selector(css_code: str, selector: str) -> Optional[str
     wanted_low = wanted.lower()
     for block in blocks:
         header = block.split("{", 1)[0].strip()
+        # Match only when the wanted selector is exactly one of the comma-separated
+        # selectors (e.g. .B must match ".B" not ".board"). No substring matching.
         header_parts = [h.strip().lower() for h in header.split(",")]
-        if wanted_low in header_parts or wanted_low in header.lower():
+        if wanted_low in header_parts:
             return block
     return None
 
@@ -211,6 +213,7 @@ def _select_requirement_target(
             "Choose one or more meaningful CSS selectors tied to requirements. "
             "Return exact selector strings as written in CSS (e.g., .container, #status). "
             "Use a single selector in target_value, or multiple selectors in target_values (JSON array)."
+            "If the CSS requirement relates to changing colors, pick all the selectors that relate to colors"
         ),
         "js": (
             "Choose one meaningful JavaScript function tied to requirements. "
@@ -422,23 +425,16 @@ Return:
 1) real_snippet: an HTML snippet from the user's current code tied to the requirement.
 2) distractor_snippet: a plausible distractor with one subtle bug.
 
-Important:
-- real_snippet should be isolated to the most relevant block with the difference and that gives context. It will likely be less than 7 lines.
-- distractor_snippet should preserve style/shape, but include one subtle wiring bug.
-- Keep user-visible text unchanged where possible.
-- The two snippets must not be logically equivalent.
-- If there is no meaningful relevant snippet, abstain.
+When the code is HTML, prioritize the primary change target in this exact order:
+1. Restart button-related code (if present)
+2. Status element-related code (if present)
+3. Grid-related structure/logic hooks in HTML (if present)
+4. If none of the above are present, pick another meaningful UI element
 
-HTML wiring guidance for distractor_snippet:
-- Prioritize these targets in order if present: reset button wiring, status element wiring, grid/cell wiring.
-- Prefer integration-level HTML changes that affect JS wiring:
-  - switch between id-based hook and inline onclick,
-  - convert id hook to class/data-* hook (or vice versa),
-  - change container/cell hook attributes so querySelector/getElementById targets mismatch.
-- Keep visible copy/text the same (do not change user-facing wording).
-- The website impact should be subtle but real: related interaction fails silently or updates the wrong element.
-
-The change in the hook should NOT be changing the name of the ID. It should be a change that would largely impact how the wiring occurs in the JavaScript.
+For HTML distractors, prioritize the following changes in this order:
+- switch the label of the element's ID to something that this user could plausibly specify. this distractor should match the style of the user's
+- switch the label of the element's class name to something that this user could plausibly specify. this distractor should match the style of the user's
+- any other change that is noticeable but different
 </task>
 
 <task_name>
@@ -573,8 +569,8 @@ Avoid copy/text-based giveaways; changes should be in markup wiring and structur
 <task-specific-css-focus>
 For zic_zac_zoe_follow_up symbol-color CSS, choose a plausible near-miss in this order:
 
-1. If the code has two CSS blocks with separate colors and parallel structure (e.g. one block for each symbol color), show a version that uses one CSS block with a single mechanism to vary the color, such as CSS variables (var(--symbol-color)), attribute selectors ([data-symbol="x"]), or modifier classes (.symbol-x). Only one of these so it is not extremely different. This is already a bug because it will no longer work with the rest of the user's code.
-2. If the code has one CSS block for symbol colors, show a two-block version (split into two parallel blocks with different colors). This is already a bug because it will no longer work with the rest of the user's code.
+1. If the code defines two near-identical CSS rules that differ mainly by color for two cell types (for example, .A and .B), provide a version that consolidates them into a single shared rule and varies only the color through one simple mechanism, such as a CSS variable, an attribute selector, or a modifier class. Use just one of those approaches, not multiple. The goal is to preserve the original structure while showing that the two styles could be merged, assuming the backend can output the needed class or attribute.
+2. If the code has one CSS block for symbol colors, show a two-block version (split into two parallel blocks with different colors).
 3. If neither (1) nor (2) is feasible, fall back to a near-miss like using 'text-decoration-color' or '::marker { color: ... }' incorrectly so that symbol color styling is wrong.
 
 - Do NOT use typo-based bugs (e.g., "centre"), invalid property names, or invalid CSS values.
@@ -731,6 +727,240 @@ Return strict JSON only:
     return ""
 
 
+def generate_distractor_code_block_logical_equivalence(
+    code: str,
+    context_label: str = "",
+    full_context: Optional[str] = None,
+) -> str | Tuple[str, str]:
+    """
+    Generate a distractor code block. For CSS and JS, returns (real_code, distractor_code)
+    so both are generated in one call for consistent style; otherwise returns just the distractor string.
+    """
+    random_model = "openai/gpt-5.2-2025-12-11"
+    backup_model = "openai/gpt-5.2-2025-12-11"
+    code_line_count = _count_code_lines(code)
+    _code_compare_debug_log(f"[distractor] called | lines={code_line_count}")
+
+    html_focus_instructions = ""
+    css_js_task_focus_instructions = ""
+    lowered_context = (context_label or "").strip().lower()
+    generate_both_real_and_distractor = (
+        "language=css" in lowered_context or "language=javascript" in lowered_context
+    )
+    if "language=html" in (context_label or "").strip().lower():
+        html_focus_instructions = """
+
+<html-priority-targets>
+When the code is HTML, prioritize the primary change target in this exact order:
+1. Restart button-related code (if present)
+2. Status element-related code (if present)
+3. Grid-related structure/logic hooks in HTML (if present)
+4. If none of the above are present, pick another meaningful UI element
+
+For HTML distractors, prioritize the following changes in this order:
+- switch the label of the element's ID to something that this user could plausibly specify. this distractor should match the style of the user's
+- switch the label of the element's class name to something that this user could plausibly specify. this distractor should match the style of the user's
+- any other change that is noticeable but different
+</html-priority-targets>
+"""
+    # Check follow_up before zic_zac_zoe: "task=zic_zac_zoe" is a substring of "task=zic_zac_zoe_follow_up"
+    if "language=css" in lowered_context and "task=zic_zac_zoe_follow_up" in lowered_context:
+        css_js_task_focus_instructions = """
+<task-specific-css-focus>
+For zic_zac_zoe_follow_up symbol-color CSS, prefer one of these distractors:
+1. If the code has two CSS blocks with separate colors and parallel structure (e.g. one block for each symbol color), show a version that uses one CSS block with a single mechanism to vary the color, such as CSS variables (var(--symbol-color)), attribute selectors ([data-symbol="x"]), or modifier classes (.symbol-x). Only one of these so it is not extremely different. This is already a bug because it will no longer work with the rest of the user's code.
+2. If the code has one CSS block for symbol colors, show a two-block version (split into two parallel blocks with different colors). This is already a bug because it will no longer work with the rest of the user's code.
+3. If neither (1) nor (2) is feasible, fall back to a synonymous way of setting the text color like "-webkit-text-fill-color"
+4. If this still is not possible, introduce some other logically equivalent difference
+
+- Do NOT use typo-based bugs (e.g., "centre"), invalid property names, or invalid CSS values.
+- Keep it realistic and mirroring the original style. Do not introduce stylistic differences like adding/removing comments that were/were not in the original, using different spacing/indents/newlines, or different syntax conventions that are logically equivalent in this case 
+</task-specific-css-focus>
+"""
+    elif "language=css" in lowered_context and "task=zic_zac_zoe" in lowered_context:
+        css_js_task_focus_instructions = """
+<task-specific-css-focus>
+For zic_zac_zoe centering-related CSS, prefer one of these distactors:
+- Generate a different but logically equivalent way that the user could have centered their code horizontally.
+- Do not alter parts of the code that are unrelated to centering logic (e.g., margins)
+- If this is not possible, introduce some other logically equivalent difference (but they should not be identical)
+</task-specific-css-focus>
+"""
+
+    elif "language=javascript" in lowered_context and "task=zic_zac_zoe_follow_up" in lowered_context:
+        css_js_task_focus_instructions = """
+<task-specific-js-focus>
+For zic_zac_zoe_follow_up, prefer one of these distractors in this order:
+- First, change the location in the code for where the user checks all four corners.
+- If this isn't possible, swap the order of the horizontal and vertical checks
+- If this also isn't possible, introduce some other logically equivalent change of the function (but they should not be identical)
+</task-specific-js-focus>
+"""
+
+    elif "language=javascript" in lowered_context and "task=zic_zac_zoe" in lowered_context:
+        css_js_task_focus_instructions = """
+<task-specific-js-focus>
+For zic_zac_zoe board rendering implementations, add an logically equivalent change related to indexing. Prefer one of the distractors in this order:
+- If the user loops over a 2D matrix (e.g., 'board' via row and col) and then converts it into a 1D matrix index (access 'cells' via 5*i+j), swap the approach: loop over the 1D list (cells) and map it into a 2D matrix indices (board). The vice versa also applies
+- Make sure the style is EXACTLY the same between the two versions, including comments, indententations, and newlines. Try to use a more conventional style for both.
+- If this also isn't possible, introduce some other logically equivalent change of the function (but they should not be identical)
+</task-specific-js-focus>
+"""
+
+    if generate_both_real_and_distractor:
+        task_and_format = """
+<task>
+Generate TWO versions of this code block in a single, consistent style (same formatting, comments, indentation, naming conventions).
+1. real_code: A faithful reproduction of the given code, in the exact style you will use for both outputs.
+2. distractor_code: Same as real_code except introduce ONE noticeable but logically equivalent difference (so someone who did not implement this might not spot it).
+
+By generating both in one response, keep style identical between the two; only the intended logical-equivalence change should differ. Do not add or remove comments, change spacing, or introduce other stylistic differences between real_code and distractor_code.
+</task>
+
+<code>
+{code}
+</code>
+{html_focus_instructions}
+{css_js_task_focus_instructions}
+{full_context_section}
+
+<format>
+Return strict JSON only:
+{{
+  "real_code": "FAITHFUL_REPRODUCTION_IN_YOUR_STYLE",
+  "distractor_code": "SAME_BUT_WITH_ONE_LOGICAL_EQUIVALENCE_CHANGE"
+}}
+</format>
+"""
+    else:
+        task_and_format = """
+<task>
+Generate a distractor for this code block.
+- Introduce one noticeable but logically equivalent difference such that someone who did not actually implement this code themselves may not realize the difference
+- Do not add obvious stylistic differences or artifacts. For example, if the original code block did not have comments, you should not add comments to the distractor block. If the original code block did have comments, you should preserve them.
+</task>
+
+<code>
+{code}
+</code>
+{html_focus_instructions}
+{css_js_task_focus_instructions}
+{full_context_section}
+
+<format>
+Return strict JSON only:
+{{
+  "code": "DISTRACTOR_CODE"
+}}
+</format>
+"""
+    prompt = task_and_format
+    full_context_section = ""
+    if full_context and full_context.strip():
+        full_sheet_content = full_context.strip()
+        _code_compare_debug_log(
+            f"[distractor] full_context provided for CSS: lines={_count_code_lines(full_sheet_content)}"
+        )
+        full_context_section = (
+            "\n<full_context>\n"
+            "The following is the entire stylesheet for context. The block you must create a distractor for is in the <code> section above.\n"
+            "</full_context>\n"
+            "<full_sheet>\n"
+            + full_sheet_content
+            + "\n</full_sheet>"
+        )
+    prompt = prompt.format(
+        code=code,
+        full_context_section=full_context_section,
+        html_focus_instructions=html_focus_instructions,
+        css_js_task_focus_instructions=css_js_task_focus_instructions,
+    ).strip()
+    max_line_diff = 10
+
+    context_suffix = f" context={context_label}" if context_label else ""
+
+    for num_tries in range(5):
+        model_name = random_model if num_tries == 0 else backup_model
+        _code_compare_debug_log(f"[distractor] attempt={num_tries + 1}/3 model={model_name}")
+        try:
+            response = litellm.completion(
+                model=model_name,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            output = response.choices[0].message.content.replace('```', '').replace('json', '').strip()
+            if "{" in output and "}" in output:
+                output = output[output.index("{"):output.rindex("}") + 1].strip()
+            output = json.loads(output)
+
+            if generate_both_real_and_distractor:
+                real_candidate = output.get("real_code", None)
+                candidate = output.get("distractor_code", None)
+                if not isinstance(real_candidate, str) or not isinstance(candidate, str):
+                    print(
+                        f"[distractor] rejected attempt={num_tries + 1}: invalid real_code/distractor_code "
+                        f"types (expected both str){context_suffix}",
+                        flush=True,
+                    )
+                    _code_compare_debug_log(
+                        f"[distractor] attempt={num_tries + 1} invalid output types"
+                    )
+                    continue
+                candidate_line_count = _count_code_lines(candidate)
+                line_diff = abs(candidate_line_count - code_line_count)
+                if line_diff <= max_line_diff:
+                    _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1} (both real+distractor)")
+                    return (real_candidate.strip(), candidate.strip())
+                print(
+                    f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
+                    f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
+                    f"(allowed<={max_line_diff}){context_suffix}",
+                    flush=True,
+                )
+                _code_compare_debug_log(
+                    f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
+                )
+            else:
+                candidate = output.get("code", None)
+                if not isinstance(candidate, str):
+                    print(
+                        f"[distractor] rejected attempt={num_tries + 1}: invalid 'code' field type="
+                        f"{type(candidate).__name__} (expected str){context_suffix}",
+                        flush=True,
+                    )
+                    _code_compare_debug_log(
+                        f"[distractor] attempt={num_tries + 1} invalid output type={type(candidate).__name__}"
+                    )
+                    continue
+
+                candidate_line_count = _count_code_lines(candidate)
+                line_diff = abs(candidate_line_count - code_line_count)
+                if line_diff <= max_line_diff:
+                    _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1}")
+                    return candidate
+                print(
+                    f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
+                    f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
+                    f"(allowed<={max_line_diff}){context_suffix}",
+                    flush=True,
+                )
+                _code_compare_debug_log(
+                    f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
+                )
+        except Exception as e:
+            print(
+                f"[distractor] rejected attempt={num_tries + 1}: exception={type(e).__name__} "
+                f"details={e}{context_suffix}",
+                flush=True,
+            )
+            _code_compare_debug_log(f"[distractor] attempt={num_tries + 1} failed: {e}")
+            continue
+    print(f"[distractor] exhausted attempts; returning empty string{context_suffix}", flush=True)
+    _code_compare_debug_log("[distractor] exhausted attempts, returning empty string")
+    return ""
+
+
 def generate_single_code_compare_question(
     submission_code: Dict[str, str],
     language: str,
@@ -795,6 +1025,7 @@ def generate_single_code_compare_question(
             user_code=user_code,
             starter_code=starter_code if isinstance(starter_code, dict) else {},
         )
+        print('selection:', selection)
         if selection and selection.get("status") == "selected":
             resolved = _resolve_selected_target_to_code(normalized, selection, js_code, html_code, css_code)
             if resolved:
@@ -952,16 +1183,27 @@ def _build_code_compare_question(
     )
     _code_compare_debug_log(f"[code-compare] building question={question_name} language={code_language}")
     is_css = (code_language or "").strip().lower() == "css"
-    distractor_code = generate_distractor_code_block(
+    result = generate_distractor_code_block_logical_equivalence(
         original_code,
         context_label=f"question={question_name} language={code_language} task={(task_name or '').strip().lower()}",
         full_context=full_context_code if is_css else None,
     )
+
+    if isinstance(result, tuple):
+        original_code, distractor_code = result[0], result[1]
+    else:
+        distractor_code = result
     if not distractor_code or not distractor_code.strip():
         _code_compare_debug_log(
             f"[code-compare] skip question={question_name} language={code_language}: empty distractor"
         )
         _code_compare_skip_log(code_language, "empty_distractor_code", f"question={question_name}")
+        return None
+    if not original_code or not original_code.strip():
+        _code_compare_debug_log(
+            f"[code-compare] skip question={question_name} language={code_language}: empty original (from model pair)"
+        )
+        _code_compare_skip_log(code_language, "empty_original_code_from_pair", f"question={question_name}")
         return None
 
     original_on_left = random.choice([True, False])

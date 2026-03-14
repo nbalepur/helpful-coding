@@ -302,7 +302,7 @@ function HomeInner() {
   const [showCodeEditor, setShowCodeEditor] = useState(true);
   const [showTerminal, setShowTerminal] = useState(true);
   /** Debug console (terminal) open state in Preview tab, for code-log metadata. */
-  const [debugTerminalOpen, setDebugTerminalOpen] = useState(false);
+  const [debugTerminalOpen, setDebugTerminalOpen] = useState(true);
   
   // Task data
   const [taskDescriptions, setTaskDescriptions] = useState<string[]>([]);

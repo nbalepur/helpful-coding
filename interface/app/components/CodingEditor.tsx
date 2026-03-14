@@ -712,7 +712,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     css: string;
     js: string;
   }>({ html: '', css: '', js: '' });
-  const [showDebugTerminal, setShowDebugTerminal] = useState(false);
+  const [showDebugTerminal, setShowDebugTerminal] = useState(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const debugIframeRef = useRef<HTMLIFrameElement>(null);
   

@@ -4026,6 +4026,7 @@ async def generate_comprehension_questions(
             submission_code=payload.submission_code,
             is_required_task=is_required_task,
             project_name=project.name.lower() if project.name else None,
+            project_label=(project.label or "").strip().lower() or None,
             ai_assistant_mode=payload.ai_assistant_mode,
             target_selection_context=target_selection_context,
             task_description=task_description or None,
@@ -4272,41 +4273,56 @@ async def save_tutorial_questions(
         )
 
 
-def generate_distractor_functions(function_names: list[str]) -> list[str]:
+
+def generate_distractor_functions(functions_map: Dict[str, str]) -> list[str]:
     """
     Generate plausible function names that don't exist in the code.
+    functions_map: name -> implementation (included in prompt, truncated if long).
     """
+    if not functions_map:
+        return []
 
     random_model = "openai/gpt-5.2-2025-12-11"
     backup_model = "openai/gpt-5.2-2025-12-11"
 
+    # Format each function with name + implementation (truncate long bodies)
+    function_blocks = []
+    for name, code in functions_map.items():
+        code_snippet = code
+        function_blocks.append(f"<function name=\"{name}\">\n{code_snippet}\n</function>")
+    functions_text = "\n\n".join(function_blocks)
+    existing_names = list(functions_map.keys())
 
     prompt = """
 <task>
 You are an expert at generating function names that do not exist in a user's code but plausibly could.
 
-Given a list of function names, generate exactly five function names that mimic the style of the existing function names, but do not actually exist. For example, if the existing function names are "playTurn" and "setupLogic", you could generate distractors like "endTurn" and "setupGame". We will eventually show these function names to users and ask them to identify which function names exist (the inputs you are given) and which do not exist (the function names you will generate), testing their comprehension of their own code.
+Given the existing function names and their implementations below, generate exactly four function names that mimic the style and domain of the existing code but do not actually exist. Use the implementations to understand what the code does (e.g. game turns, setup, UI) so your fake names are plausible. For example, if the code has "playTurn" and "setupLogic", you could generate "endTurn", "setupGame", "resetBoard". We will show these to users and ask them to identify which names exist and which do not, testing their comprehension of their own code.
 </task>
 
-Here are the existing function names:
-<function_names>
-{function_names}
-</function_names>
+Here are the existing functions (name and implementation):
+<functions>
+{functions_text}
+</functions>
 
 <function requirements>
-- Mimic the style and content of the existing function names
-- None of the generated function names should be the same as the existing function names. This is extremely important.
+- Mimic the style and domain of the existing function names; use the implementations to inform plausible fake names.
+- None of the generated function names should be the same as the existing function names: {existing_names_list}. This is extremely important.
+- You may generate: 1) names for features that do not exist in the code; 2) wrapper/helper names that do not exist; 3) names that suggest further decomposition of the real logic.
 </function requirements>
 
 <format>
-Generate your output as a JSON with the key "fake_function_names" and the value being an array of exactly five function names as strings:
+Generate your output as a JSON with the key "fake_function_names" and the value being an array of exactly four function names as strings:
 {{
-    "fake_function_names": ["function_name_1", "function_name_2", "function_name_3", "function_name_4", "function_name_5"]
+    "fake_function_names": ["function_name_1", "function_name_2", "function_name_3", "function_name_4"]
 }}
 
 Do not generate anything else.
 </format>
-""".format(function_names=function_names).strip()
+""".format(
+        functions_text=functions_text,
+        existing_names_list=existing_names,
+    ).strip()
 
     for num_tries in range(5):
         try:
@@ -4320,7 +4336,7 @@ Do not generate anything else.
             if "{" in output and "}" in output:
                 output = output[output.index("{"):output.rindex("}")+1].strip()
             output = json.loads(output)
-            if type(output.get("fake_function_names", [])) == list and len(output.get("fake_function_names", [])) == 5:
+            if type(output.get("fake_function_names", [])) == list and len(output.get("fake_function_names", [])) == 4:
                 return output["fake_function_names"]
         except Exception as e:
             print('failed on distractor func:', str(e))
@@ -4374,33 +4390,57 @@ def _extract_class_and_id_selectors(css_code: str) -> List[str]:
     return result
 
 
-def generate_distractor_class_id_selectors(real_selectors: List[str], count: int = 5) -> List[str]:
+MAX_DISTRACTOR_CSS_BLOCK_LINES = 20
+
+
+def generate_distractor_class_id_selectors(
+    selector_to_block: Dict[str, str],
+    count: int = 5,
+) -> List[str]:
     """
-    Generate fake-but-plausible class/ID selectors (e.g. .footer, #sidebar) that do not appear in real_selectors.
+    Generate fake-but-plausible class/ID selectors that do not appear in the stylesheet.
+    selector_to_block: map of selector string (e.g. .header, #main) -> rule block (implementation).
+    When implementations are provided, the model uses them to match project style and domain.
     """
+    real_selectors = list(selector_to_block.keys())
     if not real_selectors or count <= 0:
         return []
 
     random_model = "openai/gpt-5.2-2025-12-11"
     backup_model = "openai/gpt-5.2-2025-12-11"
 
+    # Format each selector with its rule block (truncate long blocks)
+    selector_blocks = []
+    for sel, block in selector_to_block.items():
+        block = (block or "").strip()
+        if block:
+            lines = block.splitlines()
+            if len(lines) > MAX_DISTRACTOR_CSS_BLOCK_LINES:
+                lines = lines[:MAX_DISTRACTOR_CSS_BLOCK_LINES]
+                block = "\n".join(lines) + "\n  /* ... */"
+        selector_blocks.append(
+            f'<selector name="{sel}">\n{block or "(no rule block extracted)"}\n</selector>'
+        )
+    selectors_text = "\n\n".join(selector_blocks)
+    existing_names_list = real_selectors
+
     prompt = """
 <task>
 You are an expert at generating fake-but-plausible CSS class and ID selectors for distractor questions.
 
-Given existing class and ID selectors from a project, generate exactly {count} selectors that look like they could belong to the same project but DO NOT appear in the existing list. Use the same style: .name for classes, #name for IDs. Preserve the user's casing: match the casing style of the existing selectors (e.g. if they use .Header and #Main, use PascalCase or similar for your fake selectors; if they use .header and #main, use lowercase).
+Given the existing selectors and their rule blocks below, generate exactly {count} selectors that look like they could belong to the same project but DO NOT appear in the existing list. Use the rule blocks to understand the project's style and domain (e.g. layout, components, colors) so your fake selectors are plausible. Use the same style: .name for classes, #name for IDs. Preserve the user's casing (e.g. .Header and #Main vs .header and #main).
 </task>
 
-Here are the existing selectors:
+Here are the existing selectors and their rule blocks:
 <selectors>
-{selectors}
+{selectors_text}
 </selectors>
 
 <requirements>
 - Output exactly {count} fake selectors.
-- None of the generated selectors may match any existing ones (including different prefix: if .header exists, do not generate .header or #header).
+- None of the generated selectors may match any existing ones: {existing_names_list}. (Including different prefix: if .header exists, do not generate .header or #header.)
 - Mix of class (.) and id (#) selectors similar to the existing list.
-- Preserve the user's casing style so fake selectors look consistent with the existing list.
+- Preserve the user's casing style so fake selectors look consistent.
 - Return only the selector strings (e.g. .footer, #sidebar). No comments or explanations.
 </requirements>
 
@@ -4410,7 +4450,11 @@ Return JSON:
   "fake_selectors": [".footer", "#sidebar", ".card"]
 }}
 </format>
-""".format(selectors="\n".join(real_selectors), count=count).strip()
+""".format(
+        selectors_text=selectors_text,
+        existing_names_list=existing_names_list,
+        count=count,
+    ).strip()
 
     existing_set = {s.strip().lower() for s in real_selectors}
     for num_tries in range(5):
@@ -4490,7 +4534,7 @@ Fake selectors (not in the stylesheet):
 
 <requirements>
 - Return one description for every selector listed above.
-- Each description must be one sentence and less than 15 words.
+- Each description must be one sentence and less than 10 words.
 - Start every description with "This selector..." (e.g. "This selector targets the main navigation bar.").
 - Copy selector names exactly (e.g. .header, #main). Keep style consistent across real and fake.
 </requirements>
@@ -4738,13 +4782,19 @@ def generate_css_style_questions(css_code: str) -> List[Dict[str, Any]]:
     Build a CSS distractor question: which class and ID selectors exist in your CSS stylesheet?
     Extracts .class and #id from CSS only, generates fake ones and descriptions (like JS), multi_select.
     """
-    real_selectors_all = _extract_class_and_id_selectors(css_code or "")
+    css_code = css_code or ""
+    real_selectors_all = _extract_class_and_id_selectors(css_code)
     if len(real_selectors_all) < 2:
         return []
 
     target_count = min(5, len(real_selectors_all))
     sampled_real = random.sample(real_selectors_all, k=target_count)
-    fake_selectors = generate_distractor_class_id_selectors(sampled_real, count=target_count)
+    # Build selector -> rule block so the distractor model sees context (like JS names + implementations)
+    selector_to_block: Dict[str, str] = {}
+    for sel in sampled_real:
+        block = qgh._extract_css_block_by_selector(css_code, sel)
+        selector_to_block[sel] = block or ""
+    fake_selectors = generate_distractor_class_id_selectors(selector_to_block, count=target_count)
     if len(fake_selectors) != target_count:
         return []
 
@@ -4811,7 +4861,7 @@ def generate_ui_features(
 <task>
 You are an expert at generating a set of features that exist in a user's website, and a set of features that do not exist in a user's website.
 
-Given the user's HTML, CSS, and JavaScript code, generate a set of five features that exist in the website, and a set of five features that do not exist in the website but plausibly could exist in the website. We will eventually show these features to users and ask them to identify which features exist and which do not exist, testing their comprehension of their own website.
+Given the user's HTML, CSS, and JavaScript code, generate a set of four features that exist in the website, and a set of four features that do not exist in the website but plausibly could exist in the website. We will eventually show these features to users and ask them to identify which features exist and which do not exist, testing their comprehension of their own website.
 </task>
 {task_context}Here is the HTML code:
 <html>
@@ -4830,23 +4880,23 @@ Here is the JavaScript code:
 
 <feature requirements>
 - Each feature should be a concise sentence/phrase, no more than 15 words.
-- All features should be user-centered, describing elements that the users can see and interact with, or certain functionalities present in the website.
 - When generating features that do exist in the website, make sure that they actually exist.
 - When generating features that do not exist in the website, make sure that they do not exist. However, they should be things that plausibly could exist in this website.
 - The fake features should not be over-the-top for a simple website. For example, instead of mentioning something like "a special animation", if the website is relatively plain, you could just say "highlighted", "distinct", etc.
 - You never hallucinate.
-- Generate exactly five real features and five fake features.
-- Remember, the fake and real features should be EXACTLY the same in style, including sentence structure, words, level of detail, etc.
+- Generate exactly four real features and four fake features.
+- Remember, the fake and real features should be EXACTLY the same in style, including sentence structure, words, level of detail, granularity, number of elements listed, etc.
 - Do not add any stylistic differences between real and fake features. For example, if a real feature says "The user can win the game via X, Y, or Z", a bad fake feature would be "The user can win the game via A". They should be consistent, like making the real feature just "The user can win the game via X"
+- Modularize real features into atomic units. Do not loop multiple features into a single generated options
 - None of the features should use words like "also" or "in addition". This is a giveaway that it is fake.
-- All of the features will be merged into a single list, so do not generate fake features that reveal that other features are real. For example, if one real feature says "Players place symbols via X and O", a bad fake feature is "Players can switch from symbols X and O", since it's obvious then that the game does have X and O.
+- All of the features will be merged into a single list, so do not generate fake features that reveal that other features are real. For example, if one real feature says "Players place symbols via X and O", a bad fake feature is "Players can change the symbols from symbols X and O", since it's obvious then that the game does have X and O.
 </feature requirements>
 
 <format>
-Generate your output as a JSON with two keys: 1) "real_features" - an array of five features that exist in the website; and 2) "fake_features" - an array of five features that do not exist in the website:
+Generate your output as a JSON with two keys: 1) "real_features" - an array of four features that exist in the website; and 2) "fake_features" - an array of four features that do not exist in the website:
 {{
-    "real_features": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
-    "fake_features": ["feature_6", "feature_7", "feature_8", "feature_9", "feature_10"]
+    "real_features": ["feature_1", "feature_2", "feature_3", "feature_4"],
+    "fake_features": ["feature_5", "feature_6", "feature_7", "feature_8"]
 }}
 
 Do not generate anything else.
@@ -4871,7 +4921,7 @@ Do not generate anything else.
             if "{" in output and "}" in output:
                 output = output[output.index("{"):output.rindex("}")+1].strip()
             output = json.loads(output)
-            if type(output.get("real_features", [])) == list and type(output.get("fake_features", [])) == list and len(output.get("real_features", [])) == 5 and len(output.get("fake_features", [])) == 5:
+            if type(output.get("real_features", [])) == list and type(output.get("fake_features", [])) == list and len(output.get("real_features", [])) == 4 and len(output.get("fake_features", [])) == 4:
                 return output["real_features"], output["fake_features"]
         except Exception as e:
             print('failed on UI:', str(e))
@@ -4978,7 +5028,7 @@ Here are the fake functions which only have a name:
 
 <requirements>
 - Mimic the style and content of the existing function names
-- All of the descriptions should be a single sentence and less than 15 words
+- All of the descriptions should be a single sentence and less than 10 words
 - For the existing function names, the descriptions should be a high-level overview of how the function works (e.g., "This function checks whether a user has won the game")
 - For the fake function names, the descriptions should be feasible descriptions of what the function could do if it actually existed based on its name 
 - The descriptions for fake and existing functions should be written in identical styles. The length, punctuation, specificity, and word choice should be similar.
@@ -5081,8 +5131,8 @@ def generate_js_questions(submission_code: Dict[str, str], include_explanation: 
         return []
 
     real_function_names = list(functions_map.keys())
-    fake_function_names = generate_distractor_functions(real_function_names)
-    
+    fake_function_names = generate_distractor_functions(functions_map)
+
     # Only sample code blocks for explanation if we're including explanation questions
     sampled_function_name = None
     sampled_function_code = None
@@ -5338,6 +5388,7 @@ async def _generate_comprehension_questions(
     submission_code: Dict[str, str],
     is_required_task: bool = True,
     project_name: Optional[str] = None,
+    project_label: Optional[str] = None,
     ai_assistant_mode: Optional[str] = None,
     target_selection_context: Optional[Dict[str, Any]] = None,
     task_description: Optional[str] = None,
@@ -5355,6 +5406,7 @@ async def _generate_comprehension_questions(
                          If False, only include self_report_understanding and MCQA questions,
                          excluding explanation question.
         project_name: Lowercase name of the project/task (e.g., "snake", "platformer")
+        project_label: Task label (e.g., "replication", "open-ended"). Used to skip css_style_distractors for game-based tasks.
         task_description: Optional description of what the user was asked to build (for UI feature distractors).
         task_requirements: Optional list of assignment requirements (for UI feature distractors).
     
@@ -5548,6 +5600,7 @@ async def _generate_comprehension_questions(
     
     # Add code-based questions (run in parallel).
     # Launch JS/UI generation and the three compare-question generations together.
+    # css_style_distractors included only for website-requirement tasks (skipped for game-based: replication, open-ended).
     code_questions, ui_questions, css_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
         asyncio.to_thread(generate_js_questions, submission_code, include_explanation=False),
         asyncio.to_thread(
@@ -5582,15 +5635,17 @@ async def _generate_comprehension_questions(
             target_selection_context,
         ),
     )
+    is_game_based_task = (project_label or "").strip().lower() in ("replication", "open-ended")
     print(
         f"[comprehension/generate-helper] code_questions={len(code_questions)} ui_questions={len(ui_questions)} css_questions={len(css_questions)} "
-        f"html_compare={bool(html_compare_question)} css_compare={bool(css_compare_question)} js_compare={bool(js_compare_question)}",
+        f"html_compare={bool(html_compare_question)} css_compare={bool(css_compare_question)} js_compare={bool(js_compare_question)} is_game_based={is_game_based_task}",
         flush=True,
     )
     
     warnings: List[str] = []
     questions.extend(ui_questions)
-    questions.extend(css_questions)
+    if not is_game_based_task:
+        questions.extend(css_questions)
     questions.extend(code_questions)
     # Deterministic compare question order: html -> css -> js
     if html_compare_question:
@@ -7397,7 +7452,7 @@ def _get_experiment_group_counts(db: Session) -> Dict[str, int]:
     """Count assigned experiment groups across eligible non-skipping users.
     When on_or_after is set below, only users with created_at >= that date are included.
     """
-    on_or_after: Optional[datetime] = datetime(2026, 3, 13)  # e.g. datetime(2025, 3, 1, tzinfo=timezone.utc)
+    on_or_after: Optional[datetime] = datetime(2026, 3, 14)
     counts = {
         SIGNUP_GROUP_CHAT: 0,
         SIGNUP_GROUP_AGENT: 0,
