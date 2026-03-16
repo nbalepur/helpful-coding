@@ -7574,7 +7574,7 @@ def _get_experiment_group_counts(db: Session) -> Dict[str, int]:
     """Count assigned experiment groups across eligible non-skipping users.
     When on_or_after is set below, only users with created_at >= that date are included.
     """
-    on_or_after: Optional[datetime] = datetime(2026, 3, 14)
+    on_or_after: Optional[datetime] = datetime(2026, 3, 16)
     counts = {
         SIGNUP_GROUP_CHAT: 0,
         SIGNUP_GROUP_AGENT: 0,
