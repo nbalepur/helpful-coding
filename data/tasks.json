@@ -1561,7 +1561,7 @@
         "Add a status element in a paragraph tag underneath the header 'Zic-Zac-Zoe'. It should show whose turn it is ('Player A Turn' or 'Player B Turn') and a message when the game is over (e.g., 'Player A Wins!', 'Player B Wins!', 'Tie Game!'), prefixed by 'Status:'"
       ],
       "label": "website_requirements",
-      "example": "<iframe width='420' height='315' src='https://www.youtube.com/embed/TVVXZIxqqVY?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
+      "example": "<iframe allowfullscreen width='420' height='315' src='https://www.youtube.com/embed/TVVXZIxqqVY?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
       "code_start_date": "2025-01-01",
       "voting_start_date": "2027-02-08",
       "voting_end_date": "2050-02-15",
@@ -1588,7 +1588,7 @@
       "title": "Recreation Task Two",
       "description": "<p>This task will be revealed once you open it.</p>",
       "label": "website_requirements",
-      "example": "<iframe width='420' height='315' src='https://www.youtube.com/embed/Ilqua-EDkzM?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
+      "example": "<iframe allowfullscreen width='420' height='315' src='https://www.youtube.com/embed/Ilqua-EDkzM?rel=0&modestbranding=1&iv_load_policy=3&playsinline=1'></iframe>",
       "requirements": [
         "Along with your previous win condition logic, a player can also win zic-zac-zoe if they occupy ALL four corners of the board.",
         "Style the text color of the board symbols in your CSS file so that 'A' appears red and 'B' appears blue. The red and blue colors must be defined in the CSS file and not set directly in JavaScript.",

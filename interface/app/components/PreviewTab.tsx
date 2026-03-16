@@ -32,11 +32,11 @@ const PreviewTab = forwardRef<PreviewTabRef, PreviewTabProps>(({ files, classNam
   const containerRef = useRef<HTMLDivElement>(null);
   const [internalRefreshKey, setInternalRefreshKey] = useState(0);
   const [isDebugOpen, setIsDebugOpen] = useState(() => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined') return true;
     const storedValue = window.localStorage.getItem(DEBUG_CONSOLE_VISIBILITY_STORAGE_KEY);
     if (storedValue === 'true') return true;
     if (storedValue === 'false') return false;
-    return false;
+    return true; // open by default when no preference stored
   });
   const [url, setUrl] = useState(`https://vibecode.io/${taskName.toLowerCase().replace(/\s+/g, '-')}`);
   
