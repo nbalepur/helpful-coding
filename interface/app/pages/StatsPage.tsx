@@ -873,8 +873,7 @@ export default function CompensationPage() {
   const stage4Unlocked = stage3Unlocked && completedAdditionalWebsiteTasks >= numTasksRequiredUntilPostTest;
   const stage4Completed = stage4Unlocked && completedPostTest;
   const gameBonusTopN = process.env.NEXT_PUBLIC_GAME_TASK_BONUS_TOP_N ?? "N";
-  const studyEndDate = 'May 2026';
-  const bonusRewardsEndDate = 'June 1, 2026';
+  const studyEndDateOverall = formatDateOnly(process.env.NEXT_PUBLIC_STUDY_END_DATE_OVERALL);
 
   const pillBase =
     "px-3 py-1 text-xs rounded-full border transition-colors focus:outline-none";
@@ -1029,7 +1028,7 @@ export default function CompensationPage() {
         <div className="bg-gray-800/60 rounded-lg border border-gray-700/60 p-5 space-y-3">
           <h2 className="text-lg font-semibold text-white">How compensation works</h2>
           <p className="text-gray-300 text-sm leading-relaxed">
-            The study ends in {studyEndDate}. Compensation is staggered by stage; complete required stages by then to be eligible. Later payments unlock only after earlier stages are complete.
+            The study ends in {studyEndDateOverall}. Compensation is staggered by stage; complete required stages by then to be eligible. Later payments unlock only after earlier stages are complete.
           </p>
           <div className="space-y-2 text-sm text-gray-300">
             <ul className="list-disc list-outside pl-5 space-y-1">
@@ -1049,7 +1048,7 @@ export default function CompensationPage() {
                 <span className="font-semibold text-blue-300">Stage 4:</span> After {numTasksRequiredUntilPostTest} additional website tasks, complete the post-test to receive $10.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Bonus rewards:</span> The top 10 users with the highest-scoring websites (by user voting) will each receive $10. Rewards are available through {bonusRewardsEndDate}.
+                <span className="font-semibold text-blue-300">Bonus rewards:</span> The top 10 users with the highest-scoring websites (by user voting) will each receive $10. Rewards are available through {studyEndDateOverall}.
               </li>
             </ul>
             <p className="text-gray-300 mt-2">
@@ -1260,6 +1259,18 @@ export default function CompensationPage() {
                   disabled={!stage4Unlocked}
                 />
               )}
+            </div>
+
+            <div className="bg-gray-900/60 rounded-lg border border-gray-700/60 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-gray-200 font-medium">Bonus: Top 10 by user voting</p>
+                  <p className="text-gray-400 text-sm">
+                    The top 10 users with the highest-scoring websites (by user voting) each receive $10. Results determined after voting ends.
+                  </p>
+                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10 (if in top 10) • Available through {studyEndDateOverall}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

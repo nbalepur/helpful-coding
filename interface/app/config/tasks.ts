@@ -82,6 +82,7 @@ export const LEADERBOARD_FILTERED_USERNAMES: string[] = [
   'test',
   'eek',
   'swagswag',
+  'afda@a.com',
   ...Array.from({ length: 100 }, (_, idx) => `test${idx + 1}`)
 ];
 

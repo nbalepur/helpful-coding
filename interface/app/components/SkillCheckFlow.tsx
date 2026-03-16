@@ -3220,14 +3220,26 @@ export default function SkillCheckFlow({ mode, retakeSessionId = null, retakeQue
         }
       }
       
-      // For "Left block / Right block" code comparison questions, wrap the two pre elements
+      // For "Left block / Right block" code comparison questions, wrap pre elements
       // so we can highlight the selected block (left vs right) with a background.
+      // Two-block: one pre per side. Four-block (HTML+JS): first two pre in left, last two in right.
       const isLeftRightCodeQuestion = choicesArray.length === 2 &&
         choicesArray[0] === 'The Left Code is Mine' &&
         choicesArray[1] === 'The Right Code is Mine';
       if (questionTextEl && isLeftRightCodeQuestion) {
         const pres = questionTextEl.querySelectorAll('pre');
-        if (pres.length >= 2) {
+        if (pres.length >= 4) {
+          const leftWrap = document.createElement('div');
+          leftWrap.className = 'skill-check-left-code-block';
+          pres[0].parentNode.insertBefore(leftWrap, pres[0]);
+          leftWrap.appendChild(pres[0]);
+          leftWrap.appendChild(pres[1]);
+          const rightWrap = document.createElement('div');
+          rightWrap.className = 'skill-check-right-code-block';
+          pres[2].parentNode.insertBefore(rightWrap, pres[2]);
+          rightWrap.appendChild(pres[2]);
+          rightWrap.appendChild(pres[3]);
+        } else if (pres.length >= 2) {
           const leftWrap = document.createElement('div');
           leftWrap.className = 'skill-check-left-code-block';
           pres[0].parentNode.insertBefore(leftWrap, pres[0]);

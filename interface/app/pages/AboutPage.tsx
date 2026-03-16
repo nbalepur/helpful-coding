@@ -13,7 +13,6 @@ import { useIframeTheme } from '../utils/IframeThemeContext';
 import { useAuth } from '../utils/auth';
 import { getStudyTaskMode } from '../config/tasks';
 import { isWebsiteRequirementsSkippedFromSettings } from '../utils/userSettings';
-import { PRE_TEST_SKIPPED_KEY } from '../components/UserStudyPopupProvider';
 
 // Generate ID from heading text
 const generateHeadingId = (text: string): string => {
@@ -43,6 +42,7 @@ const extractYouTubeVideoId = (url?: string): string | null => {
 
 export default function AboutPage() {
   const { user } = useAuth();
+  const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   const [markdownContent, setMarkdownContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,18 +125,17 @@ export default function AboutPage() {
       let instructionsPath = websiteInstructionsPath;
 
       try {
-        const fromSettingsOrLocal = isWebsiteRequirementsSkippedFromSettings(user?.settings);
-        const fromSessionSkip =
-          typeof window !== 'undefined' && sessionStorage.getItem(PRE_TEST_SKIPPED_KEY) === 'true';
-        const websiteRequirementsSkipped = fromSettingsOrLocal || fromSessionSkip;
+        const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
         let mode = getStudyTaskMode([], websiteRequirementsSkipped);
 
-        const tasksResponse = await fetch('/api/tasks');
+        // Use same fetch as browse page so mode (game vs website-requirements) matches
+        const queryParams = numericUserId != null ? `?userId=${numericUserId}` : '';
+        const tasksResponse = await fetch(`/api/tasks${queryParams}`);
         if (tasksResponse.ok) {
           const tasksData = await tasksResponse.json();
           const tasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
-          const nonPlaygroundTasks = tasks.filter((task: any) => task.id !== 'playground');
-          mode = getStudyTaskMode(nonPlaygroundTasks, websiteRequirementsSkipped);
+          const otherTasks = tasks.filter((task: any) => task.id !== 'playground');
+          mode = getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
         }
 
         instructionsPath = mode === 'game' ? gameInstructionsPath : websiteInstructionsPath;
@@ -152,10 +151,9 @@ export default function AboutPage() {
         const text = await response.text();
         if (isCancelled) return;
 
-        // Preprocess markdown: convert <br /> tags to spacing divs
-        // These will be rendered as HTML using rehype-raw plugin
-        const processedText = text.replace(/<br\s*\/?>/gi, '\n\n<div style="height: 1.5em; margin: 0;" data-br-spacer="true" aria-hidden="true"></div>\n\n');
-        setMarkdownContent(processedText);
+        // Use raw markdown so headings after <br /> (e.g. Voting on Projects, Post-Test Assessment)
+        // are not swallowed by HTML block parsing when we would inject block-level divs
+        setMarkdownContent(text);
         const headings = extractHeadings(text);
         setTableOfContents(headings);
         setActiveSection(headings.length > 0 ? headings[0].id : '');
@@ -176,7 +174,7 @@ export default function AboutPage() {
     return () => {
       isCancelled = true;
     };
-  }, [user?.settings]);
+  }, [user?.settings, numericUserId]);
   
   // Track when videos have loaded their metadata and show content
   useEffect(() => {

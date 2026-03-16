@@ -192,7 +192,7 @@ Participants with websites that score highly will be eligible for extra compensa
 
 ### Post-Test Assessment
 
-After completing a certain number of tasks, you may be prompted to complete a "Post-Test" on the [/skill-check](/skill-check) page. This process is the same as the pre-test you completed much earlier in the study, where you'll need to keep 
+After completing a certain number of tasks, you may be prompted to complete a "Post-Test" on the [/skill-check](/skill-check) page. This process is the same as the pre-test you completed much earlier in the study, where you'll need to answer coding questions to the best of your ability.
 
 ![Post-Test Page](instruction_assets/post_test.png)
 

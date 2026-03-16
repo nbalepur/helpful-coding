@@ -4582,6 +4582,7 @@ function HomeInner() {
                     </div>
                     {/* Go Back / Swap Buttons (right-aligned) */}
                     <div className={`flex items-center ${isSwapped ? 'flex-row-reverse space-x-reverse' : ''} space-x-2 ml-auto`}>
+                      {!(allTasks.find(t => t.id === selectedTask)?.label === 'website_requirements' && isSubmissionQuestionsPaneOpen) && (
                       <button
                         onClick={handleGoBack}
                         className="flex items-center justify-center w-6 h-6 rounded-md bg-gray-700/50 hover:bg-gray-600/50 transition-colors text-gray-300 hover:text-white"
@@ -4623,6 +4624,7 @@ function HomeInner() {
                       >
                         <ArrowLeft size={14} />
                       </button>
+                      )}
                       <button
                         onClick={() => setIsSwapped(s => !s)}
                         className="flex items-center justify-center w-6 h-6 rounded-md bg-gray-700/50 hover:bg-gray-600/50 transition-colors text-gray-300 hover:text-white"

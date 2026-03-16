@@ -315,6 +315,33 @@ def _slugify(name: str) -> str:
     return slug
 
 
+INJECTED_TASK_DESCRIPTIONS: Dict[str, str] = {
+    "zic_zac_zoe": (
+        "<p>In this task, you'll create a variation of tic-tac-toe on a 5x5 grid with two human players: "
+        "Player A and Player B. You'll start with a blank board, helper JavaScript functions, and logic to "
+        "connect the HTML, JS, and CSS, which you must update to fulfill a list of given requirements.</p>"
+    ),
+}
+
+
+def _resolve_task_description(
+    task_name: Optional[str],
+    *,
+    fallback_description: str = "",
+    task_meta: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Prefer hardcoded overrides for selected tasks before metadata/DB fallbacks."""
+    task_slug = _slugify(task_name) if task_name else ""
+    injected = INJECTED_TASK_DESCRIPTIONS.get(task_slug)
+    if injected:
+        return injected
+    if isinstance(task_meta, dict):
+        meta_description = task_meta.get("description")
+        if isinstance(meta_description, str) and meta_description.strip():
+            return meta_description
+    return fallback_description or ""
+
+
 def _resolve_project_from_task_id(db: Session, task_id: str) -> Optional[Project]:
     """Unified function to resolve Project from task_id. Always use this instead of project_id."""
     if not task_id:
@@ -352,7 +379,10 @@ def _load_dummy_task_metadata() -> Dict[str, Dict[str, Any]]:
                 "code_start_date": task.get("code_start_date"),
                 "voting_start_date": task.get("voting_start_date"),
                 "voting_end_date": task.get("voting_end_date"),
-                "description": task.get("description", ""),
+                "description": _resolve_task_description(
+                    name,
+                    fallback_description=task.get("description", ""),
+                ),
                 "example": task.get("example", ""),
                 "requirements": task.get("requirements", []),
             }
@@ -668,7 +698,11 @@ async def list_tasks_from_db(
             
             # Prefer tasks.json description when present so content updates are reflected
             # without requiring manual DB row edits for every wording change.
-            description = task_meta.get("description") or p.description or ""
+            description = _resolve_task_description(
+                p.name,
+                fallback_description=p.description or "",
+                task_meta=task_meta,
+            )
             task_title = p.title or p.name
             if p.label and p.label.lower() == "replication" and task_title:
                 prefix = f"Create your own version of {task_title}: "
@@ -951,8 +985,8 @@ def _build_skill_check_assignment_names_split_pre_post(db: Session) -> tuple[
         "js_knowledge", "js_recall", "js_trace_code", "js_change_code"
     ]
     ux_base_tags = [
-        "choices", "memory", "mobile", "design_protocol", "error",
-        "aesthetics", "object", "cognitive_ease", "visual_order", "excitement"
+        "choices", "memory", "error",
+        "object", "visual_order", "excitement"
     ]
     code_normal_tags = [
         'paren'
@@ -3618,12 +3652,41 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                         else:
                             print(f"  Question {question_name} has no answer field, skipping score calculation")
                     
+                    # Mechanism and change questions: answer and user_answer are option indices; score = 1 if equal else 0; log pred and answer
+                    is_mechanism_or_change = (
+                        question_name
+                        and ("snippet_mechanism" in question_name or "snippet_change_impact" in question_name)
+                    )
+                    if is_mechanism_or_change and question.answer is not None:
+                        try:
+                            correct_answer = question.answer
+                            if isinstance(correct_answer, str):
+                                correct_answer = int(correct_answer.strip())
+                            elif not isinstance(correct_answer, (int, float)):
+                                correct_answer = None
+                            user_answer_str = str(parsed_user_answer).strip() if parsed_user_answer else ""
+                            match = re.match(r"^(\d+)", user_answer_str)
+                            user_answer_idx = int(match.group(1)) if match else None
+                            if correct_answer is not None and user_answer_idx is not None:
+                                question.user_answer = user_answer_idx  # store index of chosen option
+                                question.score = 1.0 if user_answer_idx == correct_answer else 0.0
+                                print(f"  Question {question_name}: pred={user_answer_idx}, answer={correct_answer}, score={question.score}")
+                            else:
+                                question.user_answer = user_answer_idx  # store index if we have it
+                                question.score = None
+                                print(f"  Question {question_name}: pred={user_answer_idx}, answer={correct_answer}, score=None (missing or invalid)")
+                        except Exception as e:
+                            print(f"  Error calculating mechanism/change score for {question_name}: {e}")
+                            question.score = None
+                    
                     # Calculate score for MCQA questions that have an answer field (e.g., sanity_check).
                     # identify_own is scored above; skip here to avoid overwriting.
+                    # mechanism/change (snippet_mechanism, snippet_change_impact) are handled above.
                     elif (
                         question.question_type in ('mcqa', 'code_compare')
                         and question.answer is not None
                         and not (question_name and question_name.startswith("identify_own"))
+                        and not is_mechanism_or_change
                     ):
                         print(f"Processing MCQA question: {question_name}")
                         print(f"  question.answer: {question.answer}, type: {type(question.answer)}, user_answer: {parsed_user_answer}")
@@ -3873,7 +3936,11 @@ async def get_submission_detail(submission_id: int, db: Session = Depends(get_db
             if project:
                 dummy_meta = _load_dummy_task_metadata()
                 task_meta = dummy_meta.get(_slugify(project.name), {})
-                task_description = task_meta.get("description") or project.description or ""
+                task_description = _resolve_task_description(
+                    project.name,
+                    fallback_description=project.description or "",
+                    task_meta=task_meta,
+                )
                 task_name = project.title or project.name or ""
                 if project.label and project.label.lower() == "replication" and task_name:
                     prefix = f"Create your own version of {task_name}: "
@@ -4013,7 +4080,10 @@ async def generate_comprehension_questions(
         }
         is_required_task = project.name and project.name.lower() in REQUIRED_TASK_NAMES
         target_selection_context = _build_target_selection_context(project)
-        task_description = getattr(project, "description", None) or ""
+        task_description = _resolve_task_description(
+            project.name,
+            fallback_description=getattr(project, "description", None) or "",
+        )
         task_requirements = (
             (target_selection_context or {}).get("requirements")
             if isinstance((target_selection_context or {}).get("requirements"), list)
@@ -4042,6 +4112,10 @@ async def generate_comprehension_questions(
         # Store questions in database
         created_questions = []
         for question_data in generated_questions:
+            # Prefer gold_answer (correct choice text) when present so DB has it for scoring/analytics
+            stored_answer = question_data.get("gold_answer")
+            if stored_answer is None:
+                stored_answer = question_data.get("answer")
             question_record = ComprehensionQuestion(
                 user_id=payload.user_id,
                 project_id=payload.project_id,
@@ -4049,7 +4123,7 @@ async def generate_comprehension_questions(
                 question=question_data["question"],
                 question_type=question_data["question_type"],
                 choices=question_data.get("choices"),
-                answer=question_data.get("answer"),
+                answer=stored_answer,
                 user_answer=None,
                 score=None
             )
@@ -5079,16 +5153,10 @@ Do not generate anything else. No other keys. Raw JSON only.
                         all_function_names.add(item.get("function_name", ""))
 
                 if all_function_names == set(real_names + fake_names):
-                    print(output["function_objects"])
                     return output["function_objects"]
         except Exception as e:
-            print(f"[generate_js_descriptions] Try {num_tries + 1}/5 failed: {e}", flush=True)
+            pass  # retry on next attempt
 
-    print(
-        "[generate_js_descriptions] Returning empty: no valid response after 5 tries "
-        "(LLM error or response failed validation: need 'function_objects' with correct length and all function_name/description present).",
-        flush=True,
-    )
     return []
 
 
@@ -5419,10 +5487,6 @@ async def _generate_comprehension_questions(
         "answer": Optional[str]  # Correct answer for scoring
     }
     """
-    print(
-        f"[comprehension/generate-helper] project_name={project_name} required_task={is_required_task} ai_mode={ai_assistant_mode}",
-        flush=True,
-    )
 
     SANITY_QUESTION_PROBABILITY = 0.5
     # Tasks that should always have attention checks
@@ -5433,6 +5497,9 @@ async def _generate_comprehension_questions(
     # Warm-up tasks should only use fixed agreement prompts.
     # Do not generate code/UI comprehension items for these tasks.
     WARM_UP_TASKS = {'website_tutorial_intro', 'website_tutorial_follow_up'}
+    # These tasks should only include the standard self-report block.
+    # Skip generated code/UI/snippet questions and sanity checks.
+    SELF_REPORT_ONLY_TASKS = {'zic_zac_zoe_follow_up'}
 
     questions = []
     self_report_options = ["1 - Strongly disagree", "2 - Disagree", "3 - Neither agree nor disagree", "4 - Agree", "5 - Strongly agree"]
@@ -5443,10 +5510,6 @@ async def _generate_comprehension_questions(
     # Warm-up tasks only receive fixed agreement questions.
     # Intentionally skip all generated comprehension question logic.
     if project_name and project_name in WARM_UP_TASKS:
-        print(
-            f"[comprehension/generate-helper] warmup task path for {project_name}",
-            flush=True,
-        )
         questions.extend([
             {
                 "question_name": "warmup_success",
@@ -5462,14 +5525,9 @@ async def _generate_comprehension_questions(
                 "choices": self_report_options,
                 "answer": ""
             }])
-        print(
-            f"[comprehension/generate-helper] returning warmup_count={len(questions)}",
-            flush=True,
-        )
         return {"questions": questions, "warnings": []}
 
     if is_required_task:
-        print("[comprehension/generate-helper] required-task question set", flush=True)
         # For required tasks, include all self-report questions
 
         # questions = [
@@ -5505,13 +5563,13 @@ async def _generate_comprehension_questions(
                 "choices": self_report_options,
                 "answer": ""
             },
-            {
-                "question_name": "self_report_detection_with_agent",
-                "question": f"I could tell when there were errors in the AI-generated code.",
-                "question_type": "mcqa",
-                "choices": self_report_options,
-                "answer": ""
-            },
+            # {
+            #     "question_name": "self_report_detection_with_agent",
+            #     "question": f"I could tell when there were errors in the AI-generated code.",
+            #     "question_type": "mcqa",
+            #     "choices": self_report_options,
+            #     "answer": ""
+            # },
         ]
 
         chat_mode_questions = [
@@ -5536,13 +5594,13 @@ async def _generate_comprehension_questions(
                 "choices": self_report_options,
                 "answer": ""
             },
-            {
-                "question_name": "self_report_detection_with_chat",
-                "question": f"I could tell when there were errors in the AI chatbot's responses.",
-                "question_type": "mcqa",
-                "choices": self_report_options,
-                "answer": ""
-            }     
+            # {
+            #     "question_name": "self_report_detection_with_chat",
+            #     "question": f"I could tell when there were errors in the AI chatbot's responses.",
+            #     "question_type": "mcqa",
+            #     "choices": self_report_options,
+            #     "answer": ""
+            # }     
         ]
 
         normalized_mode = (ai_assistant_mode or "").strip().lower()
@@ -5565,7 +5623,6 @@ async def _generate_comprehension_questions(
             },
         ])
     else:
-        print("[comprehension/generate-helper] non-required question set", flush=True)
         # For non-required tasks, only include self_report_understanding
         questions.extend([
             {
@@ -5595,13 +5652,40 @@ async def _generate_comprehension_questions(
             },
         ])
 
+    if project_name and project_name in SELF_REPORT_ONLY_TASKS:
+        questions.append(
+            {
+                "question_name": "self_report_expected_follow_up_modification",
+                "question": "Did you anticipate that you would be asked to extend or modify the code you submitted in the first recreation task?",
+                "question_type": "mcqa",
+                "choices": ["Yes", "No", "Unsure"],
+                "answer": "",
+            }
+        )
+        return {"questions": questions, "warnings": []}
+
     #questions = []
     num_self_report_questions = len(questions)
     
-    # Add code-based questions (run in parallel).
-    # Launch JS/UI generation and the three compare-question generations together.
-    # css_style_distractors included only for website-requirement tasks (skipped for game-based: replication, open-ended).
-    code_questions, ui_questions, css_questions, html_compare_question, css_compare_question, js_compare_question = await asyncio.gather(
+    # Run HTML compare first so we can pass its "real block" (HTML+JS) to snippet understanding questions.
+    html_compare_result = await asyncio.to_thread(
+        qgh.generate_single_code_compare_question,
+        submission_code,
+        "html",
+        is_required_task,
+        project_name,
+        target_selection_context,
+    )
+    html_compare_question, html_real_block = html_compare_result if isinstance(html_compare_result, tuple) else (html_compare_result, None)
+
+    # Run compare + other questions first so we know whether pairwise compare succeeded per language.
+    (
+        code_questions,
+        ui_questions,
+        css_questions,
+        css_compare_result,
+        js_compare_result,
+    ) = await asyncio.gather(
         asyncio.to_thread(generate_js_questions, submission_code, include_explanation=False),
         asyncio.to_thread(
             generate_ui_questions,
@@ -5610,14 +5694,6 @@ async def _generate_comprehension_questions(
             task_requirements,
         ),
         asyncio.to_thread(generate_css_questions, submission_code),
-        asyncio.to_thread(
-            qgh.generate_single_code_compare_question,
-            submission_code,
-            "html",
-            is_required_task,
-            project_name,
-            target_selection_context,
-        ),
         asyncio.to_thread(
             qgh.generate_single_code_compare_question,
             submission_code,
@@ -5635,12 +5711,52 @@ async def _generate_comprehension_questions(
             target_selection_context,
         ),
     )
-    is_game_based_task = (project_label or "").strip().lower() in ("replication", "open-ended")
-    print(
-        f"[comprehension/generate-helper] code_questions={len(code_questions)} ui_questions={len(ui_questions)} css_questions={len(css_questions)} "
-        f"html_compare={bool(html_compare_question)} css_compare={bool(css_compare_question)} js_compare={bool(js_compare_question)} is_game_based={is_game_based_task}",
-        flush=True,
+    if isinstance(css_compare_result, tuple):
+        css_compare_question, css_snippet_block = css_compare_result[0], css_compare_result[1]
+    else:
+        css_compare_question, css_snippet_block = css_compare_result, None
+    if isinstance(js_compare_result, tuple):
+        js_compare_question, js_snippet_block = js_compare_result[0], js_compare_result[1]
+    else:
+        js_compare_question, js_snippet_block = js_compare_result, None
+
+    # Snippet (purpose/mechanism) questions use the same block as the pairwise compare for that language.
+    (
+        html_snippet_questions,
+        css_snippet_questions,
+        js_snippet_questions,
+    ) = await asyncio.gather(
+        asyncio.to_thread(
+            qgh.generate_snippet_understanding_questions,
+            submission_code,
+            "html",
+            is_required_task,
+            project_name,
+            target_selection_context,
+            html_real_block,
+        ),
+        asyncio.to_thread(
+            qgh.generate_snippet_understanding_questions,
+            submission_code,
+            "css",
+            is_required_task,
+            project_name,
+            target_selection_context,
+            css_snippet_block,
+            bool(css_compare_question),
+        ),
+        asyncio.to_thread(
+            qgh.generate_snippet_understanding_questions,
+            submission_code,
+            "js",
+            is_required_task,
+            project_name,
+            target_selection_context,
+            js_snippet_block,
+            bool(js_compare_question),
+        ),
     )
+    is_game_based_task = (project_label or "").strip().lower() in ("replication", "open-ended")
     
     warnings: List[str] = []
     questions.extend(ui_questions)
@@ -5654,6 +5770,10 @@ async def _generate_comprehension_questions(
         questions.append(css_compare_question)
     if js_compare_question:
         questions.append(js_compare_question)
+    # Add snippet understanding questions in deterministic language order.
+    questions.extend(html_snippet_questions)
+    questions.extend(css_snippet_questions)
+    questions.extend(js_snippet_questions)
 
     # Add sanity check question
     # Always add for snake and platformer, otherwise 50% probability for other required tasks
@@ -5667,7 +5787,7 @@ async def _generate_comprehension_questions(
     if should_add_fixed_sanity_check:
         # Keep this sanity check deterministic for website-requirements tasks.
         fixed_choice = "2 - Disagree"
-        position_to_insert = min(4, len(questions))
+        position_to_insert = min(3, len(questions))
         sanity_question = {
             "question_name": "sanity_check",
             "question": f"Attention Check: Please select \"{fixed_choice}\" as your answer",
@@ -5689,10 +5809,6 @@ async def _generate_comprehension_questions(
         questions.insert(position_to_insert, sanity_question)
 
     question_names = [str(q.get("question_name", "")) for q in questions]
-    print(
-        f"[comprehension/generate-helper] final_question_names={question_names}",
-        flush=True,
-    )
 
     return {"questions": questions, "warnings": warnings}
 
@@ -5931,7 +6047,10 @@ async def evaluate_submission(
             submission_title=payload.submission_title,
             submission_description=payload.submission_description,
             submission_code=payload.submission_code,
-            task_description=project.description,
+            task_description=_resolve_task_description(
+                project.name,
+                fallback_description=project.description or "",
+            ),
             task_name=project.name
         )
 
@@ -7098,7 +7217,10 @@ async def get_task(task_name: str):
             return JSONResponse(status_code=404, content={"error": f"Task '{task_name}' not found"})
 
         # Handle task description - if it's a file path, load the content
-        task_description = task.get("description", "")
+        task_description = _resolve_task_description(
+            task.get("name"),
+            fallback_description=task.get("description", ""),
+        )
         if task_description.startswith("data/code_files/"):
             file_path = os.path.join(repo_root, task_description)
             try:

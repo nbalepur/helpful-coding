@@ -21,9 +21,6 @@ cells.forEach((cell) => {
   });
 });
 
-// start the game
-renderBoard();
-
 // JS functions
 function playMove(cellIndex) {
   console.log("User clicked on cell:", cellIndex);

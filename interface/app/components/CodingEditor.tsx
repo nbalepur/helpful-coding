@@ -60,11 +60,20 @@ const isSelfReportQuestionName = (questionName?: string): boolean => {
 
 /** Second pane: distractor questions (ui_features_distractors, function_names_distractors, css_style_distractors) */
 const DISTRACTOR_PANE_QUESTION_NAMES = ['ui_features_distractors', 'function_names_distractors', 'css_style_distractors'];
-/** Third pane: code block questions (identify_own_*) */
-const CODE_BLOCK_PANE_QUESTION_NAMES = ['identify_own_html_component', 'identify_own_css_block', 'identify_own_js_function'];
+/** Third pane: "which of these is yours" questions only */
+const IDENTIFY_OWN_PANE_QUESTION_NAMES = ['identify_own_html_component', 'identify_own_css_block', 'identify_own_js_function'];
+/** Subsequent panes: one pane per question (mechanism and change each on their own pane, no pairing by language) */
+const SNIPPET_PANE_QUESTION_NAMES: string[] = [
+  'html_snippet_mechanism',
+  'html_snippet_change_impact',
+  'css_snippet_mechanism',
+  'css_snippet_change_impact',
+  'js_snippet_mechanism',
+  'js_snippet_change_impact',
+];
 
 const isBinaryChoiceQuestionType = (questionType?: string): boolean => {
-  return questionType === 'mcqa' || questionType === 'code_compare';
+  return questionType === 'mcqa' || questionType === 'mcqa_vertical' || questionType === 'code_compare';
 };
 
 const isChoiceQuestionType = (questionType?: string): boolean => {
@@ -364,6 +373,149 @@ const TextWithCodeBlocks: React.FC<{ text: string }> = ({ text }) => {
     if (measuredHeights.length === 0) return undefined;
     return Math.max(...measuredHeights);
   }, [sideBySideHeights.left, sideBySideHeights.right]);
+
+  // Real block (HTML + JS) — purpose/change questions: same visual style as Left/Right blocks
+  const realBlockTwoMatch = text.match(
+    /^([\s\S]*?)HTML:\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*JavaScript:\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*([\s\S]*)$/i
+  );
+  if (realBlockTwoMatch) {
+    const [, beforeText, htmlCode, jsCode, afterText] = realBlockTwoMatch;
+    const escapeHtml = (str: string) =>
+      str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const renderTextSection = (content: string, key: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return null;
+      const processedText = escapeHtml(trimmed).replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+      return (
+        <span
+          key={key}
+          className="markdown-content"
+          style={{ display: 'inline' }}
+          dangerouslySetInnerHTML={{ __html: processedText }}
+        />
+      );
+    };
+    const panelStyle = {
+      border: '1px solid #4b5563',
+      borderRadius: '6px',
+      overflow: 'hidden' as const,
+      userSelect: 'none' as const,
+      WebkitUserSelect: 'none' as const,
+      marginBottom: '8px',
+    };
+    const labelStyle = { fontSize: '12px', color: '#9ca3af', marginBottom: '6px' };
+    return (
+      <>
+        {renderTextSection(beforeText, 'real-before')}
+        <div className="my-2" style={{ maxWidth: '100%' }}>
+          <div style={labelStyle}>HTML:</div>
+          <div style={panelStyle}>
+            <AutoHeightCodeBlock language="html" code={htmlCode.trim()} />
+          </div>
+          <div style={labelStyle}>JavaScript:</div>
+          <div style={panelStyle}>
+            <AutoHeightCodeBlock language="javascript" code={jsCode.trim()} />
+          </div>
+        </div>
+        {renderTextSection(afterText, 'real-after')}
+      </>
+    );
+  }
+
+  // Four-block format: Left block (HTML + JS), Right block (HTML + JS) — same style as two-block
+  const sideBySideFourBlockMatch = text.match(
+    /^([\s\S]*?)Left block:\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*Right block:\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*```(?:[a-zA-Z0-9_-]*)\n([\s\S]*?)```\s*([\s\S]*)$/i
+  );
+
+  if (sideBySideFourBlockMatch) {
+    const [, beforeText, leftHtml, leftJs, rightHtml, rightJs, afterText] = sideBySideFourBlockMatch;
+    const escapeHtml = (str: string) =>
+      str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const renderTextSection = (content: string, key: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return null;
+      const processedText = escapeHtml(trimmed).replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+      return (
+        <span
+          key={key}
+          className="markdown-content"
+          style={{ display: 'inline' }}
+          dangerouslySetInnerHTML={{ __html: processedText }}
+        />
+      );
+    };
+    const { leftDiffLines: leftHtmlDiff, rightDiffLines: rightHtmlDiff } = computeLineDiff(
+      leftHtml.trim(),
+      rightHtml.trim()
+    );
+    const { leftDiffLines: leftJsDiff, rightDiffLines: rightJsDiff } = computeLineDiff(
+      leftJs.trim(),
+      rightJs.trim()
+    );
+    const panelStyle = {
+      border: '1px solid #4b5563',
+      borderRadius: '6px',
+      overflow: 'hidden' as const,
+      userSelect: 'none' as const,
+      WebkitUserSelect: 'none' as const,
+      marginBottom: '8px',
+    };
+    const labelStyle = { fontSize: '12px', color: '#9ca3af', marginBottom: '6px' };
+    return (
+      <>
+        {renderTextSection(beforeText, 'comparison-before')}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 my-2">
+          <div style={{ minWidth: 0 }}>
+            <div style={labelStyle}>Left Block (HTML):</div>
+            <div style={panelStyle}>
+              <AutoHeightCodeBlockWithDiffIndicators
+                language="html"
+                code={leftHtml.trim()}
+                diffLineIndices={leftHtmlDiff}
+              />
+            </div>
+            <div style={labelStyle}>Left Block (JavaScript):</div>
+            <div style={panelStyle}>
+              <AutoHeightCodeBlockWithDiffIndicators
+                language="javascript"
+                code={leftJs.trim()}
+                diffLineIndices={leftJsDiff}
+              />
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={labelStyle}>Right Block (HTML):</div>
+            <div style={panelStyle}>
+              <AutoHeightCodeBlockWithDiffIndicators
+                language="html"
+                code={rightHtml.trim()}
+                diffLineIndices={rightHtmlDiff}
+              />
+            </div>
+            <div style={labelStyle}>Right Block (JavaScript):</div>
+            <div style={panelStyle}>
+              <AutoHeightCodeBlockWithDiffIndicators
+                language="javascript"
+                code={rightJs.trim()}
+                diffLineIndices={rightJsDiff}
+              />
+            </div>
+          </div>
+        </div>
+        {renderTextSection(afterText, 'comparison-after')}
+      </>
+    );
+  }
 
   const sideBySideComparisonMatch = text.match(
     /^([\s\S]*?)Left block:\s*```(?:([a-zA-Z0-9_-]+)\n)?([\s\S]*?)```\s*Right block:\s*```(?:([a-zA-Z0-9_-]+)\n)?([\s\S]*?)```([\s\S]*)$/i
@@ -842,8 +994,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [isCheckingExistingSubmission, setIsCheckingExistingSubmission] = useState(false);
   const [hasConsentedToOverride, setHasConsentedToOverride] = useState(false);
   const [showComprehensionCheck, setShowComprehensionCheck] = useState(false);
-  /** For required tasks: 'distractors' = second pane, 'code_block' = third pane */
-  const [comprehensionSubPane, setComprehensionSubPane] = useState<'distractors' | 'code_block'>('distractors');
+  /** For required tasks: pane index 0 = distractors, 1 = identify-own, 2+ = one snippet question per pane */
+  const [comprehensionSubPaneIndex, setComprehensionSubPaneIndex] = useState(0);
   const [showEvaluationCheck, setShowEvaluationCheck] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<{
     is_valid: boolean;
@@ -908,20 +1060,31 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     () => codeTailoredQuestions.filter((q) => q.question_name && DISTRACTOR_PANE_QUESTION_NAMES.includes(q.question_name)),
     [codeTailoredQuestions]
   );
-  const codeBlockPaneQuestions = useMemo(
-    () => codeTailoredQuestions.filter((q) => q.question_name && CODE_BLOCK_PANE_QUESTION_NAMES.includes(q.question_name)),
+  const identifyOwnPaneQuestions = useMemo(
+    () => codeTailoredQuestions.filter((q) => q.question_name && IDENTIFY_OWN_PANE_QUESTION_NAMES.includes(q.question_name)),
     [codeTailoredQuestions]
   );
-  /** For required task: questions on current sub-pane (second = distractors, third = code block). For non-required: all comprehension questions. */
+  /** Ordered panes for required task: [distractors, identify-own, then one pane per snippet question (mechanism/change each on own pane)]. */
+  const orderedRequiredPanes = useMemo(() => {
+    const panes: Array<Array<typeof codeTailoredQuestions[0]>> = [];
+    if (distractorPaneQuestions.length > 0) panes.push(distractorPaneQuestions);
+    if (identifyOwnPaneQuestions.length > 0) panes.push(identifyOwnPaneQuestions);
+    for (const questionName of SNIPPET_PANE_QUESTION_NAMES) {
+      const q = codeTailoredQuestions.find((x) => x.question_name === questionName);
+      if (q) panes.push([q]);
+    }
+    return panes;
+  }, [codeTailoredQuestions, distractorPaneQuestions, identifyOwnPaneQuestions]);
+  /** For required task: questions on current sub-pane. For non-required: all comprehension questions. */
   const comprehensionPaneQuestions = useMemo(() => {
     if (!isRequiredTask) {
       return comprehensionQuestions;
     }
-    if (comprehensionSubPane === 'code_block') {
-      return codeBlockPaneQuestions;
-    }
-    return distractorPaneQuestions;
-  }, [isRequiredTask, comprehensionSubPane, comprehensionQuestions, distractorPaneQuestions, codeBlockPaneQuestions]);
+    const pane = orderedRequiredPanes[comprehensionSubPaneIndex];
+    return pane ?? [];
+  }, [isRequiredTask, comprehensionSubPaneIndex, comprehensionQuestions, orderedRequiredPanes]);
+  const hasMultipleRequiredPanes = orderedRequiredPanes.length > 1;
+  const isLastRequiredPane = comprehensionSubPaneIndex === orderedRequiredPanes.length - 1 && orderedRequiredPanes.length > 0;
   const unansweredSelfReportCount = selfReportQuestions.filter((q) => {
     if (q.question_type === 'multi_select') {
       return false;
@@ -2031,29 +2194,26 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       if (!raw) {
         return;
       }
-      const parsed = JSON.parse(raw) as {
-        showComprehensionCheck?: boolean;
-        showEvaluationCheck?: boolean;
-      };
-
-      setShowRequiredTaskSubmitConfirm(false);
-      submitModalOpenedFromRestoreRef.current = true;
-      setShowSubmitModal(true);
-
-      if (parsed?.showEvaluationCheck) {
-        setShowEvaluationCheck(true);
-        setShowComprehensionCheck(false);
-        return;
-      }
-
-      if (parsed?.showComprehensionCheck) {
-        setShowComprehensionCheck(true);
-        setShowEvaluationCheck(false);
-        return;
-      }
-
-      setShowComprehensionCheck(false);
-      setShowEvaluationCheck(false);
+      // Restore disabled for testing: do not force user into question submission pane after refresh
+      // const parsed = JSON.parse(raw) as {
+      //   showComprehensionCheck?: boolean;
+      //   showEvaluationCheck?: boolean;
+      // };
+      // setShowRequiredTaskSubmitConfirm(false);
+      // submitModalOpenedFromRestoreRef.current = true;
+      // setShowSubmitModal(true);
+      // if (parsed?.showEvaluationCheck) {
+      //   setShowEvaluationCheck(true);
+      //   setShowComprehensionCheck(false);
+      //   return;
+      // }
+      // if (parsed?.showComprehensionCheck) {
+      //   setShowComprehensionCheck(true);
+      //   setShowEvaluationCheck(false);
+      //   return;
+      // }
+      // setShowComprehensionCheck(false);
+      // setShowEvaluationCheck(false);
     } catch {
       // no-op: ignore malformed persisted data
     }
@@ -2954,7 +3114,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
 
         if (codeTailoredQuestions.length > 0) {
           emitContinuedToQuestions({ source: "required_continue" });
-          setComprehensionSubPane(distractorPaneQuestions.length > 0 ? 'distractors' : 'code_block');
+          setComprehensionSubPaneIndex(0);
           setShowComprehensionCheck(true);
           return;
         }
@@ -2982,7 +3142,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   useEffect(() => {
     if (!showComprehensionCheck) return;
     submissionQuestionsScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [showComprehensionCheck, comprehensionSubPane]);
+  }, [showComprehensionCheck, comprehensionSubPaneIndex]);
 
   // Fetch evaluation when the evaluation panel is shown
   useEffect(() => {
@@ -3602,7 +3762,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       setShowSubmitModal(false);
                       setShowEvaluationCheck(false);
                       setShowComprehensionCheck(false);
-                      setComprehensionSubPane('distractors');
+                      setComprehensionSubPaneIndex(0);
                       // Clear comprehension state when closing
                       setComprehensionQuestions([]);
                       setComprehensionAnswers({});
@@ -3797,7 +3957,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                   setShowSubmitModal(false);
                                   setShowEvaluationCheck(false);
                                   setShowComprehensionCheck(false);
-                                  setComprehensionSubPane('distractors');
+                                  setComprehensionSubPaneIndex(0);
                                   // Clear comprehension state when canceling
                                   setComprehensionQuestions([]);
                                   setComprehensionAnswers({});
@@ -3901,7 +4061,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 ) : (
                   <>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '14px' }}>
+                  <div style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '16px' }}>
                     1. Which requirements were you able to successfully implement? (pre-populated from your Task Instructions checklist)
                   </div>
                   {(taskRequirements || []).length > 0 ? (
@@ -3977,7 +4137,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
                           }}
                         >
-                          <div style={{ color: '#e5e7eb', fontSize: '14px', fontWeight: 500 }}>
+                          <div style={{ color: '#e5e7eb', fontSize: '16px', fontWeight: 500 }}>
                             <span>{index + 2}. </span>
                             <TextWithCodeBlocks text={q.question} />
                           </div>
@@ -4048,7 +4208,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       alignItems: 'center',
                       color: '#e5e7eb',
                       fontWeight: 500,
-                      fontSize: '14px',
+                      fontSize: '16px',
                     }}
                   >
                     <span>
@@ -4751,6 +4911,33 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   paddingRight: '20px'
                 }}
               >
+                {taskLabel === 'website_requirements' && hasMultipleRequiredPanes && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: '#9ca3af', fontSize: '14px' }}>
+                        Question {comprehensionSubPaneIndex + 1} of {orderedRequiredPanes.length}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: '6px',
+                        backgroundColor: '#374151',
+                        borderRadius: '3px',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${orderedRequiredPanes.length > 0 ? ((comprehensionSubPaneIndex + 1) / orderedRequiredPanes.length) * 100 : 0}%`,
+                          backgroundColor: '#2563eb',
+                          borderRadius: '3px',
+                          transition: 'width 0.25s ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
                 <p style={{ color: '#9ca3af', fontSize: '16px', marginBottom: '0px' }}>
                   {isWarmupTask
                     ? (isSecondWarmupTask
@@ -4862,7 +5049,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         style={{
                           color: '#e5e7eb',
                           fontWeight: 500,
-                          fontSize: '14px'
+                          fontSize: '16px'
                         }}
                       >
                         <span>{numberOffset + index + 1}. </span>
@@ -4874,8 +5061,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           <div 
                             style={{ 
                               display: 'flex', 
-                              flexDirection: 'row',
-                              flexWrap: 'wrap',
+                              flexDirection: q.question_type === 'mcqa_vertical' ? 'column' : 'row',
+                              flexWrap: q.question_type === 'mcqa_vertical' ? 'nowrap' : 'wrap',
                               gap: '8px',
                               marginTop: '0px'
                             }}
@@ -4883,19 +5070,25 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             {q.choices.map((choice, choiceIndex) => {
                               const isSelected = currentAnswer === choice;
                               const inputId = `comp-${q.id}-${choiceIndex}`;
-                              // Determine if this is the correct answer (for showing after check)
-                              // Answer is 1-based index (1, 2, 3, 4, 5), convert to 0-based for comparison
+                              // Correct answer: either 1-based index (number or numeric string) or gold text (snippet questions from DB)
                               let correctAnswerIndex: number | null = null;
                               if (q.answer !== null && q.answer !== undefined && q.answer !== '') {
                                 if (typeof q.answer === 'number') {
-                                  correctAnswerIndex = q.answer - 1; // Convert 1-based to 0-based
-                                } else if (typeof q.answer === 'string' && !isNaN(Number(q.answer)) && q.answer.trim() !== '') {
-                                  correctAnswerIndex = Number(q.answer) - 1;
+                                  correctAnswerIndex = q.answer - 1;
+                                } else if (typeof q.answer === 'string' && q.answer.trim() !== '') {
+                                  if (!isNaN(Number(q.answer))) {
+                                    correctAnswerIndex = Number(q.answer) - 1;
+                                  } else if (q.choices && typeof q.answer === 'string') {
+                                    const ans = q.answer.trim();
+                                    const idx = q.choices.findIndex((c: string) => String(c).trim() === ans);
+                                    if (idx >= 0) correctAnswerIndex = idx;
+                                  }
                                 }
                               }
                               
                               const isCorrect = shouldShowAnswers && correctAnswerIndex !== null && choiceIndex === correctAnswerIndex;
                               const isDisabled = shouldShowAnswers || shouldDisableQuestion;
+                              const isVertical = q.question_type === 'mcqa_vertical';
                               // Show checkmark for correct answer, X for incorrect answer (regardless of user selection)
                               // This makes it clearer: check = "this is the right answer", not "you picked this correctly"
                               
@@ -4915,8 +5108,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                       ? '1px solid #3b82f6' 
                                       : '1px solid #4b5563',
                                     transition: 'background-color 0.2s, border-color 0.2s',
-                                    flex: '0 1 auto',
-                                    minWidth: 'fit-content',
+                                    ...(isVertical ? { width: '100%', boxSizing: 'border-box' as const } : { flex: '0 1 auto', minWidth: 'fit-content' }),
                                     position: 'relative'
                                   }}
                                   onMouseEnter={(e) => {
@@ -4984,7 +5176,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             })}
                           </div>
                           {/* Show summary of what user got wrong for non-self-report MCQA questions after checking */}
-                          {shouldShowAnswers && q.answer !== null && q.answer !== undefined && q.answer !== '' && (typeof q.answer === 'number' || (typeof q.answer === 'string' && q.answer.trim() !== '' && !isNaN(Number(q.answer)))) && (
+                          {shouldShowAnswers && q.answer != null && q.answer !== '' && (
                             <div style={{
                               marginTop: '8px',
                               padding: '8px 12px',
@@ -4995,10 +5187,18 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                               color: '#e5e7eb'
                             }}>
                               {(() => {
-                                const correctAnswerIndex = typeof q.answer === 'number' ? q.answer - 1 : (typeof q.answer === 'string' && !isNaN(Number(q.answer))) ? Number(q.answer) - 1 : null;
+                                let correctAnswerIndex: number | null = null;
+                                if (typeof q.answer === 'number') correctAnswerIndex = q.answer - 1;
+                                else if (typeof q.answer === 'string' && q.answer.trim() !== '') {
+                                  if (!isNaN(Number(q.answer))) correctAnswerIndex = Number(q.answer) - 1;
+                                  else if (q.choices) {
+                                    const idx = q.choices.findIndex((c: string) => String(c).trim() === (q.answer as string)?.trim());
+                                    if (idx >= 0) correctAnswerIndex = idx;
+                                  }
+                                }
                                 const correctAnswerText = correctAnswerIndex !== null && q.choices && correctAnswerIndex >= 0 && correctAnswerIndex < q.choices.length
                                   ? q.choices[correctAnswerIndex]
-                                  : q.answer;
+                                  : (typeof q.answer === 'string' ? q.answer : null);
                                 const userSelectedText = currentAnswer || 'nothing';
                                 const isUserCorrect = currentAnswer === correctAnswerText;
                                 
@@ -5438,7 +5638,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       </div>
                       
                       <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexShrink: 0 }}>
-                  {!isRequiredTask && !shouldShowRegenerateOnly && (
+                  {!isRequiredTask && !shouldShowRegenerateOnly && taskLabel !== 'website_requirements' && (
                     <button
                       type="button"
                       onClick={() => {
@@ -5476,14 +5676,39 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       Back
                     </button>
                   )}
-                  {isRequiredTask && comprehensionSubPane === 'distractors' && codeBlockPaneQuestions.length > 0 && !shouldShowRegenerateOnly && (
+                  {isRequiredTask && hasMultipleRequiredPanes && comprehensionSubPaneIndex > 0 && !shouldShowRegenerateOnly && taskLabel !== 'website_requirements' && (
+                    <button
+                      type="button"
+                      onClick={() => setComprehensionSubPaneIndex((i) => i - 1)}
+                      disabled={isSubmittingProject || isLoadingComprehensionQuestions}
+                      style={{
+                        padding: '6px 14px',
+                        backgroundColor: '#4b5563',
+                        color: '#f9fafb',
+                        border: '1px solid rgba(148, 163, 184, 0.2)',
+                        borderRadius: '6px',
+                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions) ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions) ? 0.6 : 1,
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSubmittingProject && !isLoadingComprehensionQuestions) e.currentTarget.style.backgroundColor = '#6b7280';
+                      }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#4b5563'; }}
+                    >
+                      Back
+                    </button>
+                  )}
+                  {isRequiredTask && hasMultipleRequiredPanes && !isLastRequiredPane && !shouldShowRegenerateOnly && (
                     <button
                       type="button"
                       onClick={() => {
                         emitContinuedToQuestions({ source: "distractor_pane_continue" });
-                        setComprehensionSubPane('code_block');
+                        setComprehensionSubPaneIndex((i) => i + 1);
                       }}
-                      disabled={isSubmittingProject || isLoadingComprehensionQuestions || (distractorPaneQuestions.length > 0 && distractorPaneQuestions.some(q => {
+                      disabled={isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                         if (q.question_type === 'multi_select') return false;
                         return !comprehensionAnswers[q.id]?.trim();
                       }))}
@@ -5493,20 +5718,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         color: 'white',
                         border: 'none',
                         borderRadius: '6px',
-                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (distractorPaneQuestions.length > 0 && distractorPaneQuestions.some(q => {
+                        cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 'not-allowed' : 'pointer',
                         fontSize: '13px',
                         fontWeight: 500,
-                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (distractorPaneQuestions.length > 0 && distractorPaneQuestions.some(q => {
+                        opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 0.6 : 1,
                         transition: 'background-color 0.2s ease, opacity 0.2s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (!(isSubmittingProject || isLoadingComprehensionQuestions || (distractorPaneQuestions.length > 0 && distractorPaneQuestions.some(q => {
+                        if (!(isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         })))) e.currentTarget.style.backgroundColor = '#1d4ed8';
@@ -5632,7 +5857,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       {answersChecked ? (isSubmittingProject ? 'Submitting…' : 'Submit Project') : 'Check Answers'}
                     </button>
                   )}
-                  {((isRequiredTask && (comprehensionSubPane === 'code_block' || codeBlockPaneQuestions.length === 0)) || (taskName === 'Playground' || taskName === 'playground')) && !shouldShowRegenerateOnly && (
+                  {((isRequiredTask && isLastRequiredPane) || (taskName === 'Playground' || taskName === 'playground')) && !shouldShowRegenerateOnly && (
                     <button
                       type="button"
                       onClick={handleComprehensionCheckSubmit}

@@ -73,7 +73,7 @@ Your website will only be scored on how well you fulfill these requirements; you
 
 #### Programming in our Code Editor
 
-The multi-file code editor is designed to resemble Visual Study Code. It will be populated with three files:
+The multi-file code editor is designed to resemble Visual Studio Code. It will be populated with three files:
 - `index.html`: the HTML code for your website, i.e., which elements are shown
 - `styles.css`: the CSS code for your website, i.e., how the elements are styled
 - `frontend.js`: the JS code for your website, i.e., most of the core game logic
@@ -111,63 +111,6 @@ Before submitting, you'll be asked to answer a few questions about your project.
 ![Submission](instruction_assets_phase_one/submission.png)
 
 <br />
-
-<!-- ### Downloading Projects
-
-Throughout the study, you may see download buttons that will let you save your project. It will also generate files that let you easily play the game locally, or upload the game online with Github Pages so others can play it (for free!):
-
-![Project Questions](instruction_assets/download_1.png)
-
-![Project Questions](instruction_assets/download_2.png)
-
-The project will download as a zip file with the following files:
-- `index.html`: Your HTML code
-- `styles.css`: Your CSS code
-- `frontend.js`: Your JavaScript code
-- `README.md`: An explanation of your project and how to deploy it
-- `deploy.sh`: A bash script to help you deploy your project
-
-If you choose to host your game online, we kindly ask that you preserve your README in the Github repository to indicate that it was created in VibeJam!
-
-<br />
-
-#### Voting on Projects
-
-After many users make submissions, we will open up voting on others's submissions. When voting begins and if you are later selected to be a judge, you can hit the "View Submissions" button on any project to view all other user submissions:
-
-![Project Questions](instruction_assets/view_submissions.png)
-
-Clicking on any submission will allow you to view it, interact with it, rate it on different aspects, and leave comments:
-
-![Project Questions](instruction_assets/vote.png)
-
-Specifically, you'll be scored on the following criteria:
-
-- **Task Fulfillment:** How well your project satisfies the task requirements and constraints.
-- **Style:** Visual design, polish, and overall presentation.
-- **Enjoyment:** How fun and engaging the experience is.
-- **Creativity:** Originality and interesting ideas beyond the basic requirements.
-
-
-Participants with websites that score highly will be eligible for extra compensation, detailed in the "Compensation" section below.
-
-<br />
-<br /> -->
-
-<!-- ### Step 3: Post-Test Assessment
-
-After completing all tasks, you will be prompted to complete a "Post-Test" on the [/skill-check](/skill-check) page. This process is the same as the pre-test, except the experience questions will be replaced with ones where you summarize how the study went.
-
-![Post-Test Page](instruction_assets/post_test.png)
-
-
-
-<br />
-<br /> -->
-
-<!-- ### Follow-up Tasks
-
-Once you have finished the post-test, you can keep building websites in VibeJam if you enjoyed it! You'll have access to 50+ tasks where you can build fun websites, compete against other users, and practice your AI coding skills! -->
 
 ### Compensation
 

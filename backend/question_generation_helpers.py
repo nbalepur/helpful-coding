@@ -11,16 +11,205 @@ MAX_CODE_COMPARE_BLOCK_LINES = 20
 # JavaScript function names to exclude when sampling a function for the code block (e.g. boilerplate handlers)
 JS_FUNCTIONS_EXCLUDED_FROM_CODE_BLOCK_SAMPLING = frozenset({"onMove"})
 REQUIREMENT_AWARE_COMPARE_TASKS = frozenset({"zic_zac_zoe", "zic_zac_zoe_follow_up"})
+# Unified abstention policy for all question-generation stages (target selection, question rewrite, snippet generation).
+# Use in prompts so selection, validation, and snippet generation apply the same rule.
+ABSTAIN_POLICY_UNIFIED = """
+A question should be selected when the participant's code contains a recognizable artifact related to the target feature. If no such artifact exists, return status = "abstain". Use the following guidelines:
+
+- HTML questions: Select the question if the code includes a status element intended to display game status on the page (e.g., a <p>, <div>, or similar element that appears to hold status text) and JavaScript code that attempts to access that element (e.g., selectElementById, querySelector, ...)
+
+- CSS questions: Select the question if the code includes a CSS rule that appears to attempt positioning or aligning the board or page layout (i.e., centering rules like align-items or justify-content). The implementation may be incomplete or incorrect. If the user did not change their code based on the starter implementation, then you MUST abstain.
+
+- JavaScript questions: Select the question if the code includes a function or logic that renders or populate the game board on the page (e.g., iterating over the board state and updating DOM elements). The implementation may be incomplete or incorrect. If this function (initially called renderBoard()) does not exist or was not attempted (blank or has a print statement), abstain.
+
+If none of these artifacts are present for the relevant question type, return status = "abstain".
+"""
+
 REQUIREMENT_TARGET_MAP: Dict[str, Dict[str, str]] = {
     "zic_zac_zoe": {
         "html": "Add a status element in a paragraph tag underneath the header 'Zic-Zac-Zoe'. It should show whose turn it is ('Player A Turn' or 'Player B Turn') and a message when the game is over (e.g., 'Player A Wins!', 'Player B Wins!', 'Tie Game!'), prefixed by 'Status:'",
-        "css": "Center the entire web page horizontally",
-        "js": "The board renders A and B moves in a 2x2 grid",
+        "css": "Add CSS styling that allows the webpage to become centered horizontally",
+        "js": "The board renders A and B moves in a 5x5 grid",
     },
     "zic_zac_zoe_follow_up": {
         "html": "Add a 'Reset Game' button below the board that resets the board, allowing for a new game of zic-zac-zoe. This must be a button on the page; resetting the game by refreshing the webpage does not count.",
         "css": "Change the colors of symbols on the board: 'A' should be red and 'B' should be blue",
         "js": "Along with your previous win condition logic, a player can also win zic-zac-zoe if they occupy all four corners of the board",
+    },
+}
+
+SNIPPET_QUESTION_TEMPLATE_CONFIG: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {
+    "zic_zac_zoe": {
+        "html": {
+            "mechanism": {
+                "intent": "Test the user's understanding about the purpose of the status element",
+                "main": "Which of these options best describes how the JavaScript code below uses the HTML element [INSERT DESCRIPTOR]?",
+                "sample_gold_answers": [
+                    "The JavaScript updates this element to display the game status",
+                ],
+                "sample_distractors": [
+                    "The JavaScript uses this element to store the game board state for future access",
+                    "The JavaScript updates this element to determine which player symbol appears next",
+                    "The JavaScript listens for changes to this element to detect player moves",
+                ],
+                "gold_letter": "A",
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual question to see if they understand how the JavaScript code interacts with their HTML status element. Specifically, introduce a change that would alter how the JavaScript would access this HTML element.",
+                "main": "In the HTML snippet below, the JavaScript selects the status element using the `[INSERT THE ATTRIBUTE THE USER'S WEBSITE CODE USES, LIKE ID NAME, CLASS NAME, OR TAG NAME in code ticks]` identifier. If `[INSERT SAME ATTRIBUTE in code ticks]` on the HTML element was changed to `[INSERT NEW ATTRIBUTE in code ticks]` but the rest of the website remained the same, what would most likely happen?",
+                "sample_gold_answers": [
+                    "The status element would never update",
+                ],
+                "sample_distractors": [
+                    "The player turn and win detection logic would change",
+                    "The status element would disappear from the page",
+                    "The status element would be able to update",
+                ],
+                "gold_letter": "D",
+            },
+        },
+        "css": {
+            "mechanism": {
+                "intent": "Test the user's understanding of how the CSS code applies styles. In this one in particular, the gold answers and distractors will probably be the same set, but the gold answer is subject to change.",
+                "main": "In the CSS rule shown below, how does the selector `[CSS_SELECTOR in code ticks]` determine which elements on the website the styles are applied to?",
+                "sample_gold_answers": [
+                    "HTML elements whose ID matches the selector receive the rule's styles",
+                ],
+                "sample_distractors": [
+                    "HTML elements whose class matches the selector receive the rule's styles",
+                    "HTML elements whose tag name matches the selector receive the rule's styles",
+                    "HTML elements whose children match the selector receive the rule's styles",
+                ],
+                "gold_letter": "D",
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual question to see if they understand how the CSS code actually centers the board element. Specifically, introduce a change that would modify the positioning.",
+                "main": "The CSS rule in the snippet below uses the attribute `[INSERT MAIN ATTRIBUTE(S) that attempts to do centering in code ticks]`. If this attribute was removed but the rest of the website stayed the same, what would most likely happen to the elements where the `[INSERT SELECTOR that is shown]` rule applies?",
+                "sample_gold_answers": [
+                    "The elements would be aligned to the left",
+                ],
+                "sample_distractors": [
+                    "The elements would be aligned to the right",
+                    "The elements would be centered horizontally",
+                    "The elements would be unable to show the grid",
+                ],
+                "gold_letter": "B",
+            },
+        },
+        "js": {
+            "mechanism": {
+                "intent": "Ask the user about the purpose of the JavaScript function for rendering the board",
+                "main": "The JavaScript snippet below shows the function `[FUNCTION_NAME in code ticks]`. Which of these options best describes the primary purpose of this function?",
+                "sample_gold_answers": [
+                "Sync the displayed board with the current board state"
+                ],
+                "sample_distractors": [
+                "Initialize the website with a blank board for each game",
+                "Transform the board from a 2D to a 1D array",
+                "Save the current board state for future game logic"
+                ],
+                "gold_letter": "C"
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual question to see if they understand how the JavaScript function actually renders the board. Specifically, introduce a change that would not make the last row render. If the user is not actually udpating the board visually in their function, you should abstain. (If the user's initial function did not render the last row correctly, you MUST alter this question susbtantially to something that would not render properly.)\nNOTE: if the user's code has no for loop, abstain from this question",
+                "main": "The JavaScript snippet below shows the function `[FUNCTION_NAME in code ticks]`, which renders the game board. Imagine the loop indexing in this function were changed so that [IF THIS IS A NESTED INDEX OVER `board`, CHANGE THE LOGIC SO THE INNER LOOP ENDS ONE EARLY. IF THIS IS A SINGLE LOOP OVER `cells`, CHANGE THE LOGIC SO THE LOOP STOPS AT 20 (OR ANOTHER NUMBER IF NOT POSSIBLE)]. If the rest of the website stayed the same, which of these best describes how your original board display logic would change? (Remember: If the user's initial function did not render the last row correctly, you MUST alter this question susbtantially to something that would not render properly.)",
+                "sample_gold_answers": [
+                    "The bottom-most row of the board would not be accessed",
+                ],
+                "sample_distractors": [
+                    "The left-most column of the board would not be accessed",
+                    "The right-most column of the board would not be accessed",
+                    "The top-most row of the board would not be accessed",
+                ],
+                "gold_letter": "D",
+            },
+        },
+    },
+    "zic_zac_zoe_follow_up": {
+        "html": {
+            "mechanism": {
+                "intent": "Ask the user about the role of the HTML snippet for the restart button on their website.",
+                "main": "In this snippet, what is the primary role of this HTML element [reference the element uniquely for the reset button] in your website?",
+                "sample_gold_answers": [
+                    "It lets the user play a new game",
+                ],
+                "sample_distractors": [
+                    "It lets the user change who goes first",
+                    "It lets the user refresh the page",
+                    "It lets the user clear the symbol color",
+                ],
+                "gold_letter": "C",
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual question to see if they understand how the JavaScript code interacts with their HTML elements. Specifically, introduce a change that would alter how the JavaScript accesses the HTML element.",
+                "main": "In this snippet, if the identifier [insert whatever is used to select this element in the JavaScript, such as the ID, tag (e.g. <div> vs <p>), or the class, used for displaying the reset button] of this HTML button [reference the name of the element] was changed but the rest of the website stayed the same, what would happen to your website?",
+                "sample_gold_answers": [
+                    "Clicking the button would no longer reset the game",
+                ],
+                "sample_distractors": [
+                    "The button would no longer appear on the page",
+                    "The visual style of the button would change",
+                    "The position of the button would change",
+                ],
+                "gold_letter": "A",
+            },
+        },
+        "css": {
+            "mechanism": {
+                "intent": "Ask the user the role of the CSS snippet for controlling the color of A and B symbols on their website.",
+                "main": "In this snippet, what visual effect does the CSS rule [insert the rules for changing the colors of A and B symbols] have on the game symbols?",
+                "sample_gold_answers": [
+                    "It controls the color of symbols on the board",
+                ],
+                "sample_distractors": [
+                    "It controls the default color of the entire page",
+                    "It controls the color of cell backgrounds on the board",
+                    "It controls the text of all elements on the page"
+                ],
+                "gold_letter": "A",
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual question to see if they understand how the CSS code actually colors the symbols on their website.",
+                "main": "In this snippet, if the [insert selector for selecting A] were changed to [insert another selector name like relating to cell C] but the rest of the website stayed the same, what would happen to your website?",
+                "sample_gold_answers": [
+                    "The A symbol would no longer use this style",
+                ],
+                "sample_distractors": [
+                    "The board would look the same",
+                    "Cells with 'A' would display a different symbol",
+                    "All symbols on the board would change color",
+                ],
+                "gold_letter": "A",
+            },
+        },
+        "js": {
+            "mechanism": {
+                "intent": "Ask the user about the role of the follow-up JavaScript snippet for their game logic.",
+                "main": "In this snippet, what behavior or logic does this JavaScript function [insert the name of the JavaScript function that checks the winners] handle?",
+                "sample_gold_answers": [
+                    "It detects whether a player has won the game",
+                ],
+                "sample_distractors": [
+                    "It updates the board display after a player moves",
+                    "It creates the status element that displays the winner",
+                    "It handles user clicks on the board cells",
+                ],
+                "gold_letter": "C",
+            },
+            "change": {
+                "intent": "Ask the user a counterfactual to test whether they understand that the order of independent win-condition checks does not affect gameplay.",
+                "main": "In this snippet, if the order of the horizontal win check and the corner win check were swapped, what would happen to your game?",
+                "sample_gold_answers": [
+                    "The game would still correctly detect winners",
+                ],
+                "sample_distractors": [
+                    "The game would no longer detect corner win conditions",
+                    "The game would prematurely detect corner win conditions",
+                    "The game would no longer detect horizontal win conditions",
+                ],
+                "gold_letter": "A",
+            },
+        },
     },
 }
 
@@ -212,8 +401,9 @@ def _select_requirement_target(
         "css": (
             "Choose one or more meaningful CSS selectors tied to requirements. "
             "Return exact selector strings as written in CSS (e.g., .container, #status). "
-            "Use a single selector in target_value, or multiple selectors in target_values (JSON array)."
-            "If the CSS requirement relates to changing colors, pick all the selectors that relate to colors"
+            "Selectors may be class names, tag names, or IDs. "
+            "Use a single selector in target_value, or multiple selectors in target_values (JSON array). "
+            "If the user's CSS is identical or nearly identical to the starter CSS (no meaningful attempt at the requirement), return status = \"abstain\"."
         ),
         "js": (
             "Choose one meaningful JavaScript function tied to requirements. "
@@ -251,10 +441,7 @@ Selection goal:
 - For CSS only: you may pick multiple selectors if the requirement spans several rules (e.g. layout + cells); use target_values array in that case.
 - Prefer a target that reflects the user's implementation work, even if imperfect.
 
-Important abstain policy:
-- If the user seems to have implemented a relevant target for this requirement but did so incorrectly, you should still select it.
-- Only abstain when the user code indicates no true attempt or artifact for this requirement (nothing to select).
-- Prefer selecting something imperfect over abstaining when a plausible target exists.
+{abstain_policy}
 </task>
 
 <inputs>
@@ -310,6 +497,7 @@ For CSS: use target_value for one selector, or target_values (array of selector 
         task_name=task,
         language_guidance=language_guidance,
         requirements_text=requirements_text,
+        abstain_policy=ABSTAIN_POLICY_UNIFIED.strip(),
         starter_html=starter_html,
         starter_css=starter_css,
         starter_js=starter_js,
@@ -404,14 +592,522 @@ def _resolve_selected_target_to_code(
     return None
 
 
+def _get_snippet_question_templates(task_name: str, language: str) -> Optional[Dict[str, Dict[str, Any]]]:
+    task_key = (task_name or "").strip().lower()
+    lang_key = "js" if (language or "").strip().lower() in {"javascript", "js"} else (language or "").strip().lower()
+    if not task_key:
+        return None
+    task_templates = SNIPPET_QUESTION_TEMPLATE_CONFIG.get(task_key)
+    if not isinstance(task_templates, dict):
+        return None
+    language_templates = task_templates.get(lang_key)
+    if not isinstance(language_templates, dict):
+        return None
+    mechanism_templates = language_templates.get("mechanism")
+    change_templates = language_templates.get("change")
+    if not isinstance(mechanism_templates, dict) or not isinstance(change_templates, dict):
+        return None
+    return {
+        "mechanism": mechanism_templates,
+        "change": change_templates,
+    }
+
+
+def _build_full_website_context(html_code: str, css_code: str, js_code: str) -> str:
+    return (
+        "<website_html>\n"
+        + (html_code or "")
+        + "\n</website_html>\n\n"
+        + "<website_css>\n"
+        + (css_code or "")
+        + "\n</website_css>\n\n"
+        + "<website_javascript>\n"
+        + (js_code or "")
+        + "\n</website_javascript>"
+    )
+
+
+def _gold_letter_to_index(gold_letter: str) -> Optional[int]:
+    letter = (gold_letter or "").strip().upper()
+    mapping = {"A": 1, "B": 2, "C": 3, "D": 4}
+    return mapping.get(letter)
+
+
+def _build_fixed_choices_from_templates(type_templates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    gold_answers = [str(x).strip() for x in (type_templates.get("sample_gold_answers") or []) if str(x).strip()]
+    distractors = [str(x).strip() for x in (type_templates.get("sample_distractors") or []) if str(x).strip()]
+    gold_idx = _gold_letter_to_index(str(type_templates.get("gold_letter", "")))
+
+    # Fixed-choice contract: exactly one gold and three distractors.
+    if len(gold_answers) != 1 or len(distractors) != 3 or not gold_idx:
+        return None
+
+    gold = gold_answers[0]
+    if any(d.lower() == gold.lower() for d in distractors):
+        return None
+
+    return {
+        "gold_answer": gold,
+        "distractors": distractors,
+        "answer_index": gold_idx,
+    }
+
+
+def _assemble_choices_with_fixed_gold_position(
+    gold_answer: str,
+    distractors: List[str],
+    answer_index: int,
+) -> Optional[List[str]]:
+    if not gold_answer or not isinstance(distractors, list) or len(distractors) != 3:
+        return None
+    if answer_index < 1 or answer_index > 4:
+        return None
+    cleaned_distractors = [str(x).strip() for x in distractors if str(x).strip()]
+    if len(cleaned_distractors) != 3:
+        return None
+    if any(d.lower() == gold_answer.lower() for d in cleaned_distractors):
+        return None
+    choices: List[str] = []
+    distractor_iter = iter(cleaned_distractors)
+    for i in range(1, 5):
+        if i == answer_index:
+            choices.append(gold_answer)
+        else:
+            choices.append(next(distractor_iter))
+    if len(set(c.lower() for c in choices)) < 4:
+        return None
+    return choices
+
+
+def _pick_snippet_for_language(
+    submission_code: Dict[str, str],
+    language: str,
+    project_name: Optional[str],
+    selection_context: Optional[Dict[str, Any]],
+) -> Optional[Tuple[str, str]]:
+    normalized = (language or "").strip().lower()
+    normalized_project = (project_name or "").strip().lower()
+    js_code, html_code, css_code = _collect_code_by_language(submission_code)
+
+    use_requirement_selector = (
+        normalized_project in REQUIREMENT_AWARE_COMPARE_TASKS
+        and isinstance(selection_context, dict)
+    )
+    if use_requirement_selector:
+        requirements = selection_context.get("requirements", [])
+        starter_code = selection_context.get("starter_code", {})
+        user_code = {"html": html_code, "css": css_code, "js": js_code}
+        selection = _select_requirement_target(
+            language=normalized,
+            task_name=normalized_project,
+            task_requirements=requirements if isinstance(requirements, list) else [],
+            user_code=user_code,
+            starter_code=starter_code if isinstance(starter_code, dict) else {},
+        )
+        if selection and selection.get("status") == "selected":
+            resolved = _resolve_selected_target_to_code(normalized, selection, js_code, html_code, css_code)
+            if resolved and resolved[1] and resolved[1].strip():
+                return resolved
+
+    if normalized == "html":
+        sampled = _sample_main_container_html_component(html_code) or _sample_html_component_for_explanation(
+            html_code,
+            project_name=project_name,
+        )
+        if sampled and sampled[1] and sampled[1].strip():
+            return sampled
+        return None
+
+    if normalized == "css":
+        sampled = _sample_css_block_for_explanation(css_code)
+        if sampled and sampled[1] and sampled[1].strip():
+            return sampled
+        return None
+
+    if normalized in {"js", "javascript"}:
+        functions_map = _parse_javascript_functions(js_code)
+        if not functions_map:
+            return None
+        eligible = [
+            (name, code)
+            for name, code in functions_map.items()
+            if name not in JS_FUNCTIONS_EXCLUDED_FROM_CODE_BLOCK_SAMPLING
+            and _count_code_lines(code) <= MAX_CODE_COMPARE_BLOCK_LINES
+        ]
+        if eligible:
+            name, code = random.choice(eligible)
+            return (f"{name}()", code)
+        fallback = [
+            (name, code)
+            for name, code in functions_map.items()
+            if name not in JS_FUNCTIONS_EXCLUDED_FROM_CODE_BLOCK_SAMPLING
+        ]
+        if fallback:
+            name, code = random.choice(fallback)
+            return (f"{name}()", code)
+    return None
+
+
+def _build_snippet_question_stems(type_templates: Dict[str, Any], include_change_backup_questions: bool) -> List[str]:
+    stems: List[str] = []
+    main = str(type_templates.get("main", "")).strip()
+    if main:
+        stems.append(main)
+    stems.extend([str(x).strip() for x in (type_templates.get("backups") or []) if str(x).strip()])
+    if include_change_backup_questions:
+        stems.extend([str(x).strip() for x in (type_templates.get("backup_questions") or []) if str(x).strip()])
+    # Preserve order while deduping.
+    seen: Set[str] = set()
+    unique_stems: List[str] = []
+    for stem in stems:
+        if stem in seen:
+            continue
+        seen.add(stem)
+        unique_stems.append(stem)
+    return unique_stems
+
+
+def _rewrite_and_validate_fixed_mcq(
+    full_website_context: str,
+    snippet_label: str,
+    snippet_code: str,
+    code_language: str,
+    question_kind: str,
+    question_stem: str,
+    template_intent: str,
+    sample_gold_answer: str,
+    sample_distractors: List[str],
+    answer_index: int,
+    snippet_code_js: Optional[str] = None,
+    starter_css: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    model = "openai/gpt-5.2-2025-12-11"
+    if not question_stem:
+        return None
+    if not sample_gold_answer or not isinstance(sample_distractors, list) or len(sample_distractors) != 3:
+        return None
+    if answer_index < 1 or answer_index > 4:
+        return None
+    prompt = """
+<task>
+You are validating whether a multiple-choice question can be asked about a user's code snippet.
+
+You MUST do two things:
+1) Rewrite the question so it aligns with the provided question template and code details.
+2) Validate the answer options, and adapt their wording only if needed for this participant's code.
+
+Interpret the code literally. Do not infer intended behavior beyond what the code actually does or attempts to do. The generated question is meant to test the understanding of the user's own code.
+
+Question-rewrite rules:
+- Try to adhere to the style of the question_template.
+- Fill in concrete details from the participant's code (e.g. element IDs, function names, selectors) where the template has placeholders.
+- Write a single clear question that stands on its own; the snippet will be shown right after it
+- Make sure the question is extremely clear and easy to understand
+
+Validation rule:
+- The designated gold option must be correct for the user's actual code.
+- Every distractor option must be incorrect for the user's actual code.
+- The gold option must describe what the code ACTUALLY does, not the intended behavior
+
+Abstention policy:
+{abstain_policy}
+
+Option-adaptation rules:
+- Start from the provided sample gold answer and sample distractors.
+- Keep the original wording when it already fits the participant's code.
+- If wording does not fit, adapt it so one option is clearly correct and three are clearly incorrect for this participant's implementation.
+- Avoid introducing stylistic cues: keep all four options similar in length (no more than five word differences), tone, specificity, and structure. In particular, all distractors must be very similar in length to each other (and the gold option should be similar too) so that length does not cue the answer. Do not add extra punctuation like parentheses or semi-colons on individual answers.
+- None of the options should include words that relate to "change"; this is especially important in the counterfactual-style questions. We don't want to cue the user based on how their implementation current works. So instead of saying "Your board would stay centered" or this would "no longer" work, you could say "Your board would be centered"
+- Remember: one option must stay correct and three must stay incorrect.
+</task>
+
+<question_spec>
+- question_kind: {question_kind}
+- intent: {template_intent}
+- question_template: {question_stem}
+</question_spec>
+
+<full_website_context>
+{full_website_context}
+</full_website_context>
+{starter_css_block}
+
+<selected_snippet label="{snippet_label}" language="{code_language}">
+{snippet_code}
+</selected_snippet>
+{snippet_js_block}
+
+The question template below provides an example question choices for a WORKING implementation. If the user's implementation is correct, you can adapt this question directly. If their implementation is incomplete or incorrect, you will have to adapt the options to make sure the gold answer is correct and the distractors are objectively wrong.
+<provided_option_templates>
+- sample_gold_answer: {sample_gold_answer}
+- sample_distractors:
+  - {sample_distractor_1}
+  - {sample_distractor_2}
+  - {sample_distractor_3}
+- gold_answer_index: {answer_index}
+</provided_option_templates>
+
+Remember, if you are changing the gold answer, keep the word length differences minimal! (less than 5 words)
+
+<format>
+Return strict JSON only. Also provide a short reason explaining why the question was selected or why the feature was absent in a "reason" key, and how you made any changes:
+{{
+  "status": "selected|abstain",
+  "rewritten_question": "string_or_empty",
+  "adapted_gold_option": "string_or_empty",
+  "adapted_distractor_options": ["d1", "d2", "d3"],
+  "reason": "short reason"
+}}
+</format>
+"""
+    snippet_js_block = ""
+    if snippet_code_js and snippet_code_js.strip():
+        snippet_js_block = (
+            '\n<selected_snippet label="' + snippet_label + '" language="javascript">\n'
+            + snippet_code_js.strip()
+            + "\n</selected_snippet>\n"
+        )
+    starter_css_block = ""
+    if code_language == "css" and starter_css and starter_css.strip():
+        starter_css_block = (
+            "\n<starter_css>\n"
+            "The participant started with this CSS (before any edits). Use it to judge whether they made meaningful change towards the task requirement. If their current CSS is identical or nearly identical, return status = \"abstain\".\n"
+            "```css\n"
+            + starter_css.strip()
+            + "\n```\n"
+            "</starter_css>\n"
+        )
+    prompt = prompt.format(
+        question_kind=question_kind,
+        template_intent=template_intent or "",
+        question_stem=question_stem,
+        full_website_context=full_website_context,
+        starter_css_block=starter_css_block,
+        snippet_label=snippet_label,
+        code_language=code_language,
+        snippet_code=snippet_code,
+        snippet_js_block=snippet_js_block,
+        abstain_policy=ABSTAIN_POLICY_UNIFIED.strip(),
+        sample_gold_answer=sample_gold_answer,
+        sample_distractor_1=sample_distractors[0],
+        sample_distractor_2=sample_distractors[1],
+        sample_distractor_3=sample_distractors[2],
+        answer_index=answer_index,
+    ).strip()
+    try:
+        response = litellm.completion(model=model, messages=[{"role": "user", "content": prompt}])
+        payload = _extract_json_object(response.choices[0].message.content)
+        if not payload:
+            return None
+        status = str(payload.get("status", "")).strip().lower()
+        rewritten_question = str(payload.get("rewritten_question", "")).strip()
+        if status == "abstain":
+            return {
+                "status": "abstain",
+                "rewritten_question": "",
+                "reason": str(payload.get("reason", "")).strip(),
+            }
+
+        if code_language in {'js', 'javascript'}:
+            print('\n')
+            print(payload)
+
+        adapted_gold_option = str(payload.get("adapted_gold_option", "")).strip()
+        adapted_distractor_options_raw = payload.get("adapted_distractor_options")
+        if (
+            status == "selected"
+            and rewritten_question
+            and adapted_gold_option
+            and isinstance(adapted_distractor_options_raw, list)
+        ):
+            adapted_distractor_options = [
+                str(x).strip() for x in adapted_distractor_options_raw if str(x).strip()
+            ]
+            if len(adapted_distractor_options) != 3:
+                return None
+            choices = _assemble_choices_with_fixed_gold_position(
+                gold_answer=adapted_gold_option,
+                distractors=adapted_distractor_options,
+                answer_index=answer_index,
+            )
+            if not choices:
+                return None
+            return {
+                "status": "selected",
+                "rewritten_question": rewritten_question,
+                "choices": choices,
+                "answer_index": answer_index,
+            }
+    except Exception as e:
+        _code_compare_debug_log(
+            f"[snippet-questions] validation error kind={question_kind}: {e}"
+        )
+    return None
+
+
+def generate_snippet_understanding_questions(
+    submission_code: Dict[str, str],
+    language: str,
+    include_questions: bool = True,
+    project_name: Optional[str] = None,
+    selection_context: Optional[Dict[str, Any]] = None,
+    real_block_override: Optional[Dict[str, str]] = None,
+    compare_question_generated: Optional[bool] = None,
+) -> List[Dict[str, Any]]:
+    if not include_questions:
+        return []
+    normalized = (language or "").strip().lower()
+    if normalized not in {"html", "css", "js", "javascript"}:
+        return []
+    # For CSS/JS, only show purpose/mechanism questions when the pairwise "identify your code" question was generated.
+    if normalized in {"css", "js", "javascript"} and compare_question_generated is False:
+        return []
+
+    snippet_label: Optional[str] = None
+    snippet_code: Optional[str] = None
+    snippet_code_js: Optional[str] = None
+
+    if normalized == "html":
+        if real_block_override and real_block_override.get("html_snippet"):
+            snippet_label = "status element (HTML + JavaScript)"
+            snippet_code = str(real_block_override["html_snippet"]).strip()
+            snippet_code_js = str(real_block_override.get("html_snippet_js") or "").strip() or None
+        else:
+            # HTML mechanism/change questions use only the snippet from the identify_own pair; no fallback.
+            return []
+    elif normalized in {"css", "js", "javascript"} and real_block_override and real_block_override.get("snippet_code"):
+        # Use the same block as the pairwise compare question (same logic, same snippet).
+        snippet_label = str(real_block_override.get("snippet_label") or "snippet").strip() or "snippet"
+        snippet_code = str(real_block_override["snippet_code"]).strip()
+    else:
+        snippet = _pick_snippet_for_language(
+            submission_code=submission_code,
+            language=normalized,
+            project_name=project_name,
+            selection_context=selection_context,
+        )
+        if not snippet:
+            return []
+        snippet_label, snippet_code = snippet
+        snippet_code = (snippet_code or "").strip() if snippet_code else ""
+
+    if not snippet_code:
+        return []
+
+    normalized_project = (project_name or "").strip().lower()
+    if not normalized_project or normalized_project not in SNIPPET_QUESTION_TEMPLATE_CONFIG:
+        return []
+
+    js_code, html_code, css_code = _collect_code_by_language(submission_code)
+    full_website_context = _build_full_website_context(html_code, css_code, js_code)
+    starter_css_for_prompt = ""
+    if normalized == "css" and isinstance(selection_context, dict):
+        starter_code = selection_context.get("starter_code")
+        if isinstance(starter_code, dict):
+            starter_css_for_prompt = str(starter_code.get("css") or "").strip()
+    templates = _get_snippet_question_templates(normalized_project, normalized)
+    if not templates:
+        return []
+    prompt_language = "javascript" if normalized in {"js", "javascript"} else normalized
+    normalized_prefix = "js" if normalized in {"js", "javascript"} else normalized
+
+    mechanism_templates = templates.get("mechanism") or {}
+    change_templates = templates.get("change") or {}
+    mechanism_stems = _build_snippet_question_stems(
+        mechanism_templates,
+        include_change_backup_questions=False,
+    )
+    change_stems = _build_snippet_question_stems(
+        change_templates,
+        include_change_backup_questions=True,
+    )
+    mechanism_fixed = _build_fixed_choices_from_templates(mechanism_templates)
+    change_fixed = _build_fixed_choices_from_templates(change_templates)
+    if not mechanism_fixed or not change_fixed:
+        return []
+
+    if snippet_code_js:
+        snippet_block = (
+            f"HTML:\n```html\n{snippet_code}\n```\n\n"
+            f"JavaScript:\n```javascript\n{snippet_code_js}\n```"
+        )
+    else:
+        snippet_block = f"```{prompt_language}\n{snippet_code}\n```"
+    generated_questions: List[Dict[str, Any]] = []
+
+    for kind, type_templates, stems, fixed, question_name in [
+        (
+            "mechanism",
+            mechanism_templates,
+            mechanism_stems,
+            mechanism_fixed,
+            f"{normalized_prefix}_snippet_mechanism",
+        ),
+        (
+            "change",
+            change_templates,
+            change_stems,
+            change_fixed,
+            f"{normalized_prefix}_snippet_change_impact",
+        ),
+    ]:
+        if not stems:
+            continue
+        selected: Optional[Dict[str, Any]] = None
+        for stem in stems:
+            attempt = _rewrite_and_validate_fixed_mcq(
+                full_website_context=full_website_context,
+                snippet_label=snippet_label or "snippet",
+                snippet_code=snippet_code,
+                code_language=prompt_language,
+                question_kind=kind,
+                question_stem=stem,
+                template_intent=str(type_templates.get("intent", "")).strip(),
+                sample_gold_answer=str(fixed["gold_answer"]),
+                sample_distractors=list(fixed["distractors"]),
+                answer_index=int(fixed["answer_index"]),
+                snippet_code_js=snippet_code_js,
+                starter_css=starter_css_for_prompt if normalized == "css" else None,
+            )
+
+            if not attempt:
+                continue
+            if attempt.get("status") == "selected":
+                selected = attempt
+                break
+        if not selected:
+            continue
+        choices = selected["choices"]
+        answer_index = int(fixed["answer_index"])
+        gold_text = (
+            choices[answer_index - 1]
+            if isinstance(choices, list) and 1 <= answer_index <= len(choices)
+            else str(fixed.get("gold_answer", ""))
+        )
+        generated_questions.append(
+            {
+                "question_name": question_name,
+                "question": f"{selected['rewritten_question']}\n{snippet_block}",
+                "question_type": "mcqa_vertical",
+                "choices": choices,
+                "answer": answer_index,
+                "gold_answer": gold_text,
+            }
+        )
+
+    return generated_questions
+
+
 def _generate_html_compare_pair_direct(
     task_name: str,
     requirement_text: str,
     starter_html: str,
     user_html: str,
-) -> Optional[Dict[str, str]]:
+    user_js: str = "",
+) -> Optional[Dict[str, Any]]:
     """
-    Generate both the real and distractor HTML snippets in one call.
+    Generate real and distractor snippets for a "which code is yours?" question.
+    For status element-related code, returns both HTML and JavaScript snippets per side.
     """
     if not user_html or not user_html.strip():
         return None
@@ -419,22 +1115,23 @@ def _generate_html_compare_pair_direct(
     model = "openai/gpt-5.2-2025-12-11"
     prompt = """
 <task>
-You are generating a pair of HTML snippets for a "which code is yours?" question.
+You are generating a pair of code snippets for a "which code is yours?" question.
 
-Return:
-1) real_snippet: an HTML snippet from the user's current code tied to the requirement.
-2) distractor_snippet: a plausible distractor with one subtle bug.
+Prioritize the primary change target in this exact order:
+1. Status element-related code (if present)
 
-When the code is HTML, prioritize the primary change target in this exact order:
-1. Restart button-related code (if present)
-2. Status element-related code (if present)
-3. Grid-related structure/logic hooks in HTML (if present)
-4. If none of the above are present, pick another meaningful UI element
+When generating status element-related code, you MUST extract BOTH:
+- The HTML element for the status (usually a few lines, often one), in real_snippet and distractor_snippet.
+- The relevant JavaScript that accesses that element (e.g. getElementById, querySelector, etc.), in real_snippet_js and distractor_snippet_js. We just need the line with the variable that accesses the HTML element and the line that updates the content (e.g., via textContent, innerHTML, etc.). Do not paste the whole function where it updates. You can use "..." to indicate line breaks. You do not need to preserve indenting for the JavaScript code
 
-For HTML distractors, prioritize the following changes in this order:
-- switch the label of the element's ID to something that this user could plausibly specify. this distractor should match the style of the user's
-- switch the label of the element's class name to something that this user could plausibly specify. this distractor should match the style of the user's
-- any other change that is noticeable but different
+Use the user's full HTML and JavaScript (provided below) to find the status element and the JS that references its id, class, or tag. Return the exact snippets from the user's code for the "real" side, and a logically equivalent but altered version for the "distractor" side.
+
+For the distractor: change the identifier used to select the element (e.g. a different id or class name) and reflect that change in BOTH the HTML and the JavaScript so the distractor is self-consistent. Match the user's style.
+
+If you are NOT generating status element code (e.g. no status element or no JS that accesses it), return only real_snippet and distractor_snippet (leave real_snippet_js and distractor_snippet_js empty or omitted). In that case, use only HTML snippets as before.
+
+{abstain_policy}
+For this task: the required artifact is the status element plus the JavaScript that accesses it; abstain only when either is absent.
 </task>
 
 <task_name>
@@ -453,20 +1150,28 @@ For HTML distractors, prioritize the following changes in this order:
 {user_html}
 </user_html>
 
+<user_javascript>
+{user_js}
+</user_javascript>
+
 <format>
 Return strict JSON only:
 {{
   "status": "selected|abstain",
-  "real_snippet": "string_or_empty",
-  "distractor_snippet": "string_or_empty",
+  "real_snippet": "string (HTML snippet; required when selected)",
+  "distractor_snippet": "string (HTML snippet; required when selected)",
+  "real_snippet_js": "string or empty (JS that accesses the element; use for status element)",
+  "distractor_snippet_js": "string or empty (JS for distractor; use for status element)",
   "reason": "short reason"
 }}
 </format>
 """.format(
         task_name=task_name,
         requirement_text=requirement_text,
+        abstain_policy=ABSTAIN_POLICY_UNIFIED.strip(),
         starter_html=starter_html or "",
         user_html=user_html,
+        user_js=user_js or "",
     ).strip()
 
     for _ in range(4):
@@ -492,15 +1197,28 @@ Return strict JSON only:
             # Basic non-equivalence guard; prompt should already enforce this.
             if real_snippet == distractor_snippet:
                 continue
+            real_snippet_js = str(payload.get("real_snippet_js", "")).strip()
+            distractor_snippet_js = str(payload.get("distractor_snippet_js", "")).strip()
+            # If one side has JS, both should (for consistent two-block display).
+            if real_snippet_js or distractor_snippet_js:
+                if not real_snippet_js or not distractor_snippet_js:
+                    continue
             return {
                 "status": "selected",
                 "real_snippet": real_snippet,
                 "distractor_snippet": distractor_snippet,
+                "real_snippet_js": real_snippet_js,
+                "distractor_snippet_js": distractor_snippet_js,
                 "reason": str(payload.get("reason", "")).strip(),
             }
         except Exception as e:
             _code_compare_debug_log(f"[html-pair] generation error: {e}")
-    return None
+    return {
+        "status": "abstain",
+        "real_snippet": "",
+        "distractor_snippet": "",
+        "reason": "could not generate both snippets",
+    }
 
 
 def _is_code_compare_debug_enabled() -> bool:
@@ -509,12 +1227,11 @@ def _is_code_compare_debug_enabled() -> bool:
 
 def _code_compare_debug_log(message: str) -> None:
     if _is_code_compare_debug_enabled():
-        print(message)
+        pass  # debug logging disabled (print removed)
 
 
 def _code_compare_skip_log(language: str, reason: str, extra: str = "") -> None:
-    suffix = f" | {extra}" if extra else ""
-    print(f"[code-compare/skip] language={language} reason={reason}{suffix}", flush=True)
+    pass  # skip logging disabled (print removed)
 
 
 def _count_code_lines(code: str) -> int:
@@ -690,11 +1407,6 @@ Return strict JSON only:
             output = json.loads(output)
             candidate = output.get("code", None)
             if not isinstance(candidate, str):
-                print(
-                    f"[distractor] rejected attempt={num_tries + 1}: invalid 'code' field type="
-                    f"{type(candidate).__name__} (expected str){context_suffix}",
-                    flush=True,
-                )
                 _code_compare_debug_log(
                     f"[distractor] attempt={num_tries + 1} invalid output type={type(candidate).__name__}"
                 )
@@ -705,24 +1417,12 @@ Return strict JSON only:
             if line_diff <= max_line_diff:
                 _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1}")
                 return candidate
-            print(
-                f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
-                f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
-                f"(allowed<={max_line_diff}){context_suffix}",
-                flush=True,
-            )
             _code_compare_debug_log(
                 f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
             )
         except Exception as e:
-            print(
-                f"[distractor] rejected attempt={num_tries + 1}: exception={type(e).__name__} "
-                f"details={e}{context_suffix}",
-                flush=True,
-            )
             _code_compare_debug_log(f"[distractor] attempt={num_tries + 1} failed: {e}")
             continue
-    print(f"[distractor] exhausted attempts; returning empty string{context_suffix}", flush=True)
     _code_compare_debug_log("[distractor] exhausted attempts, returning empty string")
     return ""
 
@@ -780,10 +1480,11 @@ For zic_zac_zoe_follow_up symbol-color CSS, prefer one of these distractors:
     elif "language=css" in lowered_context and "task=zic_zac_zoe" in lowered_context:
         css_js_task_focus_instructions = """
 <task-specific-css-focus>
-For zic_zac_zoe centering-related CSS, prefer one of these distactors:
-- Generate a different but logically equivalent way that the user could have centered their code horizontally.
-- Do not alter parts of the code that are unrelated to centering logic (e.g., margins)
-- If this is not possible, introduce some other logically equivalent difference (but they should not be identical)
+For zic_zac_zoe centering-related CSS, generate a different but logically equivalent way that the user could have centered their code horizontally, i.e., by altering different attributes than what the user's code did. Try to use one that is similar to what they did in style. For example, if they used justify-content: center, you could use align-items: center and switching the flexbox direction (and vice versa).
+
+There are different ways to center the component, but the distractor should focus on one that appears simple. If you add too many extra lines compared to the original its a clear giveaway.
+
+If this is not possible, introduce some other logically equivalent difference (but they should not be identical)
 </task-specific-css-focus>
 """
 
@@ -801,9 +1502,9 @@ For zic_zac_zoe_follow_up, prefer one of these distractors in this order:
         css_js_task_focus_instructions = """
 <task-specific-js-focus>
 For zic_zac_zoe board rendering implementations, add an logically equivalent change related to indexing. Prefer one of the distractors in this order:
-- If the user loops over a 2D matrix (e.g., 'board' via row and col) and then converts it into a 1D matrix index (access 'cells' via 5*i+j), swap the approach: loop over the 1D list (cells) and map it into a 2D matrix indices (board). The vice versa also applies
-- Make sure the style is EXACTLY the same between the two versions, including comments, indententations, and newlines. Try to use a more conventional style for both.
-- If this also isn't possible, introduce some other logically equivalent change of the function (but they should not be identical)
+- If the user loops over a 2D matrix (e.g., the 2D 'board' based on rows and columns) and then converts it into a 1D matrix index (access 'cells' via 5*i+j), swap the approach: loop over the 1D list (cells) and map it into a 2D matrix indices (board). The vice versa also applies
+- Make sure the style is EXACTLY the same between the two versions, including comments, indentation, and newlines. Try to use a more conventional style for both.
+- If this 2D vs 1D change is not possible because the user has not implemented the function this way, introduce some other logically equivalent change of the function (but they should not be identical)
 </task-specific-js-focus>
 """
 
@@ -812,7 +1513,7 @@ For zic_zac_zoe board rendering implementations, add an logically equivalent cha
 <task>
 Generate TWO versions of this code block in a single, consistent style (same formatting, comments, indentation, naming conventions).
 1. real_code: A faithful reproduction of the given code, in the exact style you will use for both outputs.
-2. distractor_code: Same as real_code except introduce ONE noticeable but logically equivalent difference (so someone who did not implement this might not spot it).
+2. distractor_code: Same as real_code except introduce noticeable but logically equivalent differences (so someone who did not implement this might not spot it).
 
 By generating both in one response, keep style identical between the two; only the intended logical-equivalence change should differ. Do not add or remove comments, change spacing, or introduce other stylistic differences between real_code and distractor_code.
 </task>
@@ -898,11 +1599,6 @@ Return strict JSON only:
                 real_candidate = output.get("real_code", None)
                 candidate = output.get("distractor_code", None)
                 if not isinstance(real_candidate, str) or not isinstance(candidate, str):
-                    print(
-                        f"[distractor] rejected attempt={num_tries + 1}: invalid real_code/distractor_code "
-                        f"types (expected both str){context_suffix}",
-                        flush=True,
-                    )
                     _code_compare_debug_log(
                         f"[distractor] attempt={num_tries + 1} invalid output types"
                     )
@@ -912,23 +1608,12 @@ Return strict JSON only:
                 if line_diff <= max_line_diff:
                     _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1} (both real+distractor)")
                     return (real_candidate.strip(), candidate.strip())
-                print(
-                    f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
-                    f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
-                    f"(allowed<={max_line_diff}){context_suffix}",
-                    flush=True,
-                )
                 _code_compare_debug_log(
                     f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
                 )
             else:
                 candidate = output.get("code", None)
                 if not isinstance(candidate, str):
-                    print(
-                        f"[distractor] rejected attempt={num_tries + 1}: invalid 'code' field type="
-                        f"{type(candidate).__name__} (expected str){context_suffix}",
-                        flush=True,
-                    )
                     _code_compare_debug_log(
                         f"[distractor] attempt={num_tries + 1} invalid output type={type(candidate).__name__}"
                     )
@@ -939,24 +1624,12 @@ Return strict JSON only:
                 if line_diff <= max_line_diff:
                     _code_compare_debug_log(f"[distractor] success on attempt={num_tries + 1}")
                     return candidate
-                print(
-                    f"[distractor] rejected attempt={num_tries + 1}: line-count mismatch "
-                    f"original={code_line_count} candidate={candidate_line_count} diff={line_diff} "
-                    f"(allowed<={max_line_diff}){context_suffix}",
-                    flush=True,
-                )
                 _code_compare_debug_log(
                     f"[distractor] attempt={num_tries + 1} invalid/size-mismatched output diff={line_diff}"
                 )
         except Exception as e:
-            print(
-                f"[distractor] rejected attempt={num_tries + 1}: exception={type(e).__name__} "
-                f"details={e}{context_suffix}",
-                flush=True,
-            )
             _code_compare_debug_log(f"[distractor] attempt={num_tries + 1} failed: {e}")
             continue
-    print(f"[distractor] exhausted attempts; returning empty string{context_suffix}", flush=True)
     _code_compare_debug_log("[distractor] exhausted attempts, returning empty string")
     return ""
 
@@ -967,7 +1640,7 @@ def generate_single_code_compare_question(
     include_explanation: bool = True,
     project_name: Optional[str] = None,
     selection_context: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, str]]]:
     """
     Generate one code-compare question for a specific language family.
     Supported languages: html, css, js/javascript.
@@ -975,46 +1648,54 @@ def generate_single_code_compare_question(
     """
     normalized = (language or "").strip().lower()
     normalized_project = (project_name or "").strip().lower()
-    print(
-        f"[code-compare/start] language={normalized or language} include_explanation={include_explanation} project={normalized_project or 'none'}",
-        flush=True,
-    )
     if not include_explanation:
         _code_compare_skip_log(normalized or "unknown", "include_explanation_disabled")
         return None
 
     js_code, html_code, css_code = _collect_code_by_language(submission_code)
 
+    # For HTML, use only the direct pair generator; no sample-based fallback.
+    if normalized == "html":
+        if not html_code or not html_code.strip():
+            _code_compare_skip_log("html", "no_html_content")
+            return (None, None)
+        mapped_requirement = REQUIREMENT_TARGET_MAP.get(normalized_project, {}).get("html", "")
+        starter_html = ""
+        if isinstance(selection_context, dict):
+            starter_html = str((selection_context.get("starter_code") or {}).get("html", "") or "")
+        html_pair = _generate_html_compare_pair_direct(
+            task_name=normalized_project,
+            requirement_text=mapped_requirement,
+            starter_html=starter_html,
+            user_html=html_code,
+            user_js=js_code or "",
+        )
+        if html_pair and html_pair.get("status") == "selected":
+            real_html = str(html_pair.get("real_snippet", "")).strip()
+            real_js = str(html_pair.get("real_snippet_js", "")).strip()
+            question = _build_code_compare_question_from_pair(
+                question_name="identify_own_html_component",
+                code_kind_label="HTML component",
+                code_language="html",
+                original_code=real_html,
+                distractor_code=str(html_pair.get("distractor_snippet", "")).strip(),
+                original_code_js=real_js or None,
+                distractor_code_js=str(html_pair.get("distractor_snippet_js", "")).strip() or None,
+            )
+            real_block = None
+            if question and real_js:
+                real_block = {"html_snippet": real_html, "html_snippet_js": real_js}
+            return (question, real_block)
+        reason = str(html_pair.get("reason", "")).strip() if html_pair else "no pair"
+        _code_compare_debug_log(f"[code-compare] html direct abstain/fail: {reason or 'none'}")
+        _code_compare_skip_log("html", "direct_abstain_or_fail", reason or "none")
+        return (None, None)
+
     use_requirement_selector = (
         normalized_project in REQUIREMENT_AWARE_COMPARE_TASKS
         and isinstance(selection_context, dict)
     )
-    if use_requirement_selector:
-        if normalized == "html":
-            mapped_requirement = REQUIREMENT_TARGET_MAP.get(normalized_project, {}).get("html", "")
-            starter_html = ""
-            if isinstance(selection_context, dict):
-                starter_html = str((selection_context.get("starter_code") or {}).get("html", "") or "")
-            html_pair = _generate_html_compare_pair_direct(
-                task_name=normalized_project,
-                requirement_text=mapped_requirement,
-                starter_html=starter_html,
-                user_html=html_code,
-            )
-            if not html_pair or html_pair.get("status") != "selected":
-                reason = ""
-                if isinstance(html_pair, dict):
-                    reason = str(html_pair.get("reason", "")).strip()
-                _code_compare_skip_log("html", "html_pair_generation_abstain", f"reason={reason or 'none'}")
-                return None
-            return _build_code_compare_question_from_pair(
-                question_name="identify_own_html_component",
-                code_kind_label="HTML component",
-                code_language="html",
-                original_code=str(html_pair.get("real_snippet", "")).strip(),
-                distractor_code=str(html_pair.get("distractor_snippet", "")).strip(),
-            )
-
+    if use_requirement_selector and normalized != "html":
         requirements = selection_context.get("requirements", [])
         starter_code = selection_context.get("starter_code", {})
         user_code = {"html": html_code, "css": css_code, "js": js_code}
@@ -1025,7 +1706,6 @@ def generate_single_code_compare_question(
             user_code=user_code,
             starter_code=starter_code if isinstance(starter_code, dict) else {},
         )
-        print('selection:', selection)
         if selection and selection.get("status") == "selected":
             resolved = _resolve_selected_target_to_code(normalized, selection, js_code, html_code, css_code)
             if resolved:
@@ -1046,7 +1726,7 @@ def generate_single_code_compare_question(
                 _code_compare_debug_log(
                     f"[selector] selected language={normalized} target={selection.get('target_kind')} value={selection.get('target_value')}"
                 )
-                return _build_code_compare_question(
+                q = _build_code_compare_question(
                     question_name=question_name,
                     code_kind_label=code_kind_label,
                     code_language=code_language,
@@ -1054,6 +1734,9 @@ def generate_single_code_compare_question(
                     full_context_code=css_code if normalized == "css" else None,
                     task_name=normalized_project,
                 )
+                # Return same block for mechanism/change questions so they use the same snippet.
+                snippet_block = {"snippet_label": selected_name, "snippet_code": selected_code}
+                return (q, snippet_block)
             _code_compare_debug_log(
                 f"[selector] abstain language={normalized}: selected target could not be resolved in user code"
             )
@@ -1062,44 +1745,18 @@ def generate_single_code_compare_question(
                 "selector_target_unresolvable",
                 f"target_kind={selection.get('target_kind')} target_value={selection.get('target_value')}",
             )
-            return None
+            return (None, None)
         reason = selection.get("reason") if isinstance(selection, dict) else "selector_abstain"
         _code_compare_debug_log(f"[selector] abstain language={normalized} reason={reason}")
         _code_compare_skip_log(normalized, "selector_abstain", f"reason={reason}")
-        return None
-
-    if normalized == "html":
-        main_container_component = _sample_main_container_html_component(html_code)
-        if main_container_component:
-            sampled_name, sampled_code = main_container_component
-        else:
-            sampled_html_component = _sample_html_component_for_explanation(
-                html_code,
-                project_name=project_name,
-            )
-            if not sampled_html_component:
-                _code_compare_debug_log("[code-compare] html single compare skipped: no sampled component")
-                _code_compare_skip_log("html", "no_sampled_component")
-                return None
-            sampled_name, sampled_code = sampled_html_component
-        if not sampled_code or not sampled_code.strip():
-            _code_compare_debug_log("[code-compare] html single compare skipped: no sampled component")
-            _code_compare_skip_log("html", "sampled_component_empty")
-            return None
-        return _build_code_compare_question(
-            question_name="identify_own_html_component",
-            code_kind_label=f"HTML component {sampled_name}",
-            code_language="html",
-            original_code=sampled_code,
-            task_name=normalized_project,
-        )
+        return (None, None)
 
     if normalized == "css":
         if not css_code or not css_code.strip():
             _code_compare_debug_log("[code-compare] css single compare skipped: no CSS content")
             _code_compare_skip_log("css", "no_css_content")
-            return None
-        return _build_code_compare_question(
+            return (None, None)
+        q = _build_code_compare_question(
             question_name="identify_own_css_block",
             code_kind_label="CSS stylesheet",
             code_language="css",
@@ -1107,13 +1764,14 @@ def generate_single_code_compare_question(
             full_context_code=None,
             task_name=normalized_project,
         )
+        return (q, None)
 
     if normalized in ("js", "javascript"):
         functions_map = _parse_javascript_functions(js_code)
         if len(functions_map) == 0:
             _code_compare_debug_log("[code-compare] js single compare skipped: no functions")
             _code_compare_skip_log("javascript", "no_functions_found")
-            return None
+            return (None, None)
 
         eligible_functions = {
             name: code
@@ -1137,7 +1795,7 @@ def generate_single_code_compare_question(
             if not fallback_functions:
                 _code_compare_debug_log("[code-compare] js single compare skipped: no functions after excluding onMove etc.")
                 _code_compare_skip_log("javascript", "no_functions_after_exclusions")
-                return None
+                return (None, None)
             sampled_function_name = random.choice(list(fallback_functions.keys()))
             sampled_function_code = fallback_functions[sampled_function_name]
             sampled_line_count = _count_code_lines(sampled_function_code)
@@ -1145,17 +1803,18 @@ def generate_single_code_compare_question(
                 f"[code-compare] js single compare sampled fallback function='{sampled_function_name}' lines={sampled_line_count} (no <= {MAX_CODE_COMPARE_BLOCK_LINES} candidates)"
             )
 
-        return _build_code_compare_question(
+        q = _build_code_compare_question(
             question_name="identify_own_js_function",
             code_kind_label=f"JavaScript function {sampled_function_name}()",
             code_language="javascript",
             original_code=sampled_function_code,
             task_name=normalized_project,
         )
+        return (q, None)
 
     _code_compare_debug_log(f"[code-compare] unsupported single compare language='{language}'")
     _code_compare_skip_log(normalized or "unknown", "unsupported_language", f"input={language}")
-    return None
+    return (None, None)
 
 
 def _build_code_compare_question(
@@ -1177,10 +1836,6 @@ def _build_code_compare_question(
         _code_compare_skip_log(code_language, "empty_original_code", f"question={question_name}")
         return None
 
-    print(
-        f"[code-compare/build] question={question_name} language={code_language} original_lines={_count_code_lines(original_code)}",
-        flush=True,
-    )
     _code_compare_debug_log(f"[code-compare] building question={question_name} language={code_language}")
     is_css = (code_language or "").strip().lower() == "css"
     result = generate_distractor_code_block_logical_equivalence(
@@ -1205,7 +1860,6 @@ def _build_code_compare_question(
         )
         _code_compare_skip_log(code_language, "empty_original_code_from_pair", f"question={question_name}")
         return None
-
     original_on_left = random.choice([True, False])
     left_code = original_code if original_on_left else distractor_code
     right_code = distractor_code if original_on_left else original_code
@@ -1219,10 +1873,6 @@ def _build_code_compare_question(
     # Keep "Left block:" / "Right block:" so frontend regex for side-by-side layout still matches.
     _code_compare_debug_log(
         f"[code-compare] built question={question_name} language={code_language} original_on_left={original_on_left}"
-    )
-    print(
-        f"[code-compare/success] question={question_name} language={code_language} original_on_left={original_on_left}",
-        flush=True,
     )
     return {
         "question_name": question_name,
@@ -1244,8 +1894,10 @@ def _build_code_compare_question_from_pair(
     code_language: str,
     original_code: str,
     distractor_code: str,
+    original_code_js: Optional[str] = None,
+    distractor_code_js: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Build compare question from pre-generated real/distractor pair."""
+    """Build compare question from pre-generated real/distractor pair. Optional JS blocks for HTML+JS pairs."""
     if not original_code or not original_code.strip():
         _code_compare_skip_log(code_language, "empty_original_code", f"question={question_name}")
         return None
@@ -1255,29 +1907,39 @@ def _build_code_compare_question_from_pair(
     if original_code.strip() == distractor_code.strip():
         _code_compare_skip_log(code_language, "identical_real_and_distractor", f"question={question_name}")
         return None
-
     original_on_left = random.choice([True, False])
-    left_code = original_code if original_on_left else distractor_code
-    right_code = distractor_code if original_on_left else original_code
+    has_js = bool(
+        (original_code_js or "").strip() and (distractor_code_js or "").strip()
+    )
+    left_html = original_code if original_on_left else distractor_code
+    right_html = distractor_code if original_on_left else original_code
+    left_js = (original_code_js or "").strip() if original_on_left else (distractor_code_js or "").strip()
+    right_js = (distractor_code_js or "").strip() if original_on_left else (original_code_js or "").strip()
     answer_index = 1 if original_on_left else 2
     language_display = {
         "javascript": "JS",
         "html": "HTML",
         "css": "CSS",
     }.get(code_language.lower(), code_language.upper())
-    block_label = "stylesheets" if code_language.lower() == "css" else "code blocks"
-    print(
-        f"[code-compare/success] question={question_name} language={code_language} mode=direct_pair original_on_left={original_on_left}",
-        flush=True,
-    )
-    return {
-        "question_name": question_name,
-        "question": (
+    if has_js:
+        block_label = "pairs of code blocks (HTML + JavaScript)"
+        question_text = (
+            f"Exactly one of these two {block_label} is from your project. "
+            f"Which one is yours? The 🔶 symbol indicates line changes.\n\n"
+            f"Left block:\n```html\n{left_html}\n```\n```javascript\n{left_js}\n```\n\n"
+            f"Right block:\n```html\n{right_html}\n```\n```javascript\n{right_js}\n```"
+        )
+    else:
+        block_label = "stylesheets" if code_language.lower() == "css" else "code blocks"
+        question_text = (
             f"Exactly one of these two {language_display} {block_label} is from your project. "
             f"Which one is yours? The 🔶 symbol indicates line changes.\n\n"
-            f"Left block:\n```{code_language}\n{left_code}\n```\n\n"
-            f"Right block:\n```{code_language}\n{right_code}\n```"
-        ),
+            f"Left block:\n```{code_language}\n{left_html}\n```\n\n"
+            f"Right block:\n```{code_language}\n{right_html}\n```"
+        )
+    return {
+        "question_name": question_name,
+        "question": question_text,
         "question_type": "mcqa",
         "choices": ["The Left Code is Mine", "The Right Code is Mine"],
         "answer": answer_index,
@@ -1475,16 +2137,15 @@ def _parse_javascript_functions(js_code: str) -> Dict[str, str]:
         if functions_map:
             return functions_map
     except Exception as e:
-        print(f"Error parsing JavaScript with esprima (attempting fallback): {e}")
+        pass  # esprima failed, try fallback
 
     # Fall back to regex-based parsing
     try:
         functions_map = parse_with_regex_fallback()
         if functions_map:
-            print(f"Used regex fallback parser, extracted {len(functions_map)} functions")
             return functions_map
     except Exception as e:
-        print(f"Error parsing JavaScript with regex fallback: {e}")
+        pass  # regex fallback failed
 
     # Return empty dict if both methods fail
     return functions_map
