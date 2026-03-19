@@ -112,3 +112,33 @@ export async function setPlaygroundCompletedInSettings(
   await updateUserSettings(userId, updatedSettings, token);
 }
 
+const EXTRA_CREDIT_CODE_KEY = 'extra_credit_code';
+
+/** Generate a random 12-character hex string for extra credit code */
+function generateExtraCreditCode(): string {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const arr = new Uint8Array(6);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return Math.random().toString(36).slice(2, 14);
+}
+
+/**
+ * Ensure user has an extra_credit_code in settings; create and store one if missing.
+ * Returns the code (existing or newly created).
+ */
+export async function ensureExtraCreditCodeInSettings(
+  userId: number,
+  currentSettings?: Record<string, any>,
+  token?: string
+): Promise<string> {
+  const existing = currentSettings?.[EXTRA_CREDIT_CODE_KEY];
+  if (typeof existing === 'string' && existing.length > 0) {
+    return existing;
+  }
+  const code = generateExtraCreditCode();
+  await updateUserSettings(userId, { [EXTRA_CREDIT_CODE_KEY]: code }, token);
+  return code;
+}
+

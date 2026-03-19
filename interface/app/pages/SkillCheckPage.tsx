@@ -6,11 +6,22 @@ import { useAuth } from "../utils/auth";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { PRE_TEST_SKIPPED_KEY } from "../components/UserStudyPopupProvider";
+import { ENV } from "../config/env";
 
 interface SkillCheckPageProps {
-  skillCheckMode: 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
+  skillCheckMode:
+    | "pre-test"
+    | "post-test"
+    | "locked-pre-test"
+    | "locked-post-test"
+    | "locked-post-test-cap";
   isCalculating?: boolean;
 }
+
+const isSkillCheckLockedMode = (mode: SkillCheckPageProps["skillCheckMode"]) =>
+  mode === "locked-pre-test" ||
+  mode === "locked-post-test" ||
+  mode === "locked-post-test-cap";
 
 export default function SkillCheckPage({ skillCheckMode, isCalculating = false }: SkillCheckPageProps) {
   const { user } = useAuth();
@@ -229,6 +240,18 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
               to start building websites in VibeJam 🚀
             </p>
           </div>
+        ) : skillCheckMode === "locked-post-test-cap" ? (
+          <div className="bg-amber-900/20 rounded-lg border border-amber-700/50 p-6 mb-4 w-full mt-4">
+            <p className="text-gray-300 text-lg">
+              The post-test is limited to the first{" "}
+              {ENV.POST_TEST_PARTICIPANT_CAP.toLocaleString()} participants who met the task requirements (by
+              time). That cutoff has been reached. You can keep building on the{" "}
+              <Link href="/browse" className="text-amber-300 hover:text-amber-200 underline font-semibold">
+                browse page
+              </Link>
+              .
+            </p>
+          </div>
         ) : skillCheckMode === 'locked-post-test' ? (
           <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-6 mb-4 w-full mt-4">
             <p className="text-gray-300 text-lg">
@@ -248,7 +271,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
       )}
       <div className="flex flex-col gap-4 w-full flex-1 min-h-0">
         {/* Skill Check Flow - Show when started */}
-        {isStarted && (skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test') ? (
+        {isStarted && !isSkillCheckLockedMode(skillCheckMode) ? (
           <div className="flex-1 min-h-0 flex flex-col w-full">
             <SkillCheckFlow
               mode={skillCheckMode === 'pre-test' || skillCheckMode === 'post-test' ? skillCheckMode : 'pre-test'}
@@ -310,7 +333,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
         ) : (
           <>
             {/* Instructions - Only show if not locked and not completed */}
-            {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
+            {!isSkillCheckLockedMode(skillCheckMode) && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
           <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
             <h2 className="text-xl font-semibold text-white mb-3">What You'll Do</h2>
             <div className="text-gray-300 space-y-3 leading-relaxed text-sm">
@@ -359,7 +382,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
         )}
 
         {/* Time Estimate - Only show if not locked and not completed */}
-        {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
+        {!isSkillCheckLockedMode(skillCheckMode) && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && (
           <div className="bg-blue-900/20 rounded-lg border border-blue-700/50 p-4">
             <div className="flex items-start space-x-2">
               <Clock className="text-blue-400 mt-0.5 flex-shrink-0" size={18} />
@@ -375,7 +398,7 @@ export default function SkillCheckPage({ skillCheckMode, isCalculating = false }
         )}
 
         {/* Start Button - Only show if not locked, not completed, and loading is complete */}
-        {skillCheckMode !== 'locked-pre-test' && skillCheckMode !== 'locked-post-test' && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && !completionStatus.loading && (
+        {!isSkillCheckLockedMode(skillCheckMode) && !((skillCheckMode === 'pre-test' || skillCheckMode === 'post-test') && completionStatus.completed) && !completionStatus.loading && (
           <div className="flex flex-col items-center gap-3 pt-2">
             <button
               onClick={() => {

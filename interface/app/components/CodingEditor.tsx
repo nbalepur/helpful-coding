@@ -2146,7 +2146,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       const skipInitialConfirmation = Boolean(customEvent?.detail?.skipInitialConfirmation);
       const isGameBased = taskLabel === 'replication' || taskLabel === 'open-ended';
       const promptCount = assistantPromptCountRef?.current ?? 0;
-      if (isGameBased && promptCount < 5) {
+      // Time's up uses skipInitialConfirmation — don't nag about engagement when timer expired
+      if (isGameBased && promptCount < 5 && !skipInitialConfirmation) {
         setShowLowEngagementReminder(true);
         return;
       }
@@ -6021,7 +6022,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               We noticed you didn&apos;t spend much time on this task
             </h3>
             <p style={{ margin: 0, color: '#9ca3af', fontSize: '15px', lineHeight: 1.5 }}>
-              Remember: the top 10 highest-scoring submissions (by user voting) each win $10. Spending more time with the AI assistant can help you build something that stands out.<br /><br />You can still submit—or go back and keep building.
+              Remember: the top 10 highest-scoring submissions (by user voting) each win $10 per project. Spending more time with the AI assistant can help you build something cool that stands out!<br /><br />You can still submit, or go back and keep building 🚀
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
               <button

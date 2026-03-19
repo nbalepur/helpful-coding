@@ -125,12 +125,14 @@ You can track your compensation progress on the [Compensation page](/compensatio
 ### ⚠️ Warnings
 
 <div style="background-color: rgba(220, 38, 38, 0.1); border-left: 4px solid #ef4444; border-radius: 0 0.5rem 0.5rem 0; padding: 1rem; margin: 1.5rem 0;">
-    <ul style="color: #d1d5db; list-style: disc; list-style-position: inside; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem;">
-    <li>There will be questions throughout the study that will ask you to select a specific option to make sure that you are paying attention</li>
-    <li>Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.</li>
-    <li>For the coding and post-test tasks, do not navigate away from the page to look up answers or ask ChatGPT. We provide an AI assistant so you do not need to leave the page</li>
+    <ul style="color: #d1d5db; list-style: disc; list-style-position: inside; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem;">
+    <li>There will be attention checks scattered throughout the study to make sure you are paying attention. We may withdraw your compensation if you fail all checks.
+    </li>
+    <li>
+    Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.
+    </li>
+    <li>
+    Please do not look up the answers to questions or user external AI tools. Our research study aims to understand where students succeed and struggle when using AI assistants, and this behavior weakens our results.</li>
     </ul>
-    <div>
-    If you are found to intentionally violate these rules or attempt to circumvent our study in any way, we reserve the right to withhold compensation.
-    </div>
+<div style="color: #d1d5db; font-size: 0.9rem; margin-top: 0.5rem;">If you are found to break any of these rules, we reserve the right to withhold compensation</div>
 </div>

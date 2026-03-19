@@ -103,6 +103,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     // If no user ID (not authenticated), don't show any popup
     if (!numericUserId) {
       setAllRequiredTasksCompleted(false);
+      setPostTestBlockedByParticipantCap(false);
       debugInfo.finalDecision = 'none';
       return 'none';
     }
@@ -123,11 +124,50 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       const isAgentGroupUser = experimentGroup === 'agent';
 
       // Fetch all required data in parallel for better performance
-      const [testStatusResponse, submissionsResponse, tasksResponse] = await Promise.all([
-        fetch(`/api/skill-check/completion-status-both?user_id=${numericUserId}`),
-        fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/submissions`),
-        fetch(`/api/tasks`)
-      ]);
+      const [testStatusResponse, submissionsResponse, tasksResponse, postTestPoolResponse, postTestCompletionsResponse] =
+        await Promise.all([
+          fetch(`/api/skill-check/completion-status-both?user_id=${numericUserId}`),
+          fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/submissions`),
+          fetch(`/api/tasks`),
+          fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/post-test-pool-status`),
+          fetch(`${ENV.BACKEND_URL}/api/study/post-test-completions-count`),
+        ]);
+
+      let postTestPoolData: {
+        meets_task_requirement?: boolean;
+        in_post_test_pool?: boolean;
+        post_test_completed?: boolean;
+        post_test_open?: boolean;
+      } | null = null;
+      if (postTestPoolResponse.ok) {
+        try {
+          postTestPoolData = await postTestPoolResponse.json();
+        } catch {
+          postTestPoolData = null;
+        }
+      }
+
+      let studyWidePostTestCompletionsCount: number | null = null;
+      if (postTestCompletionsResponse.ok) {
+        try {
+          const pc = await postTestCompletionsResponse.json();
+          if (typeof pc?.post_test_completions_count === 'number') {
+            studyWidePostTestCompletionsCount = pc.post_test_completions_count;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      const poolFilledByCount =
+        studyWidePostTestCompletionsCount != null &&
+        studyWidePostTestCompletionsCount >= ENV.POST_TEST_PARTICIPANT_CAP;
+
+      const postTestCapBlockedByBackend =
+        !!postTestPoolData &&
+        postTestPoolData.meets_task_requirement === true &&
+        postTestPoolData.post_test_completed !== true &&
+        postTestPoolData.post_test_open === false;
+      setPostTestBlockedByParticipantCap(postTestCapBlockedByBackend);
       
       // Parse test status (combines pre-test and post-test in one call)
       let preTestCompletedValue = false;
@@ -257,14 +297,24 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         return 'website-task-choice';
       }
 
-      // 5. Force post-test after configured number of submitted game tasks (must include platformer)
+      // 5. Force post-test after task reqs, only if user is in first-N eligible participants (by time)
       if (
         !postTestCompletedValue &&
         (debugInfo.numGameProjectsSubmitted ?? 0) >= ENV.NUM_TASKS_REQUIRED_UNTIL_POSTTEST &&
         debugInfo.hasSubmittedPlatformer
       ) {
-        debugInfo.finalDecision = 'post-test';
-        return 'post-test';
+        const allowedByBackend =
+          !postTestPoolData ||
+          postTestPoolData.post_test_completed === true ||
+          postTestPoolData.post_test_open !== false;
+        const allowed = allowedByBackend && !poolFilledByCount;
+        if (allowed) {
+          debugInfo.finalDecision = 'post-test';
+          return 'post-test';
+        }
+        debugInfo.finalDecision = 'none';
+        debugInfo.postTestBlockedByParticipantCap = true;
+        setPostTestBlockedByParticipantCap(true);
       }
       
       // 6. Otherwise, if user has not completed all required tasks, show nothing
@@ -288,6 +338,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
     } catch (error) {
       debugInfo.error = error;
       debugInfo.finalDecision = 'none';
+      setPostTestBlockedByParticipantCap(false);
       console.error('[UserStudyPopupProvider] Error calculating popup state:', error);
       // On error, default to none to avoid blocking the user
       return 'none';
@@ -300,6 +351,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
   const [preTestCompleted, setPreTestCompleted] = useState<boolean | null>(null);
   const [postTestCompleted, setPostTestCompleted] = useState<boolean | null>(null);
   const [allRequiredTasksCompleted, setAllRequiredTasksCompleted] = useState<boolean | null>(null);
+  const [postTestBlockedByParticipantCap, setPostTestBlockedByParticipantCap] = useState(false);
   const isCalculatingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   
@@ -401,6 +453,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       onTutorialClose: handleTutorialClose,
       preTestCompleted,
       postTestCompleted,
+      postTestBlockedByParticipantCap,
       allRequiredTasksCompleted,
       statsAccessible
     }}>

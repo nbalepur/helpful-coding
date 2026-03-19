@@ -147,7 +147,7 @@ const TaskInstructionNew: React.FC<TaskInstructionProps> = ({
     
     // Task type indicator
     let taskTypeInfo = '';
-    const gamePrizeReminder = `<p style="margin: 8px 0 12px 0; color: ${textColor};">🏆 The top 10 highest-scoring submissions (by user voting) each win $10—see the <a href="/compensation" target="_blank" rel="noopener noreferrer" style="color: ${linkColor}; text-decoration: underline;">Compensation</a> page for details.</p>`;
+    const gamePrizeReminder = `<p style="margin: 8px 0 12px 0; color: ${textColor};">🏆 The top 10 highest-scoring submissions (by user voting) each win $10 only if there are more than ${ENV.TOP10_BONUS_MIN_SUBMISSIONS_EXCLUSIVE} study-wide submissions—see the <a href="/compensation" target="_blank" rel="noopener noreferrer" style="color: ${linkColor}; text-decoration: underline;">Compensation</a> page for details.</p>`;
     if (label === 'replication') {
       taskTypeInfo = `<p style="margin: 0 0 12px 0; color: ${textColor};">This is a <span style="color: ${accentColor}; font-weight: 600;">replication</span> task based on an existing game. You will see a list of requirements, and your project will be judged by how well you fulfill them.</p>${gamePrizeReminder}`;
     } else if (label === 'open-ended') {

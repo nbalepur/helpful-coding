@@ -6613,6 +6613,309 @@ async def get_user_stats(
         return JSONResponse(status_code=500, content={"error": f"Failed to get user stats: {str(e)}"})
 
 
+def _project_is_open_ended_game_dev(project: Project) -> bool:
+    """Matches StatsPage open-ended game dev tasks (Platformer + Browse open-ended; excludes website recreation)."""
+    name = (project.name or "").lower()
+    if name == "playground":
+        return False
+    lab = (project.label or "").lower().replace("_", "-")
+    if lab == "website-requirements":
+        return False
+    website_req_names = frozenset(
+        {
+            "website_tutorial_intro",
+            "zic_zac_zoe",
+            "website_tutorial_follow_up",
+            "zic_zac_zoe_follow_up",
+        }
+    )
+    if name in website_req_names:
+        return False
+    if name == "platformer":
+        return True
+    effective = (project.label or "open-ended").lower().replace("_", "-")
+    return effective == "open-ended"
+
+
+@app.get("/api/study/submission-count", tags=["Study"])
+async def get_study_submission_count(db: Session = Depends(get_db)):
+    """Submission counts for compensation page: all vs open-ended game dev tasks only."""
+    try:
+        total = db.query(func.count(Submission.id)).scalar()
+        total_int = int(total or 0)
+        all_projects = db.query(Project).all()
+        qualifying_ids = [p.id for p in all_projects if _project_is_open_ended_game_dev(p)]
+        if not qualifying_ids:
+            open_ended = 0
+        else:
+            # Match stage3 pay-pool ordering: disqualified rows are excluded from the queue
+            open_ended = (
+                db.query(func.count(Submission.id))
+                .filter(Submission.project_id.in_(qualifying_ids))
+                .filter(Submission.is_disqualified == False)
+                .scalar()
+            )
+            open_ended = int(open_ended or 0)
+        return {
+            "total_submissions": total_int,
+            "open_ended_game_submissions": open_ended,
+        }
+    except Exception as e:
+        print(f"Error counting study submissions: {e}")
+        return JSONResponse(
+            status_code=500, content={"error": "Failed to count submissions"}
+        )
+
+
+@app.get("/api/study/post-test-completions-count", tags=["Study"])
+async def get_post_test_completions_count(db: Session = Depends(get_db)):
+    """Number of users who fully completed the post-test skill check (same rules as completion-status)."""
+    try:
+        assignments = db.query(SkillCheckAssignment).all()
+        completed = 0
+        for assignment in assignments:
+            st = _get_completion_status_for_phase(
+                assignment.user_id, "post-test", assignment, db
+            )
+            if st.get("completed"):
+                completed += 1
+        return {"post_test_completions_count": int(completed)}
+    except Exception as e:
+        print(f"Error counting post-test completions: {e}")
+        return JSONResponse(
+            status_code=500, content={"error": "Failed to count post-test completions"}
+        )
+
+
+def _compute_stage3_compensation_estimate(user_id: int, db: Session) -> Dict[str, Any]:
+    """
+    Stage 3: $15 per 3 eligible tasks, but only tasks whose user's *first* submission on that
+    project falls within the first N open-ended game-dev submissions study-wide (by time).
+    """
+    cap = int(os.getenv("STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION", "500"))
+    tasks_per_block = 3
+    dollars_per_block = 15
+
+    all_projects = db.query(Project).all()
+    qualifying = [p for p in all_projects if _project_is_open_ended_game_dev(p)]
+    qualifying_ids = [p.id for p in qualifying]
+    if not qualifying_ids:
+        return {
+            "tasks_completed_total": 0,
+            "tasks_in_pay_pool": 0,
+            "tasks_outside_pool": 0,
+            "reward_blocks": 0,
+            "reward_dollars": 0,
+            "open_ended_submissions_study_wide": 0,
+            "pay_pool_cap": cap,
+            "pool_closed": False,
+        }
+
+    subs = (
+        db.query(Submission)
+        .filter(Submission.project_id.in_(qualifying_ids))
+        .filter(Submission.is_disqualified == False)
+        .order_by(Submission.created_at.asc(), Submission.id.asc())
+        .all()
+    )
+
+    open_ended_count = len(subs)
+    pool_closed = open_ended_count >= cap
+
+    first_rank: Dict[Tuple[int, int], int] = {}
+    for rank, s in enumerate(subs, start=1):
+        key = (s.user_id, s.project_id)
+        if key not in first_rank:
+            first_rank[key] = rank
+
+    platformer_ids = [p.id for p in qualifying if (p.name or "").lower() == "platformer"]
+    additional_ids = [p.id for p in qualifying if (p.name or "").lower() != "platformer"]
+
+    user_submitted_pids = {pid for (uid, pid) in first_rank if uid == user_id}
+
+    tasks_total = 0
+    tasks_in_pool = 0
+    for pid in platformer_ids:
+        if pid not in user_submitted_pids:
+            continue
+        tasks_total += 1
+        if first_rank.get((user_id, pid), cap + 1) <= cap:
+            tasks_in_pool += 1
+    for pid in additional_ids:
+        if pid not in user_submitted_pids:
+            continue
+        tasks_total += 1
+        if first_rank.get((user_id, pid), cap + 1) <= cap:
+            tasks_in_pool += 1
+
+    tasks_outside_pool = tasks_total - tasks_in_pool
+    blocks = tasks_in_pool // tasks_per_block
+    dollars = blocks * dollars_per_block
+
+    return {
+        "tasks_completed_total": tasks_total,
+        "tasks_in_pay_pool": tasks_in_pool,
+        "tasks_outside_pool": tasks_outside_pool,
+        "reward_blocks": blocks,
+        "reward_dollars": dollars,
+        "open_ended_submissions_study_wide": open_ended_count,
+        "pay_pool_cap": cap,
+        "pool_closed": pool_closed,
+    }
+
+
+@app.get("/api/users/{user_id}/stage3-compensation-estimate", tags=["Study"])
+async def get_stage3_compensation_estimate(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    try:
+        return _compute_stage3_compensation_estimate(user_id, db)
+    except Exception as e:
+        print(f"Error computing stage3 estimate: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500, content={"error": "Failed to compute stage 3 estimate"}
+        )
+
+
+def _is_post_test_counting_project(p: Project) -> bool:
+    """Non–website-recreation game tasks (same basis as post-test task-count in the app)."""
+    name = (p.name or "").lower()
+    if name == "playground":
+        return False
+    lab = (p.label or "").lower().replace("_", "-")
+    if lab == "website-requirements":
+        return False
+    website_req_names = frozenset(
+        {
+            "website_tutorial_intro",
+            "zic_zac_zoe",
+            "website_tutorial_follow_up",
+            "zic_zac_zoe_follow_up",
+        }
+    )
+    return name not in website_req_names
+
+
+def _compute_post_test_pool_status(user_id: int, db: Session) -> Dict[str, Any]:
+    """
+    Post-test cap is based on completion: first N users to *complete* the post-test (by completion time)
+    get the reward and fill the pool. While fewer than N have completed, the post-test remains open for
+    any eligible user (post_test_open=True). Once N have completed, no one new can take it.
+    """
+    cap = int(os.getenv("POST_TEST_PARTICIPANT_CAP", "50"))
+    n_required = int(os.getenv("NUM_TASKS_REQUIRED_UNTIL_POSTTEST", "10"))
+
+    assignment = (
+        db.query(SkillCheckAssignment).filter(SkillCheckAssignment.user_id == user_id).first()
+    )
+    post_st = _get_completion_status_for_phase(user_id, "post-test", assignment, db)
+    post_completed = bool(post_st.get("completed"))
+
+    # Completion time per user: max(created_at) over all post-test responses (MCQA + code)
+    mcqa_max = (
+        db.query(UserMCQASkillResponse.user_id, func.max(UserMCQASkillResponse.created_at).label("ts"))
+        .filter(UserMCQASkillResponse.phase == "post-test")
+        .group_by(UserMCQASkillResponse.user_id)
+        .all()
+    )
+    code_max = (
+        db.query(UserCodeSkillResponse.user_id, func.max(UserCodeSkillResponse.created_at).label("ts"))
+        .filter(UserCodeSkillResponse.phase == "post-test")
+        .all()
+    )
+    completion_ts_by_user: Dict[int, Any] = {}
+    for uid, t in mcqa_max:
+        if t:
+            completion_ts_by_user[uid] = max(completion_ts_by_user.get(uid, t), t)
+    for row in code_max:
+        uid, t = row[0], row[1]
+        if t:
+            completion_ts_by_user[uid] = max(completion_ts_by_user.get(uid, t), t)
+
+    # Build list of (user_id, completion_ts) for users who completed post-test; order by completion time
+    assignments = db.query(SkillCheckAssignment).all()
+    completed_with_time: List[tuple] = []
+    for a in assignments:
+        st = _get_completion_status_for_phase(a.user_id, "post-test", a, db)
+        if not st.get("completed"):
+            continue
+        ts = completion_ts_by_user.get(a.user_id)
+        if ts is None:
+            continue
+        completed_with_time.append((a.user_id, ts))
+    completed_with_time.sort(key=lambda x: (x[1], x[0]))
+    completions_count = len(completed_with_time)
+    pool_user_ids = {uid for uid, _ in completed_with_time[:cap]}
+    post_test_open = completions_count < cap
+
+    # Eligibility to take post-test (task requirement)
+    game_projects = [p for p in db.query(Project).all() if _is_post_test_counting_project(p)]
+    game_pids = [p.id for p in game_projects]
+    platformer_pids = frozenset(
+        p.id for p in game_projects if (p.name or "").lower() == "platformer"
+    )
+    if not game_pids or not platformer_pids:
+        return {
+            "meets_task_requirement": False,
+            "in_post_test_pool": False,
+            "post_test_completed": post_completed,
+            "participant_cap": cap,
+            "pool_filled": not post_test_open,
+            "post_test_open": post_test_open,
+            "eligible_users_count": 0,
+            "your_rank": next((i + 1 for i, (uid, _) in enumerate(completed_with_time) if uid == user_id), None),
+        }
+
+    subs = (
+        db.query(Submission)
+        .filter(Submission.project_id.in_(game_pids))
+        .filter(Submission.is_disqualified == False)
+        .order_by(Submission.created_at.asc(), Submission.id.asc())
+        .all()
+    )
+    user_projects: Dict[int, set] = defaultdict(set)
+    for s in subs:
+        user_projects[s.user_id].add(s.project_id)
+    meets = (
+        user_id in user_projects
+        and len(user_projects[user_id]) >= n_required
+        and bool(user_projects[user_id] & platformer_pids)
+    )
+
+    # in_post_test_pool = user completed and is among first cap by completion time
+    in_pool = post_completed and user_id in pool_user_ids
+
+    return {
+        "meets_task_requirement": meets,
+        "in_post_test_pool": in_pool,
+        "post_test_completed": post_completed,
+        "participant_cap": cap,
+        "pool_filled": not post_test_open,
+        "post_test_open": post_test_open,
+        "eligible_users_count": completions_count,
+        "your_rank": next((i + 1 for i, (uid, _) in enumerate(completed_with_time) if uid == user_id), None),
+    }
+
+
+@app.get("/api/users/{user_id}/post-test-pool-status", tags=["Study"])
+async def get_post_test_pool_status(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    try:
+        return _compute_post_test_pool_status(user_id, db)
+    except Exception as e:
+        print(f"Error computing post-test pool status: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500, content={"error": "Failed to compute post-test pool status"}
+        )
+
+
 @app.get("/api/leaderboard", tags=["Submissions"])
 async def get_leaderboard(db: Session = Depends(get_db)):
     """Get leaderboard with user rankings based on average rating and submission count"""
@@ -6754,6 +7057,123 @@ async def get_leaderboard(db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": "Failed to fetch leaderboard"})
+
+
+def _strip_html_to_text(html: Optional[str], max_len: Optional[int] = None) -> str:
+    if not html:
+        return ""
+    import re
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    if max_len and len(text) > max_len:
+        return text[: max_len - 1].rstrip() + "…"
+    return text
+
+
+def _project_is_open_ended(p: Project) -> bool:
+    """Match browse/stats: open-ended game tasks only (excludes replication / website-requirements)."""
+    raw = (p.label or "open-ended").strip().lower().replace("_", "-")
+    if raw == "website-requirements":
+        raw = "replication"
+    if raw != "open-ended":
+        return False
+    if _slugify(p.name) == "playground":
+        return False
+    return True
+
+
+@app.get("/api/leaderboard/projects", tags=["Submissions"])
+async def get_project_leaderboard(db: Session = Depends(get_db)):
+    """Per-project stats for open-ended tasks only (excludes replication, playground)."""
+    try:
+        projects_all = db.query(Project).order_by(Project.name.asc()).all()
+        projects = [p for p in projects_all if _project_is_open_ended(p)]
+        if not projects:
+            return []
+
+        # Submissions (exclude disqualified)
+        base_sub_q = db.query(Submission).filter(Submission.is_disqualified.is_(False))
+        all_submissions = base_sub_q.all()
+        if not all_submissions:
+            submission_ids: List[int] = []
+            by_project_subs: Dict[int, List[Submission]] = defaultdict(list)
+        else:
+            submission_ids = [s.id for s in all_submissions]
+            by_project_subs = defaultdict(list)
+            for s in all_submissions:
+                by_project_subs[s.project_id].append(s)
+
+        feedback_by_submission: Dict[int, List[SubmissionFeedback]] = defaultdict(list)
+        if submission_ids:
+            all_feedback = (
+                db.query(SubmissionFeedback)
+                .filter(SubmissionFeedback.submission_id.in_(submission_ids))
+                .order_by(SubmissionFeedback.submission_id, SubmissionFeedback.created_at.desc())
+                .all()
+            )
+            for fb in all_feedback:
+                feedback_by_submission[fb.submission_id].append(fb)
+
+        counts = (
+            db.query(Submission.project_id, func.count(Submission.id))
+            .filter(Submission.is_disqualified.is_(False))
+            .group_by(Submission.project_id)
+            .all()
+        )
+        count_by_pid = {pid: c for pid, c in counts}
+
+        feedback_counts = (
+            db.query(SubmissionFeedback.project_id, func.count(SubmissionFeedback.id))
+            .group_by(SubmissionFeedback.project_id)
+            .all()
+        )
+        votes_by_pid = {pid: n for pid, n in feedback_counts}
+
+        out = []
+        for p in projects:
+            subs = by_project_subs.get(p.id, [])
+            ratings: List[float] = []
+            for sub in subs:
+                entries = feedback_by_submission.get(sub.id, [])
+                summary = build_rating_summary(entries)
+                if summary.get("average") is not None:
+                    ratings.append(float(summary["average"]))
+
+            avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+            best_score = round(max(ratings), 2) if ratings else None
+            desc_plain = _strip_html_to_text(p.description or "", max_len=400)
+
+            def _fmt_date(d) -> Optional[str]:
+                if d is None:
+                    return None
+                return d.isoformat() if hasattr(d, "isoformat") else str(d)
+
+            out.append(
+                {
+                    "project_id": p.id,
+                    "task_slug": p.name,
+                    # Same as tasks-db "id" — use this for /vibe?task=… (raw name can differ, e.g. snake_game vs snake-game)
+                    "task_route_id": _slugify(p.name),
+                    "title": p.title or p.name,
+                    "description_preview": desc_plain,
+                    "submission_count": int(count_by_pid.get(p.id, 0)),
+                    "total_vote_records": int(votes_by_pid.get(p.id, 0)),
+                    "rated_submissions": len(ratings),
+                    "average_rating": avg_rating,
+                    "best_score": best_score,
+                    "voting_start_date": _fmt_date(p.voting_start_date),
+                    "voting_end_date": _fmt_date(p.voting_end_date),
+                }
+            )
+
+        out.sort(key=lambda x: (-x["submission_count"], x["task_slug"].lower()))
+        return out
+    except Exception as e:
+        print(f"Error fetching project leaderboard: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": "Failed to fetch project leaderboard"})
 
 
 @app.post("/api/execute-endpoint", tags=["Code Execution"])

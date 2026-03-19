@@ -5,9 +5,9 @@ import { useAuth } from "../utils/auth";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { ENV } from "../config/env";
 import { WEBSITE_REQUIREMENT_TASKS, GAME_REQUIRED_TASKS, isWebsiteRequirementTask } from "../config/tasks";
-import { isWebsiteRequirementsSkippedFromSettings } from "../utils/userSettings";
+import { isWebsiteRequirementsSkippedFromSettings, ensureExtraCreditCodeInSettings } from "../utils/userSettings";
 import LoadingSpinner from "../components/LoadingSpinner";
-import { Trophy, Code, DollarSign, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle, CheckCircle2, Circle, CircleSlash, Lock, AlertTriangle } from "lucide-react";
+import { Trophy, Code, DollarSign, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle, CheckCircle2, Circle, CircleSlash, Lock, AlertTriangle, Copy } from "lucide-react";
 import { LineChart, Line, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 // Tooltip descriptions for each plot - edit these to update the info bubble text
@@ -19,6 +19,10 @@ const PLOT_DESCRIPTIONS = {
   perceivedComprehension: "Based on your 1-5 comprehension scores you self-reported during submission",
   trueComprehension: "Based on your answers to questions generated from your code during submission",
 } as const;
+
+/** Stage 3: $15 per this many eligible submitted tasks ($5 each). */
+const STAGE3_TASKS_PER_REWARD_BLOCK = 3;
+const STAGE3_REWARD_DOLLARS_PER_BLOCK = 15;
 
 const formatDateOnly = (dateString?: string): string => {
   if (!dateString) {
@@ -35,10 +39,42 @@ const formatDateOnly = (dateString?: string): string => {
   });
 };
 
+interface Stage3CompensationEstimate {
+  tasks_completed_total: number;
+  tasks_in_pay_pool: number;
+  tasks_outside_pool: number;
+  reward_blocks: number;
+  reward_dollars: number;
+  open_ended_submissions_study_wide: number;
+  pay_pool_cap: number;
+  pool_closed: boolean;
+}
+
+interface PostTestPoolStatus {
+  meets_task_requirement: boolean;
+  in_post_test_pool: boolean;
+  post_test_completed: boolean;
+  participant_cap: number;
+  pool_filled: boolean;
+  /** True while fewer than cap users have completed the post-test (any eligible user can take it). */
+  post_test_open?: boolean;
+}
+
 interface UserStats {
   totalSubmissions: number;
+  stage3Estimate: Stage3CompensationEstimate | null;
+  postTestPoolStatus: PostTestPoolStatus | null;
+  /** Users who completed post-test study-wide */
+  studyWidePostTestCompletionsCount: number | null;
+  /** User's submission rows on open-ended game dev tasks only */
+  openEndedGameDevSubmissionCount: number;
+  /** Open-ended game dev submission rows study-wide; null if unavailable */
+  studyWideOpenEndedSubmissions: number | null;
   completedRequiredTasks: number;
   completedGameRequiredTasks: number;
+  /** Distinct non–website-recreation game tasks submitted (includes Platformer); used for post-test gate. */
+  submittedGameTaskCount: number;
+  platformerSubmitted: boolean;
   completedAdditionalWebsiteTasks: number;
   totalAdditionalWebsiteTasks: number;
   averageRating: number;
@@ -611,7 +647,7 @@ function ProjectBarChart({ data, label, color = "#3b82f6", overallAverage = null
 }
 
 export default function CompensationPage() {
-  const { user } = useAuth();
+  const { user, token, refreshUser } = useAuth();
   const { preTestCompleted, postTestCompleted, allRequiredTasksCompleted } = useUserStudyPopup();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
 
@@ -633,6 +669,31 @@ export default function CompensationPage() {
     direction: 'left-to-right' | 'right-to-left';
     opacity: number;
   }>>([]);
+  const [localExtraCreditCode, setLocalExtraCreditCode] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
+  // Ensure extra credit code exists when user has earned extra credit (must run unconditionally for hooks order)
+  useEffect(() => {
+    if (!userId || !stats) return;
+    const completedPreTest = fetchedPreTestCompleted ?? preTestCompleted ?? false;
+    const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+    const completedWebsiteRequirementTasks = allRequiredTasksCompleted ?? stats.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
+    const stage1Completed = completedWebsiteRequirementTasks;
+    const stage1Skipped = websiteRequirementsSkipped;
+    const extraCreditEarned = completedPreTest && (stage1Completed || stage1Skipped);
+    if (!extraCreditEarned) return;
+    if (user?.settings?.extra_credit_code) return;
+    let cancelled = false;
+    ensureExtraCreditCodeInSettings(userId, user?.settings ?? {}, token ?? undefined)
+      .then((code) => {
+        if (!cancelled) {
+          setLocalExtraCreditCode(code);
+          refreshUser();
+        }
+      })
+      .catch((err) => console.error("Failed to ensure extra credit code:", err));
+    return () => { cancelled = true; };
+  }, [userId, stats, user?.settings, token, refreshUser, fetchedPreTestCompleted, preTestCompleted, allRequiredTasksCompleted]);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -646,12 +707,81 @@ export default function CompensationPage() {
         setError(null);
 
         // Fetch all required data in parallel
-        const [submissionsResponse, tasksResponse, skillCheckResponse, detailedStatsResponse] = await Promise.all([
+        const [
+          submissionsResponse,
+          tasksResponse,
+          skillCheckResponse,
+          detailedStatsResponse,
+          studyCountResponse,
+          stage3EstResponse,
+          postTestPoolResponse,
+          postTestCompletionsResponse,
+        ] = await Promise.all([
           fetch(`${ENV.BACKEND_URL}/api/users/${userId}/submissions`),
           fetch(`/api/tasks`),
           fetch(`/api/skill-check/completion-status-both?user_id=${userId}`),
           fetch(`${ENV.BACKEND_URL}/api/users/${userId}/stats`),
+          fetch(`${ENV.BACKEND_URL}/api/study/submission-count`),
+          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/stage3-compensation-estimate`),
+          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/post-test-pool-status`),
+          fetch(`${ENV.BACKEND_URL}/api/study/post-test-completions-count`),
         ]);
+
+        let studyWidePostTestCompletionsCount: number | null = null;
+        if (postTestCompletionsResponse.ok) {
+          try {
+            const pc = await postTestCompletionsResponse.json();
+            if (typeof pc?.post_test_completions_count === "number") {
+              studyWidePostTestCompletionsCount = pc.post_test_completions_count;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        let postTestPoolStatus: PostTestPoolStatus | null = null;
+        if (postTestPoolResponse.ok) {
+          try {
+            const pj = await postTestPoolResponse.json();
+            if (
+              typeof pj?.meets_task_requirement === "boolean" &&
+              typeof pj?.in_post_test_pool === "boolean" &&
+              typeof pj?.participant_cap === "number"
+            ) {
+              postTestPoolStatus = pj as PostTestPoolStatus;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        let stage3Estimate: Stage3CompensationEstimate | null = null;
+        if (stage3EstResponse.ok) {
+          try {
+            const ej = await stage3EstResponse.json();
+            if (
+              typeof ej?.reward_dollars === "number" &&
+              typeof ej?.tasks_in_pay_pool === "number" &&
+              typeof ej?.pay_pool_cap === "number"
+            ) {
+              stage3Estimate = ej as Stage3CompensationEstimate;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        let studyWideOpenEndedSubmissions: number | null = null;
+        if (studyCountResponse.ok) {
+          try {
+            const sc = await studyCountResponse.json();
+            if (typeof sc?.open_ended_game_submissions === "number") {
+              studyWideOpenEndedSubmissions = sc.open_ended_game_submissions;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
 
         // Parse submissions
         let submissionsData = { items: [] };
@@ -669,6 +799,30 @@ export default function CompensationPage() {
         if (tasksResponse.ok) {
           const tasksData = await tasksResponse.json();
           tasks = tasksData.tasks || [];
+        }
+
+        const isOpenEndedGameDevTask = (task: any): boolean => {
+          if (!task?.name || task.id === "playground") {
+            return false;
+          }
+          if (task.category === "tutorial" || task.tags?.includes("tutorial")) {
+            return false;
+          }
+          if (isWebsiteRequirementTask(task)) {
+            return false;
+          }
+          if (GAME_REQUIRED_TASKS.includes(task.name)) {
+            return true;
+          }
+          const label = (task.label || "open-ended").toLowerCase().replace(/_/g, "-");
+          return label === "open-ended";
+        };
+        let openEndedGameDevSubmissionCount = 0;
+        for (const sub of submissions as { projectId?: number }[]) {
+          const task = tasks.find((t: any) => t.projectId === sub.projectId);
+          if (task && isOpenEndedGameDevTask(task)) {
+            openEndedGameDevSubmissionCount += 1;
+          }
         }
 
         if (skillCheckResponse.ok) {
@@ -696,6 +850,19 @@ export default function CompensationPage() {
             completedTaskNames.add(taskName);
           }
         });
+
+        const submittedGameTaskNames = new Set<string>();
+        submittedProjectIds.forEach((projectId: number) => {
+          const task = tasks.find((t: any) => t.projectId === projectId);
+          if (!task?.name || task.id === "playground") {
+            return;
+          }
+          if (!isWebsiteRequirementTask(task)) {
+            submittedGameTaskNames.add(String(task.name).toLowerCase());
+          }
+        });
+        const submittedGameTaskCount = submittedGameTaskNames.size;
+        const platformerSubmitted = completedTaskNames.has("platformer");
 
         const completedRequiredTasks = WEBSITE_REQUIREMENT_TASKS.filter((taskName) =>
           completedTaskNames.has(taskName)
@@ -783,8 +950,15 @@ export default function CompensationPage() {
 
         setStats({
           totalSubmissions: submissions.length,
+          stage3Estimate,
+          postTestPoolStatus,
+          studyWidePostTestCompletionsCount,
+          openEndedGameDevSubmissionCount,
+          studyWideOpenEndedSubmissions,
           completedRequiredTasks,
           completedGameRequiredTasks,
+          submittedGameTaskCount,
+          platformerSubmitted,
           completedAdditionalWebsiteTasks,
           totalAdditionalWebsiteTasks,
           averageRating,
@@ -857,6 +1031,11 @@ export default function CompensationPage() {
   const completedGameRequiredTasks = stats.completedGameRequiredTasks;
   const completedAdditionalWebsiteTasks = stats.completedAdditionalWebsiteTasks;
   const totalAdditionalWebsiteTasks = stats.totalAdditionalWebsiteTasks;
+  const submittedGameTaskCount = stats.submittedGameTaskCount;
+  const platformerSubmitted = stats.platformerSubmitted;
+  /** Tasks that count toward Stage 3 pay blocks (Platformer = 1 + each paid-track additional task). */
+  const stage3PayTaskCount =
+    (platformerSubmitted ? 1 : 0) + completedAdditionalWebsiteTasks;
   const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
 
   const stage1Completed = completedWebsiteRequirementTasks;
@@ -864,16 +1043,48 @@ export default function CompensationPage() {
   const stage2Unlocked = stage1Completed;
   const stage2Completed = stage2Unlocked && completedGameRequiredTasks >= gameRequiredTaskCount;
   const stage3Unlocked = stage2Completed;
-  const stage3RewardBlocks = Math.floor(completedAdditionalWebsiteTasks / 5);
-  const stage3RewardDollars = stage3RewardBlocks * 15;
-  const stage3ProgressInCurrentBlock = completedAdditionalWebsiteTasks % 5;
+  const s3 = stats.stage3Estimate;
+  const stage3RewardBlocks =
+    s3 != null
+      ? s3.reward_blocks
+      : Math.floor(stage3PayTaskCount / STAGE3_TASKS_PER_REWARD_BLOCK);
+  const stage3RewardDollars =
+    s3 != null ? s3.reward_dollars : stage3RewardBlocks * STAGE3_REWARD_DOLLARS_PER_BLOCK;
+  const stage3PayCap =
+    s3 != null ? s3.pay_pool_cap : ENV.STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION;
+  const stage3PayCutoffReached =
+    (s3 != null && s3.pool_closed) ||
+    (s3 == null &&
+      stats.studyWideOpenEndedSubmissions != null &&
+      stats.studyWideOpenEndedSubmissions >= ENV.STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION);
   const stage3Completed =
     totalAdditionalWebsiteTasks > 0 && completedAdditionalWebsiteTasks >= totalAdditionalWebsiteTasks;
   const numTasksRequiredUntilPostTest = ENV.NUM_TASKS_REQUIRED_UNTIL_POSTTEST;
-  const stage4Unlocked = stage3Unlocked && completedAdditionalWebsiteTasks >= numTasksRequiredUntilPostTest;
-  const stage4Completed = stage4Unlocked && completedPostTest;
+  const ptPool = stats.postTestPoolStatus;
+  // Derive pool filled from study-wide count + frontend cap so lock state matches the numbers we display
+  const poolFilledByCount =
+    stats.studyWidePostTestCompletionsCount != null &&
+    stats.studyWidePostTestCompletionsCount >= ENV.POST_TEST_PARTICIPANT_CAP;
+  const poolFilled =
+    (ptPool != null && (ptPool.pool_filled || ptPool.post_test_open === false)) || poolFilledByCount;
+  const stage4PostTestCapBlocked =
+    stage3Unlocked &&
+    !completedPostTest &&
+    (ptPool?.meets_task_requirement ?? (submittedGameTaskCount >= numTasksRequiredUntilPostTest && platformerSubmitted)) &&
+    poolFilled;
+  const stage4Unlocked =
+    stage3Unlocked &&
+    (completedPostTest ||
+      (ptPool == null
+        ? submittedGameTaskCount >= numTasksRequiredUntilPostTest && !poolFilledByCount
+        : ptPool.post_test_completed ||
+          (ptPool.meets_task_requirement && !poolFilled)));
+  const stage4Completed = completedPostTest;
+  const extraCreditEarned = completedPreTest && (stage1Completed || stage1Skipped);
   const gameBonusTopN = process.env.NEXT_PUBLIC_GAME_TASK_BONUS_TOP_N ?? "N";
   const studyEndDateOverall = formatDateOnly(process.env.NEXT_PUBLIC_STUDY_END_DATE_OVERALL);
+
+  const extraCreditCode = user?.settings?.extra_credit_code ?? localExtraCreditCode;
 
   const pillBase =
     "px-3 py-1 text-xs rounded-full border transition-colors focus:outline-none";
@@ -1028,7 +1239,7 @@ export default function CompensationPage() {
         <div className="bg-gray-800/60 rounded-lg border border-gray-700/60 p-5 space-y-3">
           <h2 className="text-lg font-semibold text-white">How compensation works</h2>
           <p className="text-gray-300 text-sm leading-relaxed">
-            The study ends in {studyEndDateOverall}. Compensation is staggered by stage; complete required stages by then to be eligible. Later payments unlock only after earlier stages are complete.
+            The study ends in {studyEndDateOverall}. Compensation is staggered by stage. Later payments unlock only after earlier stages are complete.
           </p>
           <div className="space-y-2 text-sm text-gray-300">
             <ul className="list-disc list-outside pl-5 space-y-1">
@@ -1036,23 +1247,33 @@ export default function CompensationPage() {
                 <span className="font-semibold text-blue-300">Step 0:</span> Complete the pre-test (extra credit only).
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks (i.e., Zic-Zac-Zoe) for extra credit.
+                <span className="font-semibold text-blue-300">Step 1:</span> After completing the pre-test, complete all website recreation tasks for extra credit.
               </li>
               <li>
                 <span className="font-semibold text-blue-300">Stage 2:</span> Complete all required game-based design tasks (i.e., Platformer) to unlock Stage 3. No monetary reward for this stage.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Stage 3:</span> Complete additional website tasks to receive $15 for every 5 tasks.
+                <span className="font-semibold text-blue-300">Stage 3:</span> Earn ${STAGE3_REWARD_DOLLARS_PER_BLOCK} for every {STAGE3_TASKS_PER_REWARD_BLOCK} open-ended game dev tasks you complete (${STAGE3_REWARD_DOLLARS_PER_BLOCK / STAGE3_TASKS_PER_REWARD_BLOCK} per task).{" "}
+                <span>
+                  We will only compensate the first {ENV.STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION} submissions.
+                </span>
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Stage 4:</span> After {numTasksRequiredUntilPostTest} additional website tasks, complete the post-test to receive $10.
+                <span className="font-semibold text-blue-300">Stage 4:</span> After{" "}
+                {numTasksRequiredUntilPostTest} distinct game-based website tasks (including Platformer), the first{" "}
+                {ENV.POST_TEST_PARTICIPANT_CAP.toLocaleString()} participants may complete the
+                post-test for $10.
               </li>
               <li>
-                <span className="font-semibold text-blue-300">Bonus rewards:</span> The top 10 users with the highest-scoring websites (by user voting) will each receive $10. Rewards are available through {studyEndDateOverall}.
+                <span className="font-semibold text-blue-300">Bonus rewards:</span> The top 10 users with the highest-scoring websites (by user voting) will each receive $10,{" "}
+                <span>
+                  This reward only applies to tasks with more than {ENV.TOP10_BONUS_MIN_SUBMISSIONS_EXCLUSIVE} submissions.
+                </span>{" "}
+                Rewards are available through {studyEndDateOverall}.
               </li>
             </ul>
             <p className="text-gray-300 mt-2">
-              You can track each stage under the "Compensation Checklist" section below. If you have any questions, please contact{" "}
+              You can track each stage under the "Compensation Checklist" section below. The <a href="/leaderboard" className="text-blue-300 hover:text-blue-200 underline">Leaderboard</a> page shows global progress on number of submissions. If you have any questions, please contact{" "}
               <a
                 href="mailto:nbalepur@umd.edu"
                 className="text-blue-300 hover:text-blue-200 underline"
@@ -1065,15 +1286,15 @@ export default function CompensationPage() {
                 <AlertTriangle className="w-5 h-5 mr-2 text-red-400 flex-shrink-0" />
                 Warnings
               </p>
-              <ul className="text-gray-200 space-y-3 list-disc list-outside pl-6 marker:text-red-300">
+              <ul className="text-gray-200 space-y-2 list-disc list-outside pl-6 marker:text-red-300 text-sm">
                 <li className="leading-relaxed">
-                  There will be attention checks scattered throughout the skill-check questions to make sure you are paying attention. We may withdraw your compensation if you fail all checks.
+                There will be attention checks scattered throughout the study to make sure you are paying attention. We may withdraw your compensation if you fail all checks.
                 </li>
                 <li className="leading-relaxed">
-                  Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.
+                Any detected attempts to game our user study or submit offensive websites in any way will result in immediate account termination.
                 </li>
                 <li className="leading-relaxed">
-                  Please do not look up the answers to any skill assessment questions. You are not being rewarded for answering more accurately; our research study just wants to understand where students succeed and struggle when using AI assistants.
+                Please do not look up the answers to questions or user external AI tools. Our research study aims to understand where students succeed and struggle when using AI assistants, and this behavior weakens our results.
                 </li>
               </ul>
             </div>
@@ -1085,9 +1306,42 @@ export default function CompensationPage() {
             <DollarSign className="text-green-400" size={24} />
             Compensation Checklist
           </h2>
-          <p className="text-gray-300 mb-4">
+          <p className="text-gray-300 mb-2">
             Below are the tasks you can complete for compensation and your current progress.
           </p>
+          <ul className="text-gray-300 text-sm list-disc list-outside pl-5 mb-4 space-y-0.5">
+            <li>
+              Total earned: <span className="text-green-400 font-medium">${stage3RewardDollars + (stage4Completed ? 10 : 0)}</span>
+            </li>
+            <li>
+              Extra Credit Code:{" "}
+              {!extraCreditEarned ? (
+                <span className="text-gray-500">Not Completed</span>
+              ) : extraCreditCode ? (
+                <>
+                  <code className="text-green-300 font-mono text-xs bg-gray-900/60 px-2 py-0.5 rounded">
+                    {extraCreditCode}
+                  </code>{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(extraCreditCode).then(() => {
+                        setCopyFeedback(true);
+                        setTimeout(() => setCopyFeedback(false), 2000);
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 bg-transparent hover:bg-transparent text-gray-400 hover:text-white transition-colors align-middle"
+                    title="Copy code"
+                  >
+                    <Copy size={14} />
+                    {copyFeedback ? <span className="text-white text-xs">Copied!</span> : null}
+                  </button>
+                </>
+              ) : (
+                <span className="text-gray-500 text-xs">Loading…</span>
+              )}
+            </li>
+          </ul>
           <div className="space-y-4">
             <div className="bg-gray-900/60 rounded-lg border border-gray-700/60 p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
@@ -1096,7 +1350,7 @@ export default function CompensationPage() {
                   <p className="text-gray-400 text-sm">
                     Pre-test: {completedPreTest ? "Done" : "Not done"}
                   </p>
-                  <p className="text-gray-400 text-sm font-medium mt-1">Extra credit only</p>
+                  <p className={`text-sm font-medium mt-1 ${completedPreTest ? "text-green-300" : "text-gray-400"}`}>Extra credit only</p>
                 </div>
                 {completedPreTest ? (
                   <CheckCircle2 className="text-green-400 shrink-0" size={20} />
@@ -1111,7 +1365,7 @@ export default function CompensationPage() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-gray-200 font-medium">Step 1: Website Recreation Tasks (e.g., Zic-Zac-Zoe)</p>
+                  <p className="text-gray-200 font-medium">Step 1: Website Recreation Tasks</p>
                   <p className="text-gray-400 text-sm">
                     Requires pre-test completed • Task progress: {stats.completedRequiredTasks}/{requiredTaskCount}
                     {websiteRequirementsSkipped ? " • Your status: Skipped" : ""}
@@ -1184,38 +1438,95 @@ export default function CompensationPage() {
             </div>
 
             <div
-              className={`rounded-lg border p-4 space-y-3 ${stage3Unlocked ? "bg-gray-900/60 border-gray-700/60" : "bg-gray-900/30 border-gray-800 opacity-70 cursor-not-allowed select-none"}`}
-              aria-disabled={!stage3Unlocked}
+              className={`rounded-lg border p-4 space-y-3 ${
+                !stage3Unlocked || stage3PayCutoffReached
+                  ? "bg-gray-900/30 border-gray-800 opacity-70 cursor-not-allowed select-none"
+                  : "bg-gray-900/60 border-gray-700/60"
+              }`}
+              aria-disabled={!stage3Unlocked || stage3PayCutoffReached}
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-gray-200 font-medium">Stage 3: Choose any additional website tasks to complete</p>
-                  <p className="text-gray-400 text-sm">
-                    {stage3Unlocked
-                      ? `Completed: ${completedAdditionalWebsiteTasks}${totalAdditionalWebsiteTasks > 0 ? `/${totalAdditionalWebsiteTasks}` : ""} • Current block: ${stage3ProgressInCurrentBlock}/5`
-                      : "Locked until Stage 2 is complete"}
-                  </p>
-                  <p className="text-green-300 text-sm font-medium mt-1">
-                    Reward earned so far: ${stage3RewardDollars} ({stage3RewardBlocks} × $15 per 5 tasks)
-                  </p>
+                <div className="space-y-1">
+                  <p className="text-gray-200 font-medium">Stage 3: Additional Open-Ended Game Dev Tasks ($15 per 3 tasks)</p>
+                  {!stage3Unlocked ? (
+                    <p className="text-gray-400 text-sm m-0 leading-snug">Locked until Stage 2 is complete</p>
+                  ) : stage3PayCutoffReached ? (
+                    <div className="space-y-2">
+                      <p className="text-gray-400 text-sm m-0 leading-snug">
+                        The Stage 3 pay cutoff has been reached (first{" "}
+                        {stage3PayCap.toLocaleString()} open-ended submissions).
+                      </p>
+                      <p className="text-gray-400 text-sm m-0 leading-snug">
+                        <span className="text-gray-400">Stage 3 earned: </span>
+                        <span className="text-green-400 font-medium">
+                          ${s3 != null ? s3.reward_dollars : stage3RewardDollars}
+                        </span>
+                        {s3 != null && (
+                          <span className="text-gray-500">
+                            {" "}
+                            (⌊{s3.tasks_in_pay_pool}/3⌋ × $15)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-gray-400 text-sm m-0 leading-snug pl-0">
+                        <span className="text-gray-400">• Your Submission Count: </span>
+                        <span className="text-gray-300">{stage3PayTaskCount}</span>
+                      </p>
+                      <p className="text-gray-400 text-sm m-0 leading-snug pl-0">
+                        <span className="text-gray-500">• </span>
+                        Total open-ended submissions:{" "}
+                        {stats.studyWideOpenEndedSubmissions != null && (
+                          <>
+                            <span className="text-gray-300">
+                              {stats.studyWideOpenEndedSubmissions.toLocaleString()}
+                            </span>{" "}
+                            (only the first {stage3PayCap.toLocaleString()} are eligible)
+                          </>
+                        )}
+                      </p>
+                      <p className="text-gray-400 text-sm m-0 leading-snug pl-0">
+                        <span className="text-gray-500">• </span>
+                        {s3 != null ? (
+                          <>
+                            <span className="text-green-400 font-medium">${s3.reward_dollars}</span>
+                            <span className="text-gray-500"> = ⌊</span>
+                            <span className="text-gray-300">{s3.tasks_in_pay_pool}</span>
+                            <span className="text-gray-500">/3⌋ × $15</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-green-400 font-medium">${stage3RewardDollars}</span>
+                            <span className="text-gray-500"> ≈ ⌊{stage3PayTaskCount}/3⌋ × $15</span>
+                            <span className="block text-gray-500 text-xs mt-1 leading-relaxed">
+                              Pay-pool detail unavailable; ignores the first{" "}
+                              {ENV.STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION.toLocaleString()} submission cutoff.
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    </>
+                  )}
                 </div>
-                {stage3RewardBlocks > 0 ? (
-                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
-                ) : !stage3Unlocked ? (
+                {!stage3Unlocked || stage3PayCutoffReached ? (
                   <Lock className="text-amber-300 shrink-0" size={20} />
+                ) : stage3RewardBlocks > 0 ? (
+                  <CheckCircle2 className="text-green-400 shrink-0" size={20} />
                 ) : (
                   <Circle className="text-gray-500 shrink-0" size={20} />
                 )}
               </div>
-              {!stage3Completed && (
+              {!stage3Completed && !stage3PayCutoffReached && (
                 <LabeledInfoBubble
                   text={
                     <>
-                      After Stage 2, every additional set of 5 submitted game-based website tasks on the{" "}
+                      The open-ended game dev projects are listed on the{" "}
                       <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
                         Browse page
-                      </a>{" "}
-                      adds a $15 reward.
+                      </a>
+                      .
                     </>
                   }
                   disabled={!stage3Unlocked}
@@ -1233,9 +1544,22 @@ export default function CompensationPage() {
                   <p className="text-gray-400 text-sm">
                     {stage4Unlocked
                       ? `Post-test: ${completedPostTest ? "Done" : "Not done"}`
-                      : `Locked until ${numTasksRequiredUntilPostTest} game-based website tasks from Steps 2 and 3 are completed (${completedAdditionalWebsiteTasks}/${numTasksRequiredUntilPostTest})`}
+                      : stage4PostTestCapBlocked
+                        ? `Post-test participant limit reached (first ${(ptPool?.participant_cap ?? ENV.POST_TEST_PARTICIPANT_CAP).toLocaleString()} to complete).`
+                        : `Locked until ${numTasksRequiredUntilPostTest} distinct game-based tasks including Platformer (${submittedGameTaskCount}/${numTasksRequiredUntilPostTest})`}
                   </p>
-                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10</p>
+                  <p className="text-green-300 text-sm font-medium mt-1">
+                    {stage4PostTestCapBlocked ? "Reward: not available" : "Reward: $10"}
+                  </p>
+                  {stats.studyWidePostTestCompletionsCount != null && (
+                    <p className="text-gray-400 text-sm m-0 mt-1 leading-snug pl-0">
+                      <span className="text-gray-500">• </span>
+                      Post-tests completed study-wide:{" "}
+                      <span className="text-gray-300">
+                        {stats.studyWidePostTestCompletionsCount.toLocaleString()}
+                      </span>
+                    </p>
+                  )}
                 </div>
                 {stage4Completed ? (
                   <CheckCircle2 className="text-green-400 shrink-0" size={20} />
@@ -1245,15 +1569,16 @@ export default function CompensationPage() {
                   <Circle className="text-gray-500 shrink-0" size={20} />
                 )}
               </div>
-              {!stage4Completed && (
+              {!stage4Completed && !stage4PostTestCapBlocked && (
                 <LabeledInfoBubble
                   text={
                     <>
-                      Once you complete at least {numTasksRequiredUntilPostTest} additional website tasks on the{" "}
+                      Once you submit at least {numTasksRequiredUntilPostTest} distinct game-based website tasks (including Platformer) on the{" "}
                       <a href="/browse" className="text-blue-300 hover:text-blue-200 underline">
                         Browse page
                       </a>
-                      , you'll be prompted to complete the post-test. Doing this will receive the final stage reward.
+                      ,                       you may be prompted to complete the post-test if a slot is available (first{" "}
+                      {ENV.POST_TEST_PARTICIPANT_CAP.toLocaleString()} to complete). Doing so earns the final stage reward.
                     </>
                   }
                   disabled={!stage4Unlocked}
@@ -1266,9 +1591,11 @@ export default function CompensationPage() {
                 <div>
                   <p className="text-gray-200 font-medium">Bonus: Top 10 by user voting</p>
                   <p className="text-gray-400 text-sm">
-                    The top 10 users with the highest-scoring websites (by user voting) each receive $10. Results determined after voting ends.
+                    The 10 top-scoring websites for each project based on user votes each get $10. This reward only applies for projects with &gt; {ENV.TOP10_BONUS_MIN_SUBMISSIONS_EXCLUSIVE} submissions. We will recruit our own judges if we detect attempts to game voting.
                   </p>
-                  <p className="text-green-300 text-sm font-medium mt-1">Reward: $10 (if in top 10) • Available through {studyEndDateOverall}</p>
+                  <p className="text-green-300 text-sm font-medium mt-1">
+                    Reward: $10 (if in top 10, per project) • Voting ends on {studyEndDateOverall}
+                  </p>
                 </div>
               </div>
             </div>

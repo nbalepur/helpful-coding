@@ -3784,6 +3784,30 @@ function HomeInner() {
       // Playground task is handled the same way as other tasks via task parameter
       
       if (taskParam && allTasks.length > 0) {
+        // URL may use raw project name (e.g. snake_game) while task.id is slugified (snake-game).
+        const normalizeRouteSlug = (s: string) =>
+          s
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
+        let canonicalTaskId = taskParam;
+        const byId = allTasks.find((t: any) => t.id === taskParam);
+        if (byId) {
+          canonicalTaskId = byId.id;
+        } else {
+          const byName = allTasks.find(
+            (t: any) =>
+              String(t.name || "").toLowerCase() === taskParam.toLowerCase()
+          );
+          if (byName) {
+            canonicalTaskId = byName.id;
+          } else {
+            const slug = normalizeRouteSlug(taskParam);
+            const bySlug = allTasks.find((t: any) => t.id === slug);
+            if (bySlug) canonicalTaskId = bySlug.id;
+          }
+        }
+
         // Match browse behavior for visibility and lock checks before honoring direct URL access.
         const playgroundCompleted = isPlaygroundCompletedFromSettings(user?.settings);
         const tasksWithUpdatedPlayground = allTasks.map((task: any) => {
@@ -3811,7 +3835,7 @@ function HomeInner() {
         }
 
         const visibleTaskIds = new Set(visibleTasks.map((task: any) => task.id));
-        if (!visibleTaskIds.has(taskParam)) {
+        if (!visibleTaskIds.has(canonicalTaskId)) {
           redirectToBrowse();
           return;
         }
@@ -3857,18 +3881,21 @@ function HomeInner() {
           }
         }
 
-        if (lockedTaskIds.has(taskParam)) {
+        if (lockedTaskIds.has(canonicalTaskId)) {
           redirectToBrowse();
           return;
         }
 
-        const task = allTasks.find(t => t.id === taskParam);
-        if (task && selectedTask !== task.id) {
-          // Use startTask to properly initialize everything
-          await startTask(task.id, false); // false = don't update URL since we're already there
-        } else if (!task) {
+        const task = allTasks.find((t) => t.id === canonicalTaskId);
+        if (!task) {
           redirectToBrowse();
           return;
+        }
+        if (selectedTask !== task.id) {
+          await startTask(task.id, false);
+        }
+        if (taskParam !== canonicalTaskId) {
+          router.replace(`/vibe?task=${encodeURIComponent(canonicalTaskId)}`);
         }
       } else if (!taskParam && pathname === '/vibe' && showCodingTerminal) {
         // No task param and we're in coding terminal mode, redirect to browse

@@ -117,6 +117,24 @@ export const ENV = {
     10
   ),
 
+  /** First N study-wide submissions (by time) eligible for Stage 3 per-task pay. */
+  STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_STAGE3_MAX_SUBMISSIONS_FOR_COMPENSATION,
+    500
+  ),
+
+  /** First N users (by time they meet post-test task reqs) who may take the post-test. */
+  POST_TEST_PARTICIPANT_CAP: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_POST_TEST_PARTICIPANT_CAP,
+    50
+  ),
+
+  /** Top-10 voting bonuses apply only when study-wide submissions count is *greater than* this. */
+  TOP10_BONUS_MIN_SUBMISSIONS_EXCLUSIVE: parsePositiveIntOrDefault(
+    process.env.NEXT_PUBLIC_TOP10_BONUS_MIN_SUBMISSIONS_EXCLUSIVE,
+    7
+  ),
+
   // Timed task durations (in minutes)
   RECREATION_TASK_ONE_MINUTES: parsePositiveIntOrDefault(
     process.env.NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES,

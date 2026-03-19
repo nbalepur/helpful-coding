@@ -36,6 +36,8 @@ interface UserStudyPopupContextType {
   postTestCompleted?: boolean | null;
   allRequiredTasksCompleted?: boolean | null;
   statsAccessible?: boolean;
+  /** True when user meets post-test task reqs but is not among first N eligible participants */
+  postTestBlockedByParticipantCap?: boolean;
 }
 
 export const UserStudyPopupContext = createContext<UserStudyPopupContextType | undefined>(undefined);

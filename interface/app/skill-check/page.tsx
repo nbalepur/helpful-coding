@@ -8,10 +8,21 @@ import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { PRE_TEST_SKIPPED_KEY } from "../components/UserStudyPopupProvider";
 import { useAuth } from "../utils/auth";
 
-type SkillCheckMode = 'pre-test' | 'post-test' | 'locked-pre-test' | 'locked-post-test';
+type SkillCheckMode =
+  | 'pre-test'
+  | 'post-test'
+  | 'locked-pre-test'
+  | 'locked-post-test'
+  | 'locked-post-test-cap';
 
 export default function SkillCheckRoute() {
-  const { popupState, isCalculating, preTestCompleted, postTestCompleted } = useUserStudyPopup();
+  const {
+    popupState,
+    isCalculating,
+    preTestCompleted,
+    postTestCompleted,
+    postTestBlockedByParticipantCap,
+  } = useUserStudyPopup();
   const { user } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   const [localPreTestCompleted, setLocalPreTestCompleted] = useState<boolean | null>(null);
@@ -78,15 +89,32 @@ export default function SkillCheckRoute() {
       
       // If we have the completion status, use it to determine the locked state
       if (effectivePreTestCompleted !== null && effectivePostTestCompleted !== null) {
-        return effectivePostTestCompleted ? 'locked-post-test' : 'locked-pre-test';
+        if (effectivePostTestCompleted) {
+          return 'locked-post-test';
+        }
+        if (postTestBlockedByParticipantCap && effectivePreTestCompleted) {
+          return 'locked-post-test-cap';
+        }
+        return 'locked-pre-test';
       }
       // While loading, default to locked-pre-test
       return 'locked-pre-test';
     }
     return 'locked-pre-test';
-  }, [isCalculating, popupState, preTestCompleted, postTestCompleted, localPreTestCompleted, localPostTestCompleted]);
+  }, [
+    isCalculating,
+    popupState,
+    preTestCompleted,
+    postTestCompleted,
+    localPreTestCompleted,
+    localPostTestCompleted,
+    postTestBlockedByParticipantCap,
+  ]);
 
-  const showBackground = skillCheckMode === 'locked-pre-test' || skillCheckMode === 'locked-post-test';
+  const showBackground =
+    skillCheckMode === 'locked-pre-test' ||
+    skillCheckMode === 'locked-post-test' ||
+    skillCheckMode === 'locked-post-test-cap';
 
   return (
     <PageScaffold showBackground={showBackground} widerMaxWidth reducedPadding>
