@@ -72,13 +72,215 @@ const SNIPPET_PANE_QUESTION_NAMES: string[] = [
   'js_snippet_change_impact',
 ];
 
+const STEP_TWO_ONLY_COMPREHENSION_NAMES = new Set<string>([
+  ...DISTRACTOR_PANE_QUESTION_NAMES,
+  ...IDENTIFY_OWN_PANE_QUESTION_NAMES,
+  ...SNIPPET_PANE_QUESTION_NAMES,
+]);
+
+function isStepTwoOnlyComprehensionQuestion(q: { question_name?: string }): boolean {
+  return !!(q.question_name && STEP_TWO_ONLY_COMPREHENSION_NAMES.has(q.question_name));
+}
+
 const isBinaryChoiceQuestionType = (questionType?: string): boolean => {
   return questionType === 'mcqa' || questionType === 'mcqa_vertical' || questionType === 'code_compare';
 };
 
 const isChoiceQuestionType = (questionType?: string): boolean => {
-  return isBinaryChoiceQuestionType(questionType) || questionType === 'multi_select';
+  return isBinaryChoiceQuestionType(questionType) || questionType === 'multi_select' || questionType === 'matrix';
 };
+
+const DEFAULT_MATRIX_SCALE = [
+  '1 - Least preferred',
+  '2',
+  '3',
+  '4',
+  '5 - Most preferred',
+];
+
+function getMatrixRowsAndScale(choices: unknown): { rows: string[]; scale: string[] } {
+  if (choices && typeof choices === 'object' && !Array.isArray(choices)) {
+    const o = choices as Record<string, unknown>;
+    const rows = Array.isArray(o.rows) ? o.rows.map(String) : [];
+    const scale =
+      Array.isArray(o.scale) && o.scale.length > 0 ? o.scale.map(String) : DEFAULT_MATRIX_SCALE;
+    if (rows.length > 0) {
+      return { rows, scale };
+    }
+  }
+  if (Array.isArray(choices)) {
+    return { rows: choices.map(String), scale: DEFAULT_MATRIX_SCALE };
+  }
+  return { rows: [], scale: DEFAULT_MATRIX_SCALE };
+}
+
+function parseMatrixRatings(raw: string | undefined, rowCount: number, scaleLen: number): number[] {
+  if (rowCount <= 0) return [];
+  if (!raw?.trim()) return Array(rowCount).fill(0);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length !== rowCount) return Array(rowCount).fill(0);
+    return parsed.map((v) => {
+      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      return Number.isFinite(n) && n >= 1 && n <= scaleLen ? n : 0;
+    });
+  } catch {
+    return Array(rowCount).fill(0);
+  }
+}
+
+function isMatrixAnswerValid(raw: string | undefined, choices: unknown): boolean {
+  const { rows, scale } = getMatrixRowsAndScale(choices);
+  if (!rows.length) return true;
+  const scaleLen = scale.length;
+  const ratings = parseMatrixRatings(raw, rows.length, scaleLen);
+  return ratings.every((r) => r >= 1 && r <= scaleLen);
+}
+
+function MatrixLikertGrid({
+  questionId,
+  choices,
+  currentAnswer,
+  disabled,
+  onCommit,
+}: {
+  questionId: string;
+  choices: unknown;
+  currentAnswer: string;
+  disabled: boolean;
+  onCommit: (json: string) => void;
+}) {
+  const { rows, scale } = getMatrixRowsAndScale(choices);
+  const scaleLen = scale.length;
+  if (!rows.length || !scaleLen) return null;
+  const ratings = parseMatrixRatings(currentAnswer, rows.length, scaleLen);
+  const ratingColPct = scaleLen > 0 ? 60 / scaleLen : 0;
+  return (
+    <div style={{ overflowX: 'auto', marginTop: '6px' }}>
+      <table
+        style={{
+          borderCollapse: 'collapse',
+          width: '100%',
+          minWidth: Math.max(400, 160 + scaleLen * 52),
+          tableLayout: 'fixed',
+        }}
+      >
+        <colgroup>
+          <col style={{ width: '40%' }} />
+          {scale.map((_, ci) => (
+            <col key={ci} style={{ width: `${ratingColPct}%` }} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            <th
+              style={{
+                textAlign: 'left',
+                padding: '6px 8px 6px 0',
+                borderBottom: '1px solid #4b5563',
+                color: '#9ca3af',
+                fontSize: '11px',
+                fontWeight: 500,
+                verticalAlign: 'bottom',
+              }}
+            />
+            {scale.map((label, si) => (
+              <th
+                key={si}
+                style={{
+                  textAlign: 'center',
+                  padding: '8px 4px',
+                  borderBottom: '1px solid #4b5563',
+                  color: '#d1d5db',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  lineHeight: 1.3,
+                  verticalAlign: 'bottom',
+                  wordBreak: 'break-word',
+                  hyphens: 'auto',
+                }}
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((rowLabel, ri) => (
+            <tr key={ri}>
+              <td
+                style={{
+                  padding: '8px 8px 8px 0',
+                  color: '#e5e7eb',
+                  fontSize: '13px',
+                  verticalAlign: 'middle',
+                  borderBottom: '1px solid rgba(75, 85, 99, 0.5)',
+                  lineHeight: 1.35,
+                }}
+              >
+                {rowLabel}
+              </td>
+              {scale.map((_, si) => {
+                const value = si + 1;
+                const inputId = `matrix-${questionId}-r${ri}-v${value}`;
+                const isSelected = ratings[ri] === value;
+                return (
+                  <td
+                    key={si}
+                    style={{
+                      padding: '2px',
+                      borderBottom: '1px solid rgba(75, 85, 99, 0.5)',
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    <label
+                      htmlFor={inputId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '34px',
+                        width: '100%',
+                        margin: 0,
+                        borderRadius: '6px',
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        boxSizing: 'border-box',
+                        backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
+                        border: isSelected ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid transparent',
+                        transition: 'background-color 0.15s, border-color 0.15s',
+                      }}
+                    >
+                      <input
+                        id={inputId}
+                        type="radio"
+                        name={`matrix-${questionId}-row-${ri}`}
+                        checked={isSelected}
+                        disabled={disabled}
+                        onChange={() => {
+                          const next = [...ratings];
+                          next[ri] = value;
+                          onCommit(JSON.stringify(next));
+                        }}
+                        style={{
+                          margin: 0,
+                          width: 16,
+                          height: 16,
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          accentColor: '#3b82f6',
+                          flexShrink: 0,
+                        }}
+                      />
+                    </label>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const isFreeResponseQuestionType = (questionType?: string): boolean => {
   if (questionType === 'free_response') {
@@ -86,6 +288,46 @@ const isFreeResponseQuestionType = (questionType?: string): boolean => {
   }
   return !questionType || !isChoiceQuestionType(questionType);
 };
+
+/** Backend `question_name` for free_response items that may be left blank (keep in sync with main.py). */
+const OPTIONAL_COMPREHENSION_FREE_RESPONSE_NAMES = new Set([
+  'free_response_game',
+  'free_response_preference_helpful',
+  'free_response_preference_wish',
+  'free_response_extending',
+  'free_response_preference_features_like',
+  'free_response_preference_features_want',
+]);
+const OPTIONAL_COMPREHENSION_FREE_RESPONSE_PREFIXES = [
+  'free_response_task_',
+  'free_response_understanding_',
+];
+
+function isOptionalComprehensionFreeResponse(q: {
+  question_name?: string;
+  question_type?: string;
+}): boolean {
+  const questionName = q.question_name || '';
+  return (
+    q.question_type === 'free_response' &&
+    (OPTIONAL_COMPREHENSION_FREE_RESPONSE_NAMES.has(questionName) ||
+      OPTIONAL_COMPREHENSION_FREE_RESPONSE_PREFIXES.some((prefix) =>
+        questionName.startsWith(prefix)
+      ))
+  );
+}
+
+/** Match vibe/page `normalizeTaskNameKey` — task `name` from API may use hyphens. */
+function normalizeTaskNameKey(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return value.trim().toLowerCase().replace(/-/g, '_');
+}
+
+function countWordsInText(text: string): number {
+  return text.trim().split(/\s+/).filter((word) => word.length > 0).length;
+}
+
+const MIN_COMPREHENSION_FREE_RESPONSE_WORDS = 10;
 
 const normalizeMonacoLanguage = (languageHint?: string): string => {
   const normalized = (languageHint || '').toLowerCase().trim();
@@ -1010,7 +1252,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     question_name?: string;
     question: string;
     question_type: string;
-    choices?: string[];
+    choices?: string[] | Record<string, unknown>;
     answer?: string | number | number[];
   }>>([]);
   const [isLoadingComprehensionQuestions, setIsLoadingComprehensionQuestions] = useState(false);
@@ -1024,13 +1266,17 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const [tooltipLeft, setTooltipLeft] = useState(0);
   const [tooltipTop, setTooltipTop] = useState(0);
   const [tooltipPlaceAbove, setTooltipPlaceAbove] = useState(true);
-  const isRequiredTask = Boolean(!studyEnded && taskName && WEBSITE_REQUIREMENT_TASKS.includes(taskName as any));
-  const isSubmissionQuestionsPersistentTask = Boolean(
-    taskName && WEBSITE_REQUIREMENT_TASKS.includes(taskName as any)
+  const normalizedTaskName = normalizeTaskNameKey(taskName);
+  const isRequiredTask = Boolean(
+    !studyEnded && normalizedTaskName && WEBSITE_REQUIREMENT_TASKS.includes(normalizedTaskName as any)
   );
-  const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-  const isWarmupTask = taskName === 'website_tutorial_intro' || taskName === 'website_tutorial_follow_up';
-  const isSecondWarmupTask = taskName === 'website_tutorial_follow_up';
+  const isSubmissionQuestionsPersistentTask = Boolean(
+    normalizedTaskName && WEBSITE_REQUIREMENT_TASKS.includes(normalizedTaskName as any)
+  );
+  const isTutorialTask = normalizedTaskName === 'playground';
+  const isWarmupTask =
+    normalizedTaskName === 'website_tutorial_intro' || normalizedTaskName === 'website_tutorial_follow_up';
+  const isSecondWarmupTask = normalizedTaskName === 'website_tutorial_follow_up';
   const submissionQuestionsStorageKey = useMemo(() => {
     if (!isSubmissionQuestionsPersistentTask) {
       return null;
@@ -1045,16 +1291,21 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const submitModalOpenedFromRestoreRef = useRef(false);
   const submissionQuestionsScrollRef = useRef<HTMLDivElement>(null);
   const shouldRequireInitialSubmitConfirmation = Boolean(
-    taskName && WEBSITE_REQUIREMENT_TASKS.includes(taskName as any) && !isWarmupTask
+    normalizedTaskName && WEBSITE_REQUIREMENT_TASKS.includes(normalizedTaskName as any) && !isWarmupTask
   );
   const modalContextSuffix = isWarmupTask ? ' (Warm-Up)' : isTutorialTask ? ' (Tutorial)' : '';
-  const selfReportQuestions = useMemo(
-    () => comprehensionQuestions.filter((q) => isSelfReportQuestionName(q.question_name)),
-    [comprehensionQuestions]
-  );
   const codeTailoredQuestions = useMemo(
     () => comprehensionQuestions.filter((q) => !isSelfReportQuestionName(q.question_name)),
     [comprehensionQuestions]
+  );
+  /** Required-task first submit pane: same order as API, excluding code-tailored step-2-only questions. */
+  const firstPaneOrderedComprehensionQuestions = useMemo(
+    () => comprehensionQuestions.filter((q) => !isStepTwoOnlyComprehensionQuestion(q)),
+    [comprehensionQuestions]
+  );
+  const firstPaneComprehensionIdSet = useMemo(
+    () => new Set(firstPaneOrderedComprehensionQuestions.map((q) => q.id)),
+    [firstPaneOrderedComprehensionQuestions]
   );
   const distractorPaneQuestions = useMemo(
     () => codeTailoredQuestions.filter((q) => q.question_name && DISTRACTOR_PANE_QUESTION_NAMES.includes(q.question_name)),
@@ -1064,17 +1315,33 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     () => codeTailoredQuestions.filter((q) => q.question_name && IDENTIFY_OWN_PANE_QUESTION_NAMES.includes(q.question_name)),
     [codeTailoredQuestions]
   );
-  /** Ordered panes for required task: [distractors, identify-own, then one pane per snippet question (mechanism/change each on own pane)]. */
+  /** Ordered panes for required task: [distractors, identify-own, snippet questions, then any remaining code-tailored (matrix, free response, etc.)]. */
   const orderedRequiredPanes = useMemo(() => {
     const panes: Array<Array<typeof codeTailoredQuestions[0]>> = [];
-    if (distractorPaneQuestions.length > 0) panes.push(distractorPaneQuestions);
-    if (identifyOwnPaneQuestions.length > 0) panes.push(identifyOwnPaneQuestions);
+    const placedIds = new Set<string>();
+    if (distractorPaneQuestions.length > 0) {
+      distractorPaneQuestions.forEach((q) => placedIds.add(q.id));
+      panes.push(distractorPaneQuestions);
+    }
+    if (identifyOwnPaneQuestions.length > 0) {
+      identifyOwnPaneQuestions.forEach((q) => placedIds.add(q.id));
+      panes.push(identifyOwnPaneQuestions);
+    }
     for (const questionName of SNIPPET_PANE_QUESTION_NAMES) {
       const q = codeTailoredQuestions.find((x) => x.question_name === questionName);
-      if (q) panes.push([q]);
+      if (q) {
+        placedIds.add(q.id);
+        panes.push([q]);
+      }
+    }
+    const orphanCodeTailored = codeTailoredQuestions.filter(
+      (q) => !placedIds.has(q.id) && !firstPaneComprehensionIdSet.has(q.id)
+    );
+    if (orphanCodeTailored.length > 0) {
+      panes.push(orphanCodeTailored);
     }
     return panes;
-  }, [codeTailoredQuestions, distractorPaneQuestions, identifyOwnPaneQuestions]);
+  }, [codeTailoredQuestions, distractorPaneQuestions, identifyOwnPaneQuestions, firstPaneComprehensionIdSet]);
   /** For required task: questions on current sub-pane. For non-required: all comprehension questions. */
   const comprehensionPaneQuestions = useMemo(() => {
     if (!isRequiredTask) {
@@ -1085,13 +1352,35 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   }, [isRequiredTask, comprehensionSubPaneIndex, comprehensionQuestions, orderedRequiredPanes]);
   const hasMultipleRequiredPanes = orderedRequiredPanes.length > 1;
   const isLastRequiredPane = comprehensionSubPaneIndex === orderedRequiredPanes.length - 1 && orderedRequiredPanes.length > 0;
-  const unansweredSelfReportCount = selfReportQuestions.filter((q) => {
-    if (q.question_type === 'multi_select') {
-      return false;
-    }
-    return !comprehensionAnswers[q.id]?.trim();
-  }).length;
-  
+  const unansweredSelfReportCount = useMemo(
+    () =>
+      firstPaneOrderedComprehensionQuestions.filter((q) => {
+        if (!isSelfReportQuestionName(q.question_name)) return false;
+        if (q.question_type === 'multi_select') return false;
+        return !comprehensionAnswers[q.id]?.trim();
+      }).length,
+    [firstPaneOrderedComprehensionQuestions, comprehensionAnswers]
+  );
+  const firstPaneUnansweredMatrixCount = useMemo(
+    () =>
+      firstPaneOrderedComprehensionQuestions
+        .filter((q) => q.question_type === 'matrix')
+        .filter((q) => !isMatrixAnswerValid(comprehensionAnswers[q.id], q.choices)).length,
+    [firstPaneOrderedComprehensionQuestions, comprehensionAnswers]
+  );
+  const firstPaneInvalidRequiredFreeResponseCount = useMemo(
+    () =>
+      firstPaneOrderedComprehensionQuestions
+        .filter((q) => q.question_type === 'free_response')
+        .filter((q) => {
+          if (isOptionalComprehensionFreeResponse(q)) return false;
+          const answer = comprehensionAnswers[q.id] || '';
+          if (!answer.trim()) return true;
+          return countWordsInText(answer) < MIN_COMPREHENSION_FREE_RESPONSE_WORDS;
+        }).length,
+    [firstPaneOrderedComprehensionQuestions, comprehensionAnswers]
+  );
+
   const trimmedProjectTitleLength = projectTitle.trim().length;
   const trimmedProjectDescriptionLength = projectDescription.trim().length;
   const trimmedRequirementsCommentsLength = requirementsComments.trim().length;
@@ -1115,7 +1404,11 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     isCheckingExistingSubmission ||
     isLoadingComprehensionQuestions ||
     (isRequiredTask && comprehensionQuestions.length === 0 && !comprehensionQuestionsError) ||
-    (isRequiredTask && comprehensionQuestions.length > 0 && unansweredSelfReportCount > 0)
+    (isRequiredTask &&
+      comprehensionQuestions.length > 0 &&
+      (unansweredSelfReportCount > 0 ||
+        firstPaneUnansweredMatrixCount > 0 ||
+        firstPaneInvalidRequiredFreeResponseCount > 0))
   );
   const shouldShowRegenerateOnly = Boolean(comprehensionQuestionsError) && !isLoadingComprehensionQuestions;
   const formattedComprehensionQuestionsError = comprehensionQuestionsError
@@ -2195,26 +2488,27 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       if (!raw) {
         return;
       }
-      // Restore disabled for testing: do not force user into question submission pane after refresh
-      // const parsed = JSON.parse(raw) as {
-      //   showComprehensionCheck?: boolean;
-      //   showEvaluationCheck?: boolean;
-      // };
-      // setShowRequiredTaskSubmitConfirm(false);
-      // submitModalOpenedFromRestoreRef.current = true;
-      // setShowSubmitModal(true);
-      // if (parsed?.showEvaluationCheck) {
-      //   setShowEvaluationCheck(true);
-      //   setShowComprehensionCheck(false);
-      //   return;
-      // }
-      // if (parsed?.showComprehensionCheck) {
-      //   setShowComprehensionCheck(true);
-      //   setShowEvaluationCheck(false);
-      //   return;
-      // }
-      // setShowComprehensionCheck(false);
-      // setShowEvaluationCheck(false);
+      const parsed = JSON.parse(raw) as {
+        showComprehensionCheck?: boolean;
+        showEvaluationCheck?: boolean;
+      };
+      setShowRequiredTaskSubmitConfirm(false);
+      setShowSubmitModal(true);
+      if (parsed?.showEvaluationCheck) {
+        submitModalOpenedFromRestoreRef.current = false;
+        setShowEvaluationCheck(true);
+        setShowComprehensionCheck(false);
+        return;
+      }
+      if (parsed?.showComprehensionCheck) {
+        submitModalOpenedFromRestoreRef.current = false;
+        setShowComprehensionCheck(true);
+        setShowEvaluationCheck(false);
+        return;
+      }
+      submitModalOpenedFromRestoreRef.current = true;
+      setShowComprehensionCheck(false);
+      setShowEvaluationCheck(false);
     } catch {
       // no-op: ignore malformed persisted data
     }
@@ -2711,15 +3005,29 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   };
 
   const buildComprehensionAnswersPayload = useCallback(
-    (questions: Array<{ id: string; question_name?: string; question_type: string; choices?: string[] }>) => {
+    (
+      questions: Array<{
+        id: string;
+        question_name?: string;
+        question_type: string;
+        choices?: string[] | Record<string, unknown>;
+      }>
+    ) => {
       const payloadEntries = Object.fromEntries(
         questions.map((q) => {
           const answer = comprehensionAnswers[q.id] || '';
-          if (q.question_type === 'multi_select' && q.choices) {
+          if (q.question_type === 'multi_select' && Array.isArray(q.choices)) {
             const delimiter = '|||';
             const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
             const binaryArray = q.choices.map((choice) => (selectedChoices.includes(choice) ? 1 : 0));
             return [q.question_name || q.id, binaryArray];
+          }
+          if (q.question_type === 'matrix') {
+            const { rows, scale } = getMatrixRowsAndScale(q.choices);
+            if (rows.length) {
+              const ratings = parseMatrixRatings(answer || undefined, rows.length, scale.length);
+              return [q.question_name || q.id, JSON.stringify(ratings)];
+            }
           }
           return [q.question_name || q.id, answer];
         })
@@ -2762,7 +3070,12 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   }, [onContinuedToQuestions]);
 
   const fetchComprehensionQuestions = useCallback(async (
-    trigger: "required_modal_open" | "required_continue" | "questions_pane_shown" | "manual_regenerate" = "questions_pane_shown"
+    trigger:
+      | "required_modal_open"
+      | "required_continue"
+      | "required_restore"
+      | "questions_pane_shown"
+      | "manual_regenerate" = "questions_pane_shown"
   ): Promise<boolean> => {
     const generationStartedAt = Date.now();
     emitQuestionsGenerationStarted({ trigger });
@@ -2841,6 +3154,10 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       if (!codeSnapshot || Object.keys(codeSnapshot).length === 0) {
         throw new Error('No code files found');
       }
+      const experimentGroup =
+        typeof user?.settings?.experiment_group === 'string'
+          ? user.settings.experiment_group.trim().toLowerCase()
+          : null;
 
       const response = await fetch(`${ENV.BACKEND_URL}/api/comprehension-questions/generate`, {
         method: 'POST',
@@ -2854,6 +3171,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           submission_description: projectDescription.trim(),
           submission_code: codeSnapshot,
           ai_assistant_mode: aiAssistantMode,
+          experiment_group: experimentGroup,
         }),
       });
 
@@ -2909,6 +3227,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     userId,
     projectId,
     aiAssistantMode,
+    user?.settings?.experiment_group,
     projectTitle,
     projectDescription,
     collectSubmissionFiles,
@@ -2927,6 +3246,26 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       return;
     }
     void fetchComprehensionQuestions("required_modal_open");
+  }, [
+    showSubmitModal,
+    isRequiredTask,
+    showComprehensionCheck,
+    showEvaluationCheck,
+    isLoadingComprehensionQuestions,
+    comprehensionQuestions.length,
+    comprehensionQuestionsError,
+    fetchComprehensionQuestions,
+  ]);
+
+  // After refresh, restored state may open the comprehension pane with an empty in-memory question list.
+  useEffect(() => {
+    if (!showSubmitModal || !isRequiredTask || !showComprehensionCheck || showEvaluationCheck) {
+      return;
+    }
+    if (isLoadingComprehensionQuestions || comprehensionQuestions.length > 0 || comprehensionQuestionsError) {
+      return;
+    }
+    void fetchComprehensionQuestions("required_restore");
   }, [
     showSubmitModal,
     isRequiredTask,
@@ -2986,8 +3325,6 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
 
     // Always show comprehension questions for all tasks
-    const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-    
     // For tutorial tasks, skip projectId and userId checks since we're not storing anything
     if (!isTutorialTask) {
       if (!userId || Number.isNaN(userId)) {
@@ -3032,7 +3369,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
     }
     
     // Check if evaluation is needed (non-required tasks or past study date)
-    const needsEvaluation = studyEnded || (taskName && !WEBSITE_REQUIREMENT_TASKS.includes(taskName as any));
+    const needsEvaluation =
+      studyEnded ||
+      (normalizedTaskName !== null && !WEBSITE_REQUIREMENT_TASKS.includes(normalizedTaskName as any));
     
     // For public tasks (needsEvaluation), check moderation first
     if (needsEvaluation && !isTutorialTask) {
@@ -3113,7 +3452,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
           return;
         }
 
-        if (codeTailoredQuestions.length > 0) {
+        if (firstPaneInvalidRequiredFreeResponseCount > 0) {
+          setSubmissionError(
+            'Please answer all required free response questions (at least 10 words each where applicable).'
+          );
+          return;
+        }
+
+        if (codeTailoredQuestions.length > 0 && orderedRequiredPanes.length > 0) {
           emitContinuedToQuestions({ source: "required_continue" });
           setComprehensionSubPaneIndex(0);
           setShowComprehensionCheck(true);
@@ -3226,6 +3572,25 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   const countWords = (text: string): number => {
     return text.trim().split(/\s+/).filter(word => word.length > 0).length;
   };
+
+  /** Required free-response: non-empty + word minimum (tutorial: non-empty only). Optional FR never blocks. */
+  function freeResponseBlocksSubmit(
+    q: { question_name?: string; question_type?: string },
+    rawAnswer: string | undefined,
+    isTutorialTask: boolean
+  ): boolean {
+    if (!isFreeResponseQuestionType(q.question_type)) {
+      return false;
+    }
+    if (isOptionalComprehensionFreeResponse(q)) {
+      return false;
+    }
+    const answer = rawAnswer || '';
+    if (isTutorialTask) {
+      return !answer.trim();
+    }
+    return !answer.trim() || countWords(answer) < MIN_COMPREHENSION_FREE_RESPONSE_WORDS;
+  }
 
   // Helper function to submit the project (used both with and without comprehension questions)
   const submitProject = async (comprehensionAnswersData?: Record<string, any>) => {
@@ -3403,6 +3768,12 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         if (q.question_type === 'multi_select') {
           return false;
         }
+        if (q.question_type === 'matrix') {
+          return !isMatrixAnswerValid(comprehensionAnswers[q.id], q.choices);
+        }
+        if (isOptionalComprehensionFreeResponse(q)) {
+          return false;
+        }
         return !comprehensionAnswers[q.id]?.trim();
       });
       if (unansweredQuestions.length > 0) {
@@ -3424,6 +3795,13 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                 const selectedChoices = answer ? answer.split(delimiter).filter(Boolean) : [];
                 const binaryArray = q.choices.map(choice => selectedChoices.includes(choice) ? 1 : 0);
                 return [q.question_name || q.id, binaryArray];
+              }
+              if (q.question_type === 'matrix') {
+                const { rows, scale } = getMatrixRowsAndScale(q.choices);
+                if (rows.length) {
+                  const ratings = parseMatrixRatings(answer || undefined, rows.length, scale.length);
+                  return [q.question_name || q.id, JSON.stringify(ratings)];
+                }
               }
               // For other question types, keep as string
               return [q.question_name || q.id, answer];
@@ -3481,6 +3859,12 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
         // Multi-select questions are always valid, even if nothing is selected
         return false;
       }
+      if (q.question_type === 'matrix') {
+        return !isMatrixAnswerValid(comprehensionAnswers[q.id], q.choices);
+      }
+      if (isOptionalComprehensionFreeResponse(q)) {
+        return false;
+      }
       return !comprehensionAnswers[q.id]?.trim();
     });
     if (unansweredQuestions.length > 0) {
@@ -3488,18 +3872,16 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
       return;
     }
 
-    // Validate minimum word count for free response questions
-    const minWords = 10;
+    // Validate minimum word count for free response questions (optional FR excluded)
     const invalidFreeResponseQuestions = questionsForPaneValidation.filter(q => {
-      if (isFreeResponseQuestionType(q.question_type)) {
-        const answer = comprehensionAnswers[q.id] || '';
-        const wordCount = countWords(answer);
-        return wordCount < minWords;
+      if (!isFreeResponseQuestionType(q.question_type) || isOptionalComprehensionFreeResponse(q)) {
+        return false;
       }
-      return false;
+      const answer = comprehensionAnswers[q.id] || '';
+      return countWords(answer) < MIN_COMPREHENSION_FREE_RESPONSE_WORDS;
     });
     if (invalidFreeResponseQuestions.length > 0) {
-      setSubmissionError(`Free response answers must be at least ${minWords} words long.`);
+      setSubmissionError(`Free response answers must be at least ${MIN_COMPREHENSION_FREE_RESPONSE_WORDS} words long.`);
       return;
     }
 
@@ -4112,39 +4494,159 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                   )}
                 </div>
 
-                {!isLoadingComprehensionQuestions && selfReportQuestions.length > 0 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '16px',
-                      paddingTop: '20px',
-                      borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                    }}
-                  >
-                    <div style={{ color: '#e5e7eb', fontWeight: 500, fontSize: '16px' }}>
-                      {`For each statement in questions 2-${selfReportQuestions.length + 1}, select your level of agreement:`}
-                    </div>
-                    {selfReportQuestions.map((q, index) => {
-                      const currentAnswer = comprehensionAnswers[q.id] || '';
-                      return (
-                        <div
-                          key={q.id}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '12px',
-                            paddingTop: index > 0 ? '18px' : '0px',
-                            borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
-                          }}
-                        >
-                          <div style={{ color: '#e5e7eb', fontSize: '16px', fontWeight: 500 }}>
-                            <span>{index + 2}. </span>
-                            <TextWithCodeBlocks text={q.question} />
+                {!isLoadingComprehensionQuestions &&
+                  firstPaneOrderedComprehensionQuestions.map((q, index) => {
+                    const currentAnswer = comprehensionAnswers[q.id] || '';
+                    const qNum = index + 2;
+                    const prevQ = index > 0 ? firstPaneOrderedComprehensionQuestions[index - 1] : null;
+                    const showAgreementIntro =
+                      isSelfReportQuestionName(q.question_name) &&
+                      q.question_name !== 'self_report_expected_follow_up_modification' &&
+                      (!prevQ || !isSelfReportQuestionName(prevQ.question_name));
+
+                    return (
+                      <div
+                        key={q.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px',
+                          paddingTop: index > 0 ? '20px' : 0,
+                          borderTop: index > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+                        }}
+                      >
+                        {showAgreementIntro && (
+                          <div
+                            style={{
+                              color: '#e5e7eb',
+                              fontWeight: 500,
+                              fontSize: '16px',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Select your level of agreement for each of the following statements:
                           </div>
+                        )}
+                        <div style={{ color: '#e5e7eb', fontSize: '16px', fontWeight: 500 }}>
+                          <span>{qNum}. </span>
+                          <TextWithCodeBlocks text={q.question} />
+                        </div>
+
+                        {q.question_type === 'matrix' ? (
+                          <MatrixLikertGrid
+                            questionId={q.id}
+                            choices={q.choices}
+                            currentAnswer={comprehensionAnswers[q.id] || ''}
+                            disabled={false}
+                            onCommit={(json) => {
+                              setComprehensionAnswers((prev) => ({
+                                ...prev,
+                                [q.id]: json,
+                              }));
+                              if (submissionError) {
+                                setSubmissionError(null);
+                              }
+                            }}
+                          />
+                        ) : q.question_type === 'free_response' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <textarea
+                              id={`first-pane-fr-${q.id}`}
+                              value={currentAnswer}
+                              onChange={(e) => {
+                                setComprehensionAnswers((prev) => ({
+                                  ...prev,
+                                  [q.id]: e.target.value,
+                                }));
+                                if (submissionError) {
+                                  setSubmissionError(null);
+                                }
+                              }}
+                              placeholder="Your answer..."
+                              rows={4}
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: '6px',
+                                border: '1px solid #4b5563',
+                                backgroundColor: '#1f2937',
+                                color: '#e5e7eb',
+                                fontSize: '14px',
+                                resize: 'vertical',
+                                fontFamily: 'inherit',
+                              }}
+                            />
+                            {!isOptionalComprehensionFreeResponse(q) && (
+                              <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                                {(() => {
+                                  const wordCount = countWordsInText(currentAnswer);
+                                  const isValid = wordCount >= MIN_COMPREHENSION_FREE_RESPONSE_WORDS;
+                                  return (
+                                    <span style={{ color: isValid ? '#9ca3af' : '#f87171' }}>
+                                      {wordCount} / {MIN_COMPREHENSION_FREE_RESPONSE_WORDS} words{' '}
+                                      {!isValid && '- minimum requirement'}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        ) : q.question_type === 'multi_select' &&
+                          Array.isArray(q.choices) &&
+                          q.choices.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {q.choices.map((choice: string, choiceIndex: number) => {
+                              const delimiter = '|||';
+                              const selectedAnswers = currentAnswer
+                                ? currentAnswer.split(delimiter).filter(Boolean)
+                                : [];
+                              const isChecked = selectedAnswers.includes(choice);
+                              const checkboxId = `first-pane-ms-${q.id}-${choiceIndex}`;
+                              return (
+                                <label
+                                  key={checkboxId}
+                                  htmlFor={checkboxId}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    cursor: 'pointer',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#1f2937',
+                                    border: '1px solid #4b5563',
+                                  }}
+                                >
+                                  <input
+                                    id={checkboxId}
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      const next = new Set(selectedAnswers);
+                                      if (next.has(choice)) next.delete(choice);
+                                      else next.add(choice);
+                                      const nextStr = Array.from(next).join(delimiter);
+                                      setComprehensionAnswers((prev) => ({
+                                        ...prev,
+                                        [q.id]: nextStr,
+                                      }));
+                                      if (submissionError) setSubmissionError(null);
+                                    }}
+                                    style={{ margin: 0, accentColor: '#3b82f6' }}
+                                  />
+                                  <span
+                                    className="markdown-content"
+                                    style={{ color: '#e5e7eb', fontSize: '14px' }}
+                                    dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(q.choices || SELF_REPORT_OPTIONS).map((choice, choiceIndex) => {
-                              const inputId = `self-report-${q.id}-${choiceIndex}`;
+                              const inputId = `first-pane-mcqa-${q.id}-${choiceIndex}`;
                               const isSelected = currentAnswer === choice;
                               return (
                                 <label
@@ -4164,7 +4666,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                   <input
                                     id={inputId}
                                     type="radio"
-                                    name={`self-report-${q.id}`}
+                                    name={`first-pane-mcqa-${q.id}`}
                                     value={choice}
                                     checked={isSelected}
                                     onChange={(e) => {
@@ -4180,18 +4682,21 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                                   />
                                   <span
                                     className="markdown-content"
-                                    style={{ color: '#e5e7eb', fontSize: '14px', fontWeight: isSelected ? 500 : 'normal' }}
+                                    style={{
+                                      color: '#e5e7eb',
+                                      fontSize: '14px',
+                                      fontWeight: isSelected ? 500 : 'normal',
+                                    }}
                                     dangerouslySetInnerHTML={{ __html: convertBackticksToCode(choice) }}
                                   />
                                 </label>
                               );
                             })}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        )}
+                      </div>
+                    );
+                  })}
 
                 <div
                   style={{
@@ -4213,7 +4718,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                     }}
                   >
                     <span>
-                      {selfReportQuestions.length + 2}. Any other comments on your interaction with the AI assistant while completing this task? (Optional)
+                      {firstPaneOrderedComprehensionQuestions.length + 2}. Was there anything else you liked or disliked about your interaction with the AI during this task? (Optional)
                     </span>
                     <span style={{ color: '#9ca3af', fontSize: '12px' }}>
                       {trimmedRequirementsCommentsLength} chars
@@ -5464,6 +5969,24 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             </div>
                           )}
                         </>
+                      ) : q.question_type === 'matrix' ? (
+                        <MatrixLikertGrid
+                          questionId={q.id}
+                          choices={q.choices}
+                          currentAnswer={currentAnswer}
+                          disabled={shouldShowAnswers || shouldDisableQuestion}
+                          onCommit={(json) => {
+                            if (!shouldShowAnswers && !shouldDisableQuestion) {
+                              setComprehensionAnswers((prev) => ({
+                                ...prev,
+                                [q.id]: json,
+                              }));
+                              if (submissionError) {
+                                setSubmissionError(null);
+                              }
+                            }
+                          }}
+                        />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           <textarea
@@ -5497,18 +6020,20 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                               opacity: shouldShowAnswers ? 0.7 : 1
                             }}
                           />
-                          <div style={{ fontSize: '12px', color: '#9ca3af' }}>
-                            {(() => {
-                              const wordCount = countWords(currentAnswer);
-                              const minWords = 10;
-                              const isValid = wordCount >= minWords;
-                              return (
-                                <span style={{ color: isValid ? '#9ca3af' : '#f87171' }}>
-                                  {wordCount} / {minWords} words {!isValid && '- minimum requirement'}
-                                </span>
-                              );
-                            })()}
-                          </div>
+                          {!isOptionalComprehensionFreeResponse(q) && (
+                            <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                              {(() => {
+                                const wordCount = countWords(currentAnswer);
+                                const isValid = wordCount >= MIN_COMPREHENSION_FREE_RESPONSE_WORDS;
+                                return (
+                                  <span style={{ color: isValid ? '#9ca3af' : '#f87171' }}>
+                                    {wordCount} / {MIN_COMPREHENSION_FREE_RESPONSE_WORDS} words{' '}
+                                    {!isValid && '- minimum requirement'}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -5711,6 +6236,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       }}
                       disabled={isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                         if (q.question_type === 'multi_select') return false;
+                        if (isOptionalComprehensionFreeResponse(q)) return false;
                         return !comprehensionAnswers[q.id]?.trim();
                       }))}
                       style={{
@@ -5721,12 +6247,14 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         borderRadius: '6px',
                         cursor: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
+                          if (isOptionalComprehensionFreeResponse(q)) return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 'not-allowed' : 'pointer',
                         fontSize: '13px',
                         fontWeight: 500,
                         opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
+                          if (isOptionalComprehensionFreeResponse(q)) return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 0.6 : 1,
                         transition: 'background-color 0.2s ease, opacity 0.2s ease'
@@ -5734,6 +6262,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                       onMouseEnter={(e) => {
                         if (!(isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') return false;
+                          if (isOptionalComprehensionFreeResponse(q)) return false;
                           return !comprehensionAnswers[q.id]?.trim();
                         })))) e.currentTarget.style.backgroundColor = '#1d4ed8';
                       }}
@@ -5752,13 +6281,15 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           return false;
                         }
                         if (isFreeResponseQuestionType(q.question_type)) {
-                          const answer = comprehensionAnswers[q.id] || '';
-                          return !answer.trim() || countWords(answer) < 10;
+                          return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], false);
                         }
                         return !comprehensionAnswers[q.id]?.trim();
                       })) : (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                         // Multi-select questions are always valid
                         if (q.question_type === 'multi_select') {
+                          return false;
+                        }
+                        if (isOptionalComprehensionFreeResponse(q)) {
                           return false;
                         }
                         // Check if all questions are answered
@@ -5778,8 +6309,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             return false;
                           }
                           if (isFreeResponseQuestionType(q.question_type)) {
-                            const answer = comprehensionAnswers[q.id] || '';
-                            return !answer.trim() || countWords(answer) < 10;
+                            return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], false);
                           }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 'not-allowed' : 'pointer',
@@ -5791,8 +6321,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             return false;
                           }
                           if (isFreeResponseQuestionType(q.question_type)) {
-                            const answer = comprehensionAnswers[q.id] || '';
-                            return !answer.trim() || countWords(answer) < 10;
+                            return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], false);
                           }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 0.6 : 1,
@@ -5807,12 +6336,18 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           if (q.question_type === 'multi_select') {
                             return false;
                           }
+                          if (isOptionalComprehensionFreeResponse(q)) {
+                            return false;
+                          }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 'not-allowed' : 'pointer',
                         fontSize: '13px',
                         fontWeight: 500,
                         opacity: (isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                           if (q.question_type === 'multi_select') {
+                            return false;
+                          }
+                          if (isOptionalComprehensionFreeResponse(q)) {
                             return false;
                           }
                           return !comprehensionAnswers[q.id]?.trim();
@@ -5827,8 +6362,7 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                               return false;
                             }
                             if (isFreeResponseQuestionType(q.question_type)) {
-                              const answer = comprehensionAnswers[q.id] || '';
-                              return !answer.trim() || countWords(answer) < 10;
+                              return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], false);
                             }
                             return !comprehensionAnswers[q.id]?.trim();
                           }))) {
@@ -5839,6 +6373,9 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                         } else {
                           if (!(isSubmittingProject || isLoadingComprehensionQuestions || (comprehensionPaneQuestions.length > 0 && comprehensionPaneQuestions.some(q => {
                             if (q.question_type === 'multi_select') {
+                              return false;
+                            }
+                            if (isOptionalComprehensionFreeResponse(q)) {
                               return false;
                             }
                             return !comprehensionAnswers[q.id]?.trim();
@@ -5868,13 +6405,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           return false;
                         }
                         const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-                        // For tutorial tasks, no word count requirement
                         if (isFreeResponseQuestionType(q.question_type)) {
-                          const answer = comprehensionAnswers[q.id] || '';
-                          if (isTutorialTask) {
-                            return !answer.trim();
-                          }
-                          return !answer.trim() || countWords(answer) < 10;
+                          return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], isTutorialTask);
                         }
                         return !comprehensionAnswers[q.id]?.trim();
                       }))}
@@ -5892,13 +6424,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             return false;
                           }
                           const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-                          // For tutorial tasks, no word count requirement
                           if (isFreeResponseQuestionType(q.question_type)) {
-                            const answer = comprehensionAnswers[q.id] || '';
-                            if (isTutorialTask) {
-                              return !answer.trim();
-                            }
-                            return !answer.trim() || countWords(answer) < 10;
+                            return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], isTutorialTask);
                           }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 'not-allowed' : 'pointer',
@@ -5910,13 +6437,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                             return false;
                           }
                           const isTutorialTask = taskName === 'Playground' || taskName === 'playground';
-                          // For tutorial tasks, no word count requirement
                           if (isFreeResponseQuestionType(q.question_type)) {
-                            const answer = comprehensionAnswers[q.id] || '';
-                            if (isTutorialTask) {
-                              return !answer.trim();
-                            }
-                            return !answer.trim() || countWords(answer) < 10;
+                            return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], isTutorialTask);
                           }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) ? 0.6 : 1,
@@ -5929,13 +6451,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
                           if (q.question_type === 'multi_select') {
                             return false;
                           }
-                          // For tutorial tasks, no word count requirement
                           if (isFreeResponseQuestionType(q.question_type)) {
-                            const answer = comprehensionAnswers[q.id] || '';
-                            if (isTutorialTask) {
-                              return !answer.trim();
-                            }
-                            return !answer.trim() || countWords(answer) < 10;
+                            return freeResponseBlocksSubmit(q, comprehensionAnswers[q.id], isTutorialTask);
                           }
                           return !comprehensionAnswers[q.id]?.trim();
                         }))) {

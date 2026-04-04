@@ -3533,6 +3533,14 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                                 parsed_user_answer = user_answer
                         elif not isinstance(user_answer, list):
                             parsed_user_answer = []
+                    elif question.question_type == 'matrix':
+                        import json
+                        if isinstance(user_answer, list):
+                            parsed_user_answer = json.dumps(user_answer)
+                        elif isinstance(user_answer, str) and user_answer.strip():
+                            parsed_user_answer = user_answer.strip()
+                        else:
+                            parsed_user_answer = None
                     else:
                         # For non-multi_select, keep as string
                         parsed_user_answer = str(user_answer) if user_answer else None
@@ -3652,36 +3660,42 @@ async def create_submission(payload: SubmissionRequest, db: Session = Depends(ge
                         else:
                             print(f"  Question {question_name} has no answer field, skipping score calculation")
                     
-                    # Mechanism and change questions: answer and user_answer are option indices; score = 1 if equal else 0; log pred and answer
+                    # Mechanism and change (snippet_mechanism, snippet_change_impact): gold may be a 1-based index
+                    # (legacy) or the correct choice text (current); user answer matches either scheme.
                     is_mechanism_or_change = (
                         question_name
                         and ("snippet_mechanism" in question_name or "snippet_change_impact" in question_name)
                     )
                     if is_mechanism_or_change and question.answer is not None:
                         try:
-                            correct_answer = question.answer
-                            if isinstance(correct_answer, str):
-                                correct_answer = int(correct_answer.strip())
-                            elif not isinstance(correct_answer, (int, float)):
-                                correct_answer = None
                             user_answer_str = str(parsed_user_answer).strip() if parsed_user_answer else ""
-                            match = re.match(r"^(\d+)", user_answer_str)
-                            user_answer_idx = int(match.group(1)) if match else None
-                            if correct_answer is not None and user_answer_idx is not None:
-                                question.user_answer = user_answer_idx  # store index of chosen option
-                                question.score = 1.0 if user_answer_idx == correct_answer else 0.0
-                                print(f"  Question {question_name}: pred={user_answer_idx}, answer={correct_answer}, score={question.score}")
+                            gold_raw = question.answer
+                            gold_str = str(gold_raw).strip() if gold_raw is not None else ""
+
+                            correct_idx: Optional[int] = None
+                            if type(gold_raw) is int or type(gold_raw) is float:
+                                correct_idx = int(gold_raw)
+                            elif gold_str.isdigit():
+                                correct_idx = int(gold_str)
+
+                            if correct_idx is not None:
+                                match = re.match(r"^(\d+)", user_answer_str)
+                                user_answer_idx = int(match.group(1)) if match else None
+                                if user_answer_idx is not None:
+                                    question.user_answer = user_answer_idx
+                                    question.score = 1.0 if user_answer_idx == correct_idx else 0.0
+                                else:
+                                    question.score = None
+                            elif user_answer_str:
+                                question.score = 1.0 if user_answer_str == gold_str else 0.0
                             else:
-                                question.user_answer = user_answer_idx  # store index if we have it
                                 question.score = None
-                                print(f"  Question {question_name}: pred={user_answer_idx}, answer={correct_answer}, score=None (missing or invalid)")
-                        except Exception as e:
-                            print(f"  Error calculating mechanism/change score for {question_name}: {e}")
+                        except Exception:
                             question.score = None
                     
                     # Calculate score for MCQA questions that have an answer field (e.g., sanity_check).
                     # identify_own is scored above; skip here to avoid overwriting.
-                    # mechanism/change (snippet_mechanism, snippet_change_impact) are handled above.
+                    # mechanism/change snippet questions are handled above.
                     elif (
                         question.question_type in ('mcqa', 'code_compare')
                         and question.answer is not None
@@ -4089,6 +4103,12 @@ async def generate_comprehension_questions(
             if isinstance((target_selection_context or {}).get("requirements"), list)
             else None
         )
+        experiment_group = _normalize_experiment_group(payload.experiment_group)
+        if not experiment_group:
+            user_settings = user.settings if isinstance(user.settings, dict) else {}
+            experiment_group = _normalize_experiment_group(
+                user_settings.get(SIGNUP_EXPERIMENT_GROUP_SETTINGS_KEY)
+            )
 
         result = await _generate_comprehension_questions(
             submission_title=payload.submission_title,
@@ -4098,6 +4118,7 @@ async def generate_comprehension_questions(
             project_name=project.name.lower() if project.name else None,
             project_label=(project.label or "").strip().lower() or None,
             ai_assistant_mode=payload.ai_assistant_mode,
+            experiment_group=experiment_group,
             target_selection_context=target_selection_context,
             task_description=task_description or None,
             task_requirements=task_requirements,
@@ -5458,6 +5479,7 @@ async def _generate_comprehension_questions(
     project_name: Optional[str] = None,
     project_label: Optional[str] = None,
     ai_assistant_mode: Optional[str] = None,
+    experiment_group: Optional[str] = None,
     target_selection_context: Optional[Dict[str, Any]] = None,
     task_description: Optional[str] = None,
     task_requirements: Optional[List[str]] = None,
@@ -5482,11 +5504,14 @@ async def _generate_comprehension_questions(
     {
         "question_name": str,  # e.g., "purpose_1", "technology_2"
         "question": str,  # The actual question text/stem
-        "question_type": str,  # "mcqa", "multi_select", or "free_response"
-        "choices": Optional[List[str]],  # For mcqa/multi_select
+        "question_type": str,  # "mcqa", "multi_select", "matrix", or "free_response"
+        "choices": Optional[Any],  # list[str] for mcqa/multi_select; dict rows/scale for matrix
         "answer": Optional[str]  # Correct answer for scoring
     }
     """
+
+    normalized_mode = (ai_assistant_mode or "").strip().lower()
+    normalize_experiment_mode = _normalize_experiment_group(experiment_group)
 
     SANITY_QUESTION_PROBABILITY = 0.5
     # Tasks that should always have attention checks
@@ -5603,10 +5628,38 @@ async def _generate_comprehension_questions(
             # }     
         ]
 
-        normalized_mode = (ai_assistant_mode or "").strip().lower()
+        
         questions.extend(agent_mode_questions if normalized_mode == "agent" else chat_mode_questions)
 
+        if project_name in SELF_REPORT_ONLY_TASKS:
+            if normalize_experiment_mode == 'agent':
+                questions.extend([
+                    {
+                        "question_name": "free_response_task_agent",
+                        "question": f"Was there anything specific about the AI in Agent Mode (directly editing your code) in the first task that made it easier or harder to work with to complete tasks?",
+                        "question_type": "free_response",
+                        "choices": [],
+                        "answer": ""
+                    },
+                ])
+            questions.extend([
+                {
+                    "question_name": "free_response_task_chat",
+                    "question": f"Was there anything specific about the AI in Chat Mode (providing high-level syntax) that made it easier or harder to work with to complete tasks?",
+                    "question_type": "free_response",
+                    "choices": [],
+                    "answer": ""
+                },
+            ])
+
         questions.extend([
+            {
+                "question_name": "self_report_internalization",
+                "question": f"The code feels like my own work.",
+                "question_type": "mcqa",
+                "choices": self_report_options,
+                "answer": ""
+            },
             {
                 "question_name": "self_report_understanding",
                 "question": f"I understand how my code works.",
@@ -5622,6 +5675,79 @@ async def _generate_comprehension_questions(
                 "answer": ""
             },
         ])
+    
+        if project_name in SELF_REPORT_ONLY_TASKS:
+            if normalize_experiment_mode == 'agent':
+                questions.extend([
+                    {
+                        "question_name": "free_response_understanding_agent",
+                        "question": f"Was there anything specific about the AI in Agent Mode (directly editing your code) in the first task that made it easier or harder to understand your code? Feel free to recall or compare with any AI programming tools you have previously used",
+                        "question_type": "free_response",
+                        "choices": [],
+                        "answer": ""
+                    },
+                ])
+            else:
+                questions.extend([
+                    {
+                        "question_name": "free_response_understanding_chat",
+                        "question": f"Was there anything specific about the AI in Chat Mode (providing high-level syntax) in the first task that made it easier or harder to understand your code? Feel free to recall or compare with any AI programming tools you have previously used",
+                        "question_type": "free_response",
+                        "choices": [],
+                        "answer": ""
+                    },
+                ])
+            questions.extend([
+                {
+                    "question_name": "free_response_extending",
+                    "question": f"Was there any specific property of your code (e.g., number of functions, number of lines, comments) in the first task that made it easier or harder to extend your code in the second task?",
+                    "question_type": "free_response",
+                    "choices": [],
+                    "answer": ""
+                },
+            ])
+        questions.append(
+            {
+                "question_name": "preference_future_ai_assistant_matrix",
+                "question": "For future tasks in our interface, how much would you prefer each of the following ways of working with AI? Use the scale from least preferred to most preferred for each row.\n\nNote: Your response will NOT affect how you are assigned in future tasks.",
+                "question_type": "matrix",
+                "choices": {
+                    "rows": [
+                        "No AI assistance",
+                        "Chat Mode: A model that can only provide syntax help without access to your code",
+                        "Agent Mode: A model that can directly access and edit your code",
+                        "The option to switch between Chat Mode and Agent Mode",
+                    ],
+                    "scale": [
+                        "1 - Least preferred",
+                        "2",
+                        "3",
+                        "4",
+                        "5 - Most preferred",
+                    ],
+                },
+                "answer": "",
+            }
+        )
+        if project_name in SELF_REPORT_ONLY_TASKS:
+            questions.extend([
+                {
+                    "question_name": "free_response_preference_features_like",
+                    "question": f"Which features of the AI assistants did you find helpful? Feel free to recall or compare with any AI programming tools you have previously used (Optional)",
+                    "question_type": "free_response",
+                    "choices": [],
+                    "answer": ""
+                },
+            ])
+            questions.extend([
+                {
+                    "question_name": "free_response_preference_features_want",
+                    "question": f"Were there any additional or different features that you wish the AI assistants you worked with had? Feel free to recall or compare with any AI programming tools you have previously used (Optional)",
+                    "question_type": "free_response",
+                    "choices": [],
+                    "answer": ""
+                },
+            ])
     else:
         # For non-required tasks, only include self_report_understanding
         questions.extend([
@@ -5648,6 +5774,15 @@ async def _generate_comprehension_questions(
                 "question": f"I understand how my code works.",
                 "question_type": "mcqa",
                 "choices": self_report_options,
+                "answer": ""
+            },
+        ])
+        questions.extend([
+            {
+                "question_name": "free_response_game",
+                "question": f"Was there anything else that you liked or disliked during the interaction with the AI? (Optional)",
+                "question_type": "free_response",
+                "choices": [],
                 "answer": ""
             },
         ])
@@ -6824,6 +6959,7 @@ def _compute_post_test_pool_status(user_id: int, db: Session) -> Dict[str, Any]:
     code_max = (
         db.query(UserCodeSkillResponse.user_id, func.max(UserCodeSkillResponse.created_at).label("ts"))
         .filter(UserCodeSkillResponse.phase == "post-test")
+        .group_by(UserCodeSkillResponse.user_id)
         .all()
     )
     completion_ts_by_user: Dict[int, Any] = {}

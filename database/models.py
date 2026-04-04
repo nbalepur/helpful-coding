@@ -629,8 +629,8 @@ class ComprehensionQuestionBase(BaseModel):
     project_id: int = Field(..., description="Project ID")
     question_name: str = Field(..., description="Name/identifier for the question")
     question: str = Field(..., description="The actual question text/stem")
-    question_type: str = Field(..., description="Type of question: 'mcqa', 'multi_select', or 'free_response'")
-    choices: Optional[List[str]] = Field(None, description="Array of choices for mcqa/multi_select questions")
+    question_type: str = Field(..., description="Type of question: 'mcqa', 'multi_select', 'matrix', or 'free_response'")
+    choices: Optional[Any] = Field(None, description="Choices: string[] for mcqa/multi_select, or {rows, scale} for matrix")
     answer: Optional[str] = Field(None, description="Correct answer (for scoring)")
     user_answer: Optional[str] = Field(None, description="User's answer")
     score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Score from 0.0 to 1.0")
@@ -675,6 +675,7 @@ class GenerateComprehensionQuestionsRequest(BaseModel):
     submission_description: str = Field(..., description="Submission description")
     submission_code: Dict[str, str] = Field(..., description="Submission code as key-value pairs")
     ai_assistant_mode: Optional[str] = Field(None, description="AI assistant mode used for the task (e.g., 'agent' or 'chat')")
+    experiment_group: Optional[str] = Field(None, description="User experiment group ('agent' or 'chat')")
 
 
 class SaveTutorialQuestionsRequest(BaseModel):

@@ -340,7 +340,7 @@ class ComprehensionQuestion(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
     question_name = Column(String(255), nullable=False)
     question = Column(Text, nullable=False)  # The actual question text/stem
-    question_type = Column(String(50), nullable=False)  # 'mcqa', 'multi_select', 'free_response'
+    question_type = Column(String(50), nullable=False)  # 'mcqa', 'multi_select', 'matrix', 'free_response'
     choices = Column(JSON, nullable=True)  # Array of choices for mcqa/multi_select
     answer = Column(Text, nullable=True)  # Correct answer (for scoring)
     user_answer = Column(Text, nullable=True)  # User's answer
