@@ -123,10 +123,54 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         : '';
       const isAgentGroupUser = experimentGroup === 'agent';
 
-      // Fetch all required data in parallel for better performance
-      const [testStatusResponse, submissionsResponse, tasksResponse, postTestPoolResponse, postTestCompletionsResponse] =
+      // Fast path: fetch completion status first so tutorial/pre-test checks can resolve quickly.
+      const testStatusResponse = await fetch(
+        `/api/skill-check/completion-status-both?user_id=${numericUserId}`
+      );
+
+      // Parse test status (combines pre-test and post-test in one call)
+      let preTestCompletedValue = false;
+      let postTestCompletedValue = false;
+      if (testStatusResponse.ok) {
+        const testStatusData = await testStatusResponse.json();
+        preTestCompletedValue = testStatusData.pre_test?.completed || false;
+        postTestCompletedValue = testStatusData.post_test?.completed || false;
+        // If user chose "Skip pre-test", treat as completed for this session only
+        if (typeof window !== 'undefined' && sessionStorage.getItem(PRE_TEST_SKIPPED_KEY) === 'true') {
+          preTestCompletedValue = true;
+        }
+        debugInfo.preTestCompleted = preTestCompletedValue;
+        debugInfo.postTestCompleted = postTestCompletedValue;
+      } else {
+        debugInfo.preTestCompleted = false;
+        debugInfo.postTestCompleted = false;
+      }
+      
+      // Store the completion status in state for use by other components
+      setPreTestCompleted(preTestCompletedValue);
+      setPostTestCompleted(postTestCompletedValue);
+      
+      // Use the local variables for the rest of the function
+      const preTestCompleted = preTestCompletedValue;
+
+      // Fast decision flow:
+      // 1. If user hasn't seen tutorial instructions, show tutorial immediately.
+      if (tutorialState === 'unseen') {
+        setPostTestBlockedByParticipantCap(false);
+        debugInfo.finalDecision = 'tutorial';
+        return 'tutorial';
+      }
+      
+      // 2. If user has not done the pre-test, show pre-test immediately.
+      if (!preTestCompleted) {
+        setPostTestBlockedByParticipantCap(false);
+        debugInfo.finalDecision = 'pre-test';
+        return 'pre-test';
+      }
+
+      // Slow path: only after instructions/pre-test pass, fetch the heavier checks.
+      const [submissionsResponse, tasksResponse, postTestPoolResponse, postTestCompletionsResponse] =
         await Promise.all([
-          fetch(`/api/skill-check/completion-status-both?user_id=${numericUserId}`),
           fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/submissions`),
           fetch(`/api/tasks`),
           fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/post-test-pool-status`),
@@ -168,31 +212,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         postTestPoolData.post_test_completed !== true &&
         postTestPoolData.post_test_open === false;
       setPostTestBlockedByParticipantCap(postTestCapBlockedByBackend);
-      
-      // Parse test status (combines pre-test and post-test in one call)
-      let preTestCompletedValue = false;
-      let postTestCompletedValue = false;
-      if (testStatusResponse.ok) {
-        const testStatusData = await testStatusResponse.json();
-        preTestCompletedValue = testStatusData.pre_test?.completed || false;
-        postTestCompletedValue = testStatusData.post_test?.completed || false;
-        // If user chose "Skip pre-test", treat as completed for this session only
-        if (typeof window !== 'undefined' && sessionStorage.getItem(PRE_TEST_SKIPPED_KEY) === 'true') {
-          preTestCompletedValue = true;
-        }
-        debugInfo.preTestCompleted = preTestCompletedValue;
-        debugInfo.postTestCompleted = postTestCompletedValue;
-      } else {
-        debugInfo.preTestCompleted = false;
-        debugInfo.postTestCompleted = false;
-      }
-      
-      // Store the completion status in state for use by other components
-      setPreTestCompleted(preTestCompletedValue);
-      setPostTestCompleted(postTestCompletedValue);
-      
-      // Use the local variables for the rest of the function
-      const preTestCompleted = preTestCompletedValue;
+
       // Parse submissions
       let submissionsData = { items: [] };
       if (submissionsResponse.ok) {
@@ -261,19 +281,6 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         setAllRequiredTasksCompleted(websiteRequirementsSkipped);
       }
       
-      // Simplified decision flow:
-      // 1. If user hasn't seen tutorial, show tutorial
-      if (tutorialState === 'unseen') {
-        debugInfo.finalDecision = 'tutorial';
-        return 'tutorial';
-      }
-      
-      // 2. Otherwise, if user has not done the pre-test, show pre-test
-      if (!preTestCompleted) {
-        debugInfo.finalDecision = 'pre-test';
-        return 'pre-test';
-      }
-
       // 3. Show one-time assistant transition notice for agent-group users
       // when they enter the follow-up warm-up task.
       if (isAgentGroupUser && selectedTaskParam && tasks.length > 0) {
