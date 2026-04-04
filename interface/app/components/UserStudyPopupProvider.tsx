@@ -168,50 +168,14 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         return 'pre-test';
       }
 
-      // Slow path: only after instructions/pre-test pass, fetch the heavier checks.
-      const [submissionsResponse, tasksResponse, postTestPoolResponse, postTestCompletionsResponse] =
-        await Promise.all([
-          fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/submissions`),
-          fetch(`/api/tasks`),
-          fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/post-test-pool-status`),
-          fetch(`${ENV.BACKEND_URL}/api/study/post-test-completions-count`),
-        ]);
+      // Slow path: only after instructions/pre-test pass, fetch task/submission data.
+      const [submissionsResponse, tasksResponse] = await Promise.all([
+        fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/submissions`),
+        fetch(`/api/tasks`),
+      ]);
 
-      let postTestPoolData: {
-        meets_task_requirement?: boolean;
-        in_post_test_pool?: boolean;
-        post_test_completed?: boolean;
-        post_test_open?: boolean;
-      } | null = null;
-      if (postTestPoolResponse.ok) {
-        try {
-          postTestPoolData = await postTestPoolResponse.json();
-        } catch {
-          postTestPoolData = null;
-        }
-      }
-
-      let studyWidePostTestCompletionsCount: number | null = null;
-      if (postTestCompletionsResponse.ok) {
-        try {
-          const pc = await postTestCompletionsResponse.json();
-          if (typeof pc?.post_test_completions_count === 'number') {
-            studyWidePostTestCompletionsCount = pc.post_test_completions_count;
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      const poolFilledByCount =
-        studyWidePostTestCompletionsCount != null &&
-        studyWidePostTestCompletionsCount >= ENV.POST_TEST_PARTICIPANT_CAP;
-
-      const postTestCapBlockedByBackend =
-        !!postTestPoolData &&
-        postTestPoolData.meets_task_requirement === true &&
-        postTestPoolData.post_test_completed !== true &&
-        postTestPoolData.post_test_open === false;
-      setPostTestBlockedByParticipantCap(postTestCapBlockedByBackend);
+      // Default to not blocked unless we explicitly detect cap blocking below.
+      setPostTestBlockedByParticipantCap(false);
 
       // Parse submissions
       let submissionsData = { items: [] };
@@ -310,6 +274,53 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         (debugInfo.numGameProjectsSubmitted ?? 0) >= ENV.NUM_TASKS_REQUIRED_UNTIL_POSTTEST &&
         debugInfo.hasSubmittedPlatformer
       ) {
+        // Only now do the expensive post-test pool checks.
+        let postTestPoolData: {
+          meets_task_requirement?: boolean;
+          in_post_test_pool?: boolean;
+          post_test_completed?: boolean;
+          post_test_open?: boolean;
+        } | null = null;
+        let studyWidePostTestCompletionsCount: number | null = null;
+
+        try {
+          const [postTestPoolResponse, postTestCompletionsResponse] = await Promise.all([
+            fetch(`${ENV.BACKEND_URL}/api/users/${numericUserId}/post-test-pool-status`),
+            fetch(`${ENV.BACKEND_URL}/api/study/post-test-completions-count`),
+          ]);
+
+          if (postTestPoolResponse.ok) {
+            try {
+              postTestPoolData = await postTestPoolResponse.json();
+            } catch {
+              postTestPoolData = null;
+            }
+          }
+
+          if (postTestCompletionsResponse.ok) {
+            try {
+              const pc = await postTestCompletionsResponse.json();
+              if (typeof pc?.post_test_completions_count === 'number') {
+                studyWidePostTestCompletionsCount = pc.post_test_completions_count;
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch {
+          // Ignore fetch failures here and fall back to permissive behavior below.
+        }
+
+        const poolFilledByCount =
+          studyWidePostTestCompletionsCount != null &&
+          studyWidePostTestCompletionsCount >= ENV.POST_TEST_PARTICIPANT_CAP;
+        const postTestCapBlockedByBackend =
+          !!postTestPoolData &&
+          postTestPoolData.meets_task_requirement === true &&
+          postTestPoolData.post_test_completed !== true &&
+          postTestPoolData.post_test_open === false;
+        setPostTestBlockedByParticipantCap(postTestCapBlockedByBackend);
+
         const allowedByBackend =
           !postTestPoolData ||
           postTestPoolData.post_test_completed === true ||
