@@ -299,10 +299,16 @@ If you’re interested in tackling any of these, we’d love to see a PR!
 
 ## 📝 Citation
 
-If you used VibeJam for your own research, give us a citation PLEASE:
+If you used VibeJam for your own research, give us a citation!
 
 ```bibtex
-D: (coming soon!)
+@software{balepur2026vibejam,
+  author = {Nishant Balepur and Connor Baumler and Valerie Chen and Eunsol Choi and Rachel Rudinger and Jordan Lee Boyd-Graber},
+  title = {VibeJam: An Open Platform for User Studies on Agentic Vibe Coding},
+  year = {2026},
+  publisher = {GitHub},
+  url = {https://github.com/nbalepur/vibe-jam},
+}
 ```
 
 ---
