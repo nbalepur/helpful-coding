@@ -75,6 +75,11 @@ export function isWebsiteRequirementsSkippedFromSettings(userSettings?: Record<s
   );
 }
 
+/** Per-user skip choice, local override, or global open-ended-only study flag (see ENV.OPEN_ENDED_GAME_STUDY_ONLY). */
+export function isWebsiteRequirementsPhaseSkippedForStudy(userSettings?: Record<string, any>): boolean {
+  return ENV.OPEN_ENDED_GAME_STUDY_ONLY || isWebsiteRequirementsSkippedFromSettings(userSettings);
+}
+
 export async function saveWebsiteRequirementsChoiceInSettings(
   userId: number,
   skipWebsiteRequirements: boolean,

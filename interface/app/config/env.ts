@@ -111,6 +111,15 @@ export const ENV = {
   // Test cases configuration - whether to show only public tests (default: true)
   SHOW_PUBLIC_TESTS_ONLY: process.env.NEXT_PUBLIC_SHOW_PUBLIC_TESTS_ONLY !== 'false',
 
+  /**
+   * When true, every user is treated as past the website-requirements phase (Zic-Zac-Zoe, etc.):
+   * study UX uses open-ended game development mode only; phase 1 tutorial popup is not shown.
+   * Must use NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY — unprefixed vars are not available in client bundles.
+   */
+  OPEN_ENDED_GAME_STUDY_ONLY:
+    process.env.NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY === 'true' ||
+    process.env.OPEN_ENDED_GAME_STUDY_ONLY === 'true',
+
   // Number of submitted game tasks required before prompting post-test
   NUM_TASKS_REQUIRED_UNTIL_POSTTEST: parsePositiveIntOrDefault(
     process.env.NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST,

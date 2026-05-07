@@ -8,11 +8,12 @@ import { useAuth } from "../utils/auth";
 import { getWebsiteRequirementTaskNames, isWebsiteRequirementTask, WEBSITE_REQUIREMENT_TASKS } from "../config/tasks";
 import {
   hasWebsiteRequirementsChoiceFromSettings,
-  isWebsiteRequirementsSkippedFromSettings,
+  isWebsiteRequirementsPhaseSkippedForStudy,
   saveWebsiteRequirementsChoiceInSettings,
   setWebsiteRequirementsChoiceLocal,
 } from "../utils/userSettings";
 import { PASSWORD_HASH, hashString } from "../utils/password";
+import { isInternalReviewerUser } from "../config/internalReviewers";
 
 type TutorialCookieState = 'unseen' | 'seen' | 'dismissed';
 const TUTORIAL_COOKIE_NAME = `${ENV.COOKIE_PREFIX}tutorial_state`;
@@ -112,7 +113,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // Check tutorial cookie first
       const tutorialState = (getCookie(TUTORIAL_COOKIE_NAME) as TutorialCookieState | null) || 'unseen';
       debugInfo.tutorialState = tutorialState;
-      const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+      const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
       const websiteRequirementsChoiceMade = hasWebsiteRequirementsChoiceFromSettings(user?.settings);
       debugInfo.websiteRequirementsSkipped = websiteRequirementsSkipped;
       debugInfo.websiteRequirementsChoiceMade = websiteRequirementsChoiceMade;
@@ -145,17 +146,22 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
         debugInfo.preTestCompleted = false;
         debugInfo.postTestCompleted = false;
       }
+
+      const effectivePreTestCompleted =
+        preTestCompletedValue || isInternalReviewerUser(user ?? undefined);
       
       // Store the completion status in state for use by other components
-      setPreTestCompleted(preTestCompletedValue);
+      setPreTestCompleted(effectivePreTestCompleted);
       setPostTestCompleted(postTestCompletedValue);
       
       // Use the local variables for the rest of the function
-      const preTestCompleted = preTestCompletedValue;
+      const preTestCompleted = effectivePreTestCompleted;
+      debugInfo.preTestCompleted = effectivePreTestCompleted;
 
       // Fast decision flow:
       // 1. If user hasn't seen tutorial instructions, show tutorial immediately.
-      if (tutorialState === 'unseen') {
+      // Open-ended-only study (game dev only): skip phase 1 instructions — same flag as browse/vibe study mode.
+      if (tutorialState === 'unseen' && !ENV.OPEN_ENDED_GAME_STUDY_ONLY) {
         setPostTestBlockedByParticipantCap(false);
         debugInfo.finalDecision = 'tutorial';
         return 'tutorial';
@@ -361,7 +367,7 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       // On error, default to none to avoid blocking the user
       return 'none';
     }
-  }, [numericUserId, hasSecretPassword, user?.settings, searchParams]);
+  }, [numericUserId, hasSecretPassword, user, searchParams]);
   
   // Manage the popup state
   const [popupState, setPopupState] = useState<PopupState>('none');

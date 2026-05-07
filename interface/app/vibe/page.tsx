@@ -9,7 +9,7 @@ import { useRouteProtection, useAuth } from "../utils/auth";
 import { getUserSettingsCookie, updateUserSetting } from "../utils/cookies";
 import {
   isPlaygroundCompletedFromSettings,
-  isWebsiteRequirementsSkippedFromSettings,
+  isWebsiteRequirementsPhaseSkippedForStudy,
   setPlaygroundCompletedInSettings,
 } from "../utils/userSettings";
 import {
@@ -64,6 +64,8 @@ import { formatDateOnly } from "../utils/dateFormat";
 import { PASSWORD_HASH, hashString } from "../utils/password";
 import { ERROR_TRY_AGAIN } from "../utils/constants";
 import { downloadProjectAsRepository } from "../utils/downloadProject";
+import { isInternalReviewerUser } from "../config/internalReviewers";
+import { useSubmissionGalleryCounts } from "../hooks/useSubmissionGalleryCounts";
 
 type CodeLogEvent = "save-shortcut" | "before-unload" | "preview-refresh" | "AI-refresh" | "keep" | "reject" | "keep_all" | "reject_all" | "download" | "undo" | "redo" | "copy_from_assistant";
 type TaskEventName =
@@ -102,6 +104,10 @@ function HomeInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user, token, refreshUser } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+  const isInternalReviewer = useMemo(
+    () => isInternalReviewerUser(user ?? undefined),
+    [user]
+  );
   const studyEnded = false;
   
   // This page now exclusively renders tasks.
@@ -120,6 +126,7 @@ function HomeInner() {
   const [isPending, startTransition] = useTransition();
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredTasks, setFilteredTasks] = useState<any[]>([]);
+  const submissionGalleryCounts = useSubmissionGalleryCounts(isInternalReviewer, filteredTasks);
   const { isSidebarOpen: sidebarOpen, toggleSidebar, isAssistantVisible: showAIAssistant, setIsAssistantVisible: setShowAIAssistant } = useSidebar();
   // Filter state
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -313,7 +320,7 @@ function HomeInner() {
   const previewTabRef = useRef<PreviewTabRef>(null);
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+  const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
 
   const buildTaskListForCurrentMode = useCallback((tasks: any[]) => {
     const mode = getStudyTaskMode(tasks, websiteRequirementsSkipped);
@@ -1229,14 +1236,14 @@ function HomeInner() {
     // If we don't have task metadata, keep submissions locked.
     if (!currentTaskMeta?.name) return false;
 
-    // Lock voting/submissions only for required game tasks (currently: platformer).
+    // Lock voting/submissions only for required game tasks (currently: platformer) for normal participants.
     if (GAME_REQUIRED_TASKS.includes(currentTaskMeta.name as any)) {
-      return false;
+      return !!isInternalReviewer;
     }
 
     // All other tasks should always allow viewing submissions.
     return true;
-  }, [currentTaskMeta?.name, isPlaygroundMode]);
+  }, [currentTaskMeta?.name, isPlaygroundMode, isInternalReviewer]);
 
   const isWebsiteRequirementsTaskSelected = useMemo(() => {
     if (selectedTask === 'playground' || isPlaygroundMode) return false;
@@ -1546,10 +1553,20 @@ function HomeInner() {
   }, [confirmLeaveStudyIfNeeded]);
 
   const canShowViewSubmissionsTab = useMemo(() => {
-    // Hide submissions tab for playground, website-requirements tasks, and timed tasks.
-    // This keeps space for the timer on platformer.
-    return !(isPlaygroundMode || selectedTask === 'playground' || isWebsiteRequirementsTaskSelected || isTimedTaskSelected);
-  }, [isPlaygroundMode, selectedTask, isWebsiteRequirementsTaskSelected, isTimedTaskSelected]);
+    if (isPlaygroundMode || selectedTask === 'playground' || isWebsiteRequirementsTaskSelected) {
+      return false;
+    }
+    if (isTimedTaskSelected && !isInternalReviewer) {
+      return false;
+    }
+    return true;
+  }, [
+    isPlaygroundMode,
+    selectedTask,
+    isWebsiteRequirementsTaskSelected,
+    isTimedTaskSelected,
+    isInternalReviewer,
+  ]);
 
   const assistantPaneTitle = 'AI Assistant Mode:';
 
@@ -1630,11 +1647,16 @@ function HomeInner() {
       window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
     };
-  }, [showCodingTerminal, selectedTask, canShowViewSubmissionsTab, isViewSubmissionsUnlocked]);
+  }, [showCodingTerminal, selectedTask, canShowViewSubmissionsTab, isViewSubmissionsUnlocked, isInternalReviewer]);
 
   useEffect(() => {
-    setRightTab('code');
-  }, [selectedTask]);
+    const view = searchParams?.get('view');
+    if (view === 'submissions' && isInternalReviewer) {
+      setRightTab('submissions');
+    } else {
+      setRightTab('code');
+    }
+  }, [selectedTask, searchParams, isInternalReviewer]);
 
   // Update currentFiles when initialFiles change
   useEffect(() => {
@@ -3235,10 +3257,10 @@ function HomeInner() {
       return task;
     });
     
-    // First filter by required status (skip if secret password is present)
+    // First filter by required status (skip if secret password or internal reviewer — full catalog)
     let tasksAfterRequiredFilter: any[];
-    if (hasSecretPassword) {
-      // When password is present, show all tasks but:
+    if (hasSecretPassword || isInternalReviewer) {
+      // Show all tasks but:
       // 1. Deduplicate by ID to avoid duplicate playground/tutorial tasks
       // 2. Filter out any tutorial tasks from API (we already have playground)
       const seenIds = new Set<string>();
@@ -3290,7 +3312,18 @@ function HomeInner() {
       );
       setFilteredTasks(filtered);
     }
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, showCodingTerminal, pathname, hasSecretPassword]);
+  }, [
+    searchQuery,
+    allTasks,
+    filterTasksByRequiredStatus,
+    statusFilters,
+    categoryFilters,
+    showCodingTerminal,
+    pathname,
+    hasSecretPassword,
+    isInternalReviewer,
+    user,
+  ]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -3763,10 +3796,23 @@ function HomeInner() {
 
   // Prevent submissions tab in playground and website-requirements modes
   useEffect(() => {
-    if ((isPlaygroundMode || selectedTask === 'playground' || isWebsiteRequirementsTaskSelected || isTimedTaskSelected) && rightTab === 'submissions') {
+    if (
+      (isPlaygroundMode ||
+        selectedTask === 'playground' ||
+        isWebsiteRequirementsTaskSelected ||
+        (isTimedTaskSelected && !isInternalReviewer)) &&
+      rightTab === 'submissions'
+    ) {
       setRightTab('code');
     }
-  }, [isPlaygroundMode, selectedTask, isWebsiteRequirementsTaskSelected, isTimedTaskSelected, rightTab]);
+  }, [
+    isPlaygroundMode,
+    selectedTask,
+    isWebsiteRequirementsTaskSelected,
+    isTimedTaskSelected,
+    isInternalReviewer,
+    rightTab,
+  ]);
 
   // Handle task parameter from URL
   useEffect(() => {
@@ -3818,7 +3864,7 @@ function HomeInner() {
         });
 
         let visibleTasks: any[];
-        if (hasSecretPassword) {
+        if (hasSecretPassword || isInternalReviewer) {
           const seenIds = new Set<string>();
           visibleTasks = tasksWithUpdatedPlayground.filter((task: any) => {
             if (seenIds.has(task.id)) {
@@ -3841,7 +3887,7 @@ function HomeInner() {
         }
 
         const lockedTaskIds = new Set<string>();
-        if (!hasSecretPassword) {
+        if (!hasSecretPassword && !isInternalReviewer) {
           const otherTasks = tasksWithUpdatedPlayground.filter((task: any) => task.id !== 'playground');
           const completedTaskNames = new Set(
             otherTasks
@@ -3904,7 +3950,22 @@ function HomeInner() {
     };
 
     handleTaskParam();
-  }, [searchParams, allTasks, selectedTask, pathname, showCodingTerminal, isPlaygroundMode, hasSecretPassword, filterTasksByRequiredStatus, user?.settings, studyEnded, router, cleanupTaskState, websiteRequirementsSkipped]);
+  }, [
+    searchParams,
+    allTasks,
+    selectedTask,
+    pathname,
+    showCodingTerminal,
+    isPlaygroundMode,
+    hasSecretPassword,
+    isInternalReviewer,
+    filterTasksByRequiredStatus,
+    user?.settings,
+    studyEnded,
+    router,
+    cleanupTaskState,
+    websiteRequirementsSkipped,
+  ]);
 
   // Force hide tooltips when pathname changes (tab navigation)
   useEffect(() => {
@@ -4147,6 +4208,11 @@ function HomeInner() {
 
     // Push URL immediately for instant navigation; URL effect will start the task
     router.push(`/vibe?task=${taskId}`);
+  };
+
+  const handleViewSubmissionsFromGrid = (taskId: string) => {
+    if (!confirmLeaveStudyIfNeeded()) return;
+    router.push(`/vibe?task=${taskId}&view=submissions`);
   };
 
   const handleGoBack = () => {
@@ -4511,6 +4577,9 @@ function HomeInner() {
                     <TaskCardGrid
                       tasks={filteredTasks}
                       onGetStarted={handleGetStarted}
+                      isInternalReviewer={isInternalReviewer}
+                      onViewSubmissions={isInternalReviewer ? handleViewSubmissionsFromGrid : undefined}
+                      submissionGalleryCounts={submissionGalleryCounts}
                     />
                   </div>
                 )}

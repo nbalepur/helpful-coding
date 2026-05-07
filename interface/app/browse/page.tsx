@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRouteProtection, useAuth } from "../utils/auth";
-import { isPlaygroundCompletedFromSettings, isWebsiteRequirementsSkippedFromSettings } from "../utils/userSettings";
+import { isPlaygroundCompletedFromSettings, isWebsiteRequirementsPhaseSkippedForStudy } from "../utils/userSettings";
 import {
   Shuffle,
   Search,
@@ -23,6 +23,8 @@ import {
   WEBSITE_TUTORIAL_TASKS,
 } from "../config/tasks";
 import { ENV } from "../config/env";
+import { isInternalReviewerUser } from "../config/internalReviewers";
+import { useSubmissionGalleryCounts } from "../hooks/useSubmissionGalleryCounts";
 import { useSnackbar } from "../components/SnackbarProvider";
 import { PASSWORD_HASH, hashString } from "../utils/password";
 
@@ -34,11 +36,16 @@ function BrowseInner() {
   const { isAuthenticated, isLoading } = useRouteProtection();
   const { user } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
+  const isInternalReviewer = useMemo(
+    () => isInternalReviewerUser(user ?? undefined),
+    [user]
+  );
   const studyEnded = false;
   
   // All hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredTasks, setFilteredTasks] = useState<any[]>([]);
+  const submissionGalleryCounts = useSubmissionGalleryCounts(isInternalReviewer, filteredTasks);
   const { isSidebarOpen: sidebarOpen } = useSidebar();
   // Filter state
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -137,7 +144,7 @@ function BrowseInner() {
     minutes: number | null;
   } | null>(null);
   const filterModalRef = useRef<HTMLDivElement | null>(null);
-  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+  const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
   const studyTaskMode = useMemo(() => {
     const otherTasks = allTasks.filter((task: any) => task.id !== 'playground');
     return getStudyTaskMode(otherTasks, websiteRequirementsSkipped);
@@ -423,7 +430,7 @@ function BrowseInner() {
     setAllRequiredTasksCompleted(effectiveRequiredCompleted);
     
     let tasksAfterRequiredFilter: any[];
-    if (hasSecretPassword) {
+    if (hasSecretPassword || isInternalReviewer) {
       const seenIds = new Set<string>();
       tasksAfterRequiredFilter = tasksWithUpdatedPlayground.filter((task: any) => {
         if (seenIds.has(task.id)) {
@@ -436,7 +443,8 @@ function BrowseInner() {
         return true;
       });
 
-      if (mode !== 'website-requirements') {
+      // Internal reviewers see every non-tutorial task; others in game mode only see open-ended tasks here.
+      if (mode !== 'website-requirements' && !isInternalReviewer) {
         tasksAfterRequiredFilter = tasksAfterRequiredFilter.filter((task: any) => {
           if (task.id === 'playground') {
             return true;
@@ -495,10 +503,10 @@ function BrowseInner() {
         )
         .map((task: any) => task.id as string)
     );
-    const shouldEnableLocking = !hasSecretPassword && (
-      isWebsiteRequirementsMode ||
-      !effectiveRequiredCompleted
-    );
+    const shouldEnableLocking =
+      !hasSecretPassword &&
+      !isInternalReviewer &&
+      (isWebsiteRequirementsMode || !effectiveRequiredCompleted);
     if (shouldEnableLocking) {
       const lockedIds = new Set<string>();
       const noEditIds = new Set<string>();
@@ -546,7 +554,12 @@ function BrowseInner() {
       setLockedTaskIds(lockedIds);
       setNoEditLockedTaskIds(noEditIds);
       setActiveTaskId(activeId);
-    } else if (!hasSecretPassword && !isWebsiteRequirementsMode && completedRequiredGameTaskIds.size > 0) {
+    } else if (
+      !hasSecretPassword &&
+      !isInternalReviewer &&
+      !isWebsiteRequirementsMode &&
+      completedRequiredGameTaskIds.size > 0
+    ) {
       // After game requirement completion, unlock everything except completed required game tasks.
       setLockedTaskIds(new Set(completedRequiredGameTaskIds));
       setNoEditLockedTaskIds(new Set(completedRequiredGameTaskIds));
@@ -561,7 +574,21 @@ function BrowseInner() {
     }
     
     setFilteredTasks(finalFilteredTasks);
-  }, [searchQuery, allTasks, filterTasksByRequiredStatus, statusFilters, categoryFilters, hasSecretPassword, user, numericUserId, studyEnded, isGameOpenEndedTask, normalizeTaskLabel, websiteRequirementsSkipped]);
+  }, [
+    searchQuery,
+    allTasks,
+    filterTasksByRequiredStatus,
+    statusFilters,
+    categoryFilters,
+    hasSecretPassword,
+    isInternalReviewer,
+    user,
+    numericUserId,
+    studyEnded,
+    isGameOpenEndedTask,
+    normalizeTaskLabel,
+    websiteRequirementsSkipped,
+  ]);
 
   // Close filter modal when clicking outside
   useEffect(() => {
@@ -596,13 +623,17 @@ function BrowseInner() {
     handleGetStarted(randomTask.id);
   };
 
+  const handleViewSubmissions = (taskId: string) => {
+    router.push(`/vibe?task=${taskId}&view=submissions`);
+  };
+
   const handleGetStarted = (taskId: string) => {
     const selectedTask =
       filteredTasks.find((task: any) => task.id === taskId) ||
       allTasks.find((task: any) => task.id === taskId);
     const selectedTaskName = selectedTask?.name;
 
-    if (selectedTaskName && timedTaskNamesSet.has(selectedTaskName)) {
+    if (selectedTaskName && timedTaskNamesSet.has(selectedTaskName) && !isInternalReviewer) {
       setTimedTaskModalState({
         taskId,
         taskTitle: selectedTask?.title || selectedTaskName,
@@ -877,15 +908,16 @@ function BrowseInner() {
                   <TaskCardGrid
                     tasks={filteredTasks}
                     onGetStarted={handleGetStarted}
+                    isInternalReviewer={isInternalReviewer}
+                    onViewSubmissions={isInternalReviewer ? handleViewSubmissions : undefined}
                     lockedTaskIds={lockedTaskIds}
                     activeTaskId={activeTaskId}
                     isLockingEnabled={
                       !hasSecretPassword &&
-                      (
-                        studyTaskMode === 'website-requirements' ||
+                      !isInternalReviewer &&
+                      (studyTaskMode === 'website-requirements' ||
                         !allRequiredTasksCompleted ||
-                        noEditLockedTaskIds.size > 0
-                      )
+                        noEditLockedTaskIds.size > 0)
                     }
                     noEditLockedTaskIds={noEditLockedTaskIds}
                     isPlaygroundNotCompleted={isPlaygroundNotCompleted}
@@ -896,6 +928,7 @@ function BrowseInner() {
                     timedTaskNames={timedRequiredTaskNames}
                     timedTaskLimitMinutesByName={timedTaskLimitMinutesByName}
                     tutorialTaskNames={tutorialTaskNames}
+                    submissionGalleryCounts={submissionGalleryCounts}
                   />
                 </div>
               )}

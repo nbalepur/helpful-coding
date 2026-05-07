@@ -2,6 +2,8 @@
  * Configuration for task-related constants
  */
 
+import { ENV } from './env';
+
 // Tasks with website requirements (must all be completed before showing all tasks)
 // These should match the task.name field from the API
 export const WEBSITE_REQUIREMENT_TASKS = [
@@ -53,7 +55,7 @@ export const getStudyTaskMode = (
   tasks: TaskLike[],
   websiteRequirementsCompletedOverride: boolean = false
 ): StudyTaskMode => {
-  if (websiteRequirementsCompletedOverride) {
+  if (ENV.OPEN_ENDED_GAME_STUDY_ONLY || websiteRequirementsCompletedOverride) {
     return 'game';
   }
   const websiteRequirementTaskNames = getWebsiteRequirementTaskNames(tasks);
@@ -84,5 +86,20 @@ export const LEADERBOARD_FILTERED_USERNAMES: string[] = [
   'swagswag',
   'afda@a.com',
   ...Array.from({ length: 100 }, (_, idx) => `test${idx + 1}`)
+];
+
+/**
+ * Usernames, emails, and/or numeric user ids (as strings) for internal reviewers:
+ * pre-test gate treated as passed; community submissions (including timed platformer) without starting the timer;
+ * extra "View Submissions" on the task grid; full non-tutorial task catalog; **no sequential locking** on browse/vibe.
+ * Matched case-insensitively against username, email, and `String(user.id)`.
+ */
+export const INTERNAL_REVIEWER_IDENTIFIERS: string[] = [
+  // 'you@university.edu',
+  // 'internal_account',
+  'nbalepur',
+  'baumler',
+  'gpt-one-shot',
+  'gpt-many-shot',
 ];
 

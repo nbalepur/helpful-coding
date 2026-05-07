@@ -62,7 +62,7 @@ from database.models import (
 )
 from database.crud import CodeCRUD, SubmissionCRUD, SubmissionFeedbackCRUD, SubmissionEvaluationCRUD, UserMCQASkillResponseCRUD, UserCodeSkillResponseCRUD, ReportSkillCheckQuestionCRUD, NavigationEventCRUD, TaskEventCRUD, ProjectCRUD
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, distinct
 
 # Load environment variables from .env file
 load_dotenv()
@@ -3934,6 +3934,28 @@ async def list_submissions(
     except Exception as e:
         print(f"Error listing submissions: {e}")
         return JSONResponse(status_code=500, content={"error": "Failed to list submissions"})
+
+
+@app.get("/api/submissions/gallery-count", tags=["Submissions"])
+async def submission_gallery_count(
+    task_id: str = Query(..., alias="taskId", description="Task slug / project name key (same as submissions list)"),
+    db: Session = Depends(get_db),
+):
+    """Distinct users with a non-disqualified submission for this task — matches gallery card count."""
+    try:
+        project = _resolve_project_from_task_id(db, task_id)
+        if not project:
+            return {"count": 0}
+        n = (
+            db.query(func.count(distinct(Submission.user_id)))
+            .filter(Submission.project_id == project.id)
+            .filter(Submission.is_disqualified == False)
+            .scalar()
+        )
+        return {"count": int(n or 0)}
+    except Exception as e:
+        print(f"Error counting gallery submissions: {e}")
+        return JSONResponse(status_code=500, content={"error": "Failed to count submissions"})
 
 
 @app.get("/api/submissions/{submission_id}", tags=["Submissions"])

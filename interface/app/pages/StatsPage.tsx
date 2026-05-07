@@ -5,7 +5,7 @@ import { useAuth } from "../utils/auth";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { ENV } from "../config/env";
 import { WEBSITE_REQUIREMENT_TASKS, GAME_REQUIRED_TASKS, isWebsiteRequirementTask } from "../config/tasks";
-import { isWebsiteRequirementsSkippedFromSettings, ensureExtraCreditCodeInSettings } from "../utils/userSettings";
+import { isWebsiteRequirementsPhaseSkippedForStudy, ensureExtraCreditCodeInSettings } from "../utils/userSettings";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { Trophy, Code, DollarSign, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle, CheckCircle2, Circle, CircleSlash, Lock, AlertTriangle, Copy } from "lucide-react";
 import { LineChart, Line, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -676,7 +676,7 @@ export default function CompensationPage() {
   useEffect(() => {
     if (!userId || !stats) return;
     const completedPreTest = fetchedPreTestCompleted ?? preTestCompleted ?? false;
-    const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+    const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
     const completedWebsiteRequirementTasks = allRequiredTasksCompleted ?? stats.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
     const stage1Completed = completedWebsiteRequirementTasks;
     const stage1Skipped = websiteRequirementsSkipped;
@@ -1036,7 +1036,7 @@ export default function CompensationPage() {
   /** Tasks that count toward Stage 3 pay blocks (Platformer = 1 + each paid-track additional task). */
   const stage3PayTaskCount =
     (platformerSubmitted ? 1 : 0) + completedAdditionalWebsiteTasks;
-  const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+  const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
 
   const stage1Completed = completedWebsiteRequirementTasks;
   const stage1Skipped = websiteRequirementsSkipped;

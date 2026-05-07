@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical, Lock, Clock3 } from 'lucide-react';
+import { Play, CheckCircle, Circle, RotateCw, Lightbulb, FlaskConical, Lock, Clock3, List } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -32,6 +32,11 @@ interface TaskCardGridProps {
   timedTaskLimitMinutesByName?: Record<string, number>;
   tutorialTaskNames?: Set<string>;
   noEditLockedTaskIds?: Set<string>;
+  /** When set with onViewSubmissions, staff users get a second task action to open the gallery without doing the task. */
+  isInternalReviewer?: boolean;
+  onViewSubmissions?: (taskId: string) => void;
+  /** Per task.id: distinct submitter count for gallery; null = loading (shows … in label). */
+  submissionGalleryCounts?: Record<string, number | null>;
 }
 
 // Get status icon component
@@ -136,6 +141,9 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({
   timedTaskLimitMinutesByName = {},
   tutorialTaskNames = new Set(),
   noEditLockedTaskIds = new Set(),
+  isInternalReviewer = false,
+  onViewSubmissions,
+  submissionGalleryCounts,
 }) => {
   return (
     <div className="w-full">
@@ -310,27 +318,56 @@ const TaskCardGrid: React.FC<TaskCardGridProps> = ({
 
               {/* Card Footer with Get Started Button */}
               <div className="px-3 py-2.5" style={{ background: 'rgba(15, 23, 42, 0.75)' }}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isDisabled) {
-                      onGetStarted(task.id);
-                    }
-                  }}
-                  disabled={isDisabled}
-                  className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-md transition-all duration-200 ${isDisabled ? 'bg-gray-600 cursor-not-allowed opacity-50' : isPlayground ? 'bg-green-600 hover:bg-green-700 hover:scale-105' : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`}
-                >
-                  <Play className="h-3 w-3" />
-                  <span>
-                    {isPlayground
-                      ? 'Open Tutorial'
-                      : task.status === 'completed' 
-                      ? 'Edit Submission' 
-                      : task.status === 'in-progress' 
-                      ? 'Continue Vibing' 
-                      : 'Get Started'}
-                  </span>
-                </button>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isDisabled) {
+                        onGetStarted(task.id);
+                      }
+                    }}
+                    disabled={isDisabled}
+                    className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-white text-xs font-medium rounded-md transition-all duration-200 ${isDisabled ? 'bg-gray-600 cursor-not-allowed opacity-50' : isPlayground ? 'bg-green-600 hover:bg-green-700 hover:scale-105' : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`}
+                  >
+                    <Play className="h-3 w-3" />
+                    <span>
+                      {isPlayground
+                        ? 'Open Tutorial'
+                        : task.status === 'completed' 
+                        ? 'Edit Submission' 
+                        : task.status === 'in-progress' 
+                        ? 'Continue Vibing' 
+                        : 'Get Started'}
+                    </span>
+                  </button>
+                  {isInternalReviewer && onViewSubmissions && !isPlayground && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewSubmissions(task.id);
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-gray-100 text-xs font-medium rounded-md transition-all duration-200 border border-slate-500/70 bg-slate-800/90 hover:bg-slate-700 hover:border-slate-400"
+                      title={
+                        typeof submissionGalleryCounts?.[task.id] === 'number'
+                          ? `${submissionGalleryCounts[task.id]} distinct submitters in gallery`
+                          : undefined
+                      }
+                    >
+                      <List className="h-3 w-3" />
+                      <span>
+                        View Submissions
+                        {submissionGalleryCounts &&
+                          task.id in submissionGalleryCounts &&
+                          (submissionGalleryCounts[task.id] === null ? (
+                            <span className="text-slate-400"> (…)</span>
+                          ) : (
+                            <span>{` (${submissionGalleryCounts[task.id]})`}</span>
+                          ))}
+                      </span>
+                    </button>
+                  )}
+                </div>
               </div>
 
             </div>

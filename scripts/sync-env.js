@@ -57,6 +57,7 @@ const localFirstFrontendVars = new Set([
   'NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES',
   'NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES',
   'NEXT_PUBLIC_GAME_TASK_ONE_MINUTES',
+  'NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY',
 ]);
 
 const resolveFrontendVar = (key, backendValue, fallbackValue) => {
@@ -92,6 +93,11 @@ const frontendEnvVars = {
     'NEXT_PUBLIC_GAME_TASK_ONE_MINUTES',
     envVars.GAME_TASK_ONE_MINUTES,
     '120'
+  ),
+  NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY: resolveFrontendVar(
+    'NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY',
+    envVars.NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY || envVars.OPEN_ENDED_GAME_STUDY_ONLY,
+    'false'
   ),
   USE_LOCAL_EXECUTION: envVars.USE_LOCAL_EXECUTION || 'false',
 };
@@ -149,6 +155,9 @@ NEXT_PUBLIC_NUM_TASKS_REQUIRED_UNTIL_POSTTEST=${frontendEnvVars.NEXT_PUBLIC_NUM_
 NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES=${frontendEnvVars.NEXT_PUBLIC_RECREATION_TASK_ONE_MINUTES}
 NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES=${frontendEnvVars.NEXT_PUBLIC_RECREATION_TASK_TWO_MINUTES}
 NEXT_PUBLIC_GAME_TASK_ONE_MINUTES=${frontendEnvVars.NEXT_PUBLIC_GAME_TASK_ONE_MINUTES}
+
+# Skip website-requirements phase (Zic-Zac-Zoe); everyone uses game-dev flow (also set OPEN_ENDED_GAME_STUDY_ONLY in backend/.env if you prefer one source)
+NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY=${frontendEnvVars.NEXT_PUBLIC_OPEN_ENDED_GAME_STUDY_ONLY}
 `;
 
 // Append preserved variables

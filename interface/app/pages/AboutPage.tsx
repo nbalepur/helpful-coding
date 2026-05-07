@@ -12,7 +12,7 @@ import rehypeRaw from 'rehype-raw';
 import { useIframeTheme } from '../utils/IframeThemeContext';
 import { useAuth } from '../utils/auth';
 import { getStudyTaskMode } from '../config/tasks';
-import { isWebsiteRequirementsSkippedFromSettings } from '../utils/userSettings';
+import { isWebsiteRequirementsPhaseSkippedForStudy } from '../utils/userSettings';
 
 // Generate ID from heading text
 const generateHeadingId = (text: string): string => {
@@ -125,7 +125,7 @@ export default function AboutPage() {
       let instructionsPath = websiteInstructionsPath;
 
       try {
-        const websiteRequirementsSkipped = isWebsiteRequirementsSkippedFromSettings(user?.settings);
+        const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
         let mode = getStudyTaskMode([], websiteRequirementsSkipped);
 
         // Use same fetch as browse page so mode (game vs website-requirements) matches
