@@ -3958,6 +3958,47 @@ async def submission_gallery_count(
         return JSONResponse(status_code=500, content={"error": "Failed to count submissions"})
 
 
+@app.get("/api/submissions/gallery-counts", tags=["Submissions"])
+async def submission_gallery_counts(
+    task_ids: List[str] = Query(
+        ..., alias="taskIds", description="Task slugs / project name keys. Repeat this query param for each task."
+    ),
+    db: Session = Depends(get_db),
+):
+    """Distinct users with a non-disqualified submission for each task id."""
+    try:
+        normalized_task_ids = [task_id for task_id in task_ids if isinstance(task_id, str) and task_id.strip()]
+        if not normalized_task_ids:
+            return {"byTaskId": {}}
+
+        project_ids_by_task_id: Dict[str, int] = {}
+        for task_id in normalized_task_ids:
+            project = _resolve_project_from_task_id(db, task_id)
+            if project:
+                project_ids_by_task_id[task_id] = project.id
+
+        if not project_ids_by_task_id:
+            return {"byTaskId": {task_id: 0 for task_id in normalized_task_ids}}
+
+        rows = (
+            db.query(Submission.project_id, func.count(distinct(Submission.user_id)))
+            .filter(Submission.project_id.in_(list(project_ids_by_task_id.values())))
+            .filter(Submission.is_disqualified == False)
+            .group_by(Submission.project_id)
+            .all()
+        )
+        counts_by_project_id = {int(project_id): int(count or 0) for project_id, count in rows}
+
+        response = {}
+        for task_id in normalized_task_ids:
+            project_id = project_ids_by_task_id.get(task_id)
+            response[task_id] = counts_by_project_id.get(project_id, 0) if project_id is not None else 0
+        return {"byTaskId": response}
+    except Exception as e:
+        print(f"Error counting gallery submissions in batch: {e}")
+        return JSONResponse(status_code=500, content={"error": "Failed to count submissions"})
+
+
 @app.get("/api/submissions/{submission_id}", tags=["Submissions"])
 async def get_submission_detail(submission_id: int, db: Session = Depends(get_db)):
     try:

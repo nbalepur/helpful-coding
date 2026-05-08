@@ -40,24 +40,37 @@ export function useSubmissionGalleryCounts(
     setCounts(initial);
 
     void (async () => {
-      await Promise.all(
-        tasks.map(async (task) => {
-          try {
-            const res = await fetch(
-              `${ENV.BACKEND_URL}/api/submissions/gallery-count?taskId=${encodeURIComponent(task.name)}`
-            );
-            const data = await res.json().catch(() => ({}));
-            const count = typeof data.count === "number" ? data.count : 0;
-            if (!cancelled) {
-              setCounts((prev) => ({ ...prev, [task.id]: count }));
-            }
-          } catch {
-            if (!cancelled) {
-              setCounts((prev) => ({ ...prev, [task.id]: 0 }));
-            }
+      try {
+        const taskNames = tasks.map((task) => task.name).filter(Boolean);
+        const query = new URLSearchParams();
+        for (const taskName of taskNames) {
+          query.append("taskIds", taskName);
+        }
+
+        const res = await fetch(`${ENV.BACKEND_URL}/api/submissions/gallery-counts?${query.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        const byTaskId = (data && typeof data.byTaskId === "object" ? data.byTaskId : {}) as Record<
+          string,
+          unknown
+        >;
+
+        if (!cancelled) {
+          const next: Record<string, number> = {};
+          for (const task of tasks) {
+            const count = byTaskId[task.name];
+            next[task.id] = typeof count === "number" ? count : 0;
           }
-        })
-      );
+          setCounts(next);
+        }
+      } catch {
+        if (!cancelled) {
+          const fallback: Record<string, number> = {};
+          for (const task of tasks) {
+            fallback[task.id] = 0;
+          }
+          setCounts(fallback);
+        }
+      }
     })();
 
     return () => {
