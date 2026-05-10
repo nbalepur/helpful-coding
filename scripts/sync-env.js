@@ -137,4 +137,3 @@ console.log('✅ Synced environment variables from root .env to interface/.env.l
 if (Object.keys(preservedVars).length > 0) {
   console.log(`   Preserved ${Object.keys(preservedVars).length} additional variable(s)`);
 }
-

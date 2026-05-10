@@ -77,6 +77,8 @@ interface CodingEditorProps {
   onShowTerminal?: () => void;
   // File change callbacks
   onFileContentChange?: () => void;
+  onClearPlan?: () => void;
+  onBuildPlan?: () => void;
   onSaveShortcut?: (fileId?: string) => void;
   // Assistant placement (optional bottom rendering)
   assistantPlacement?: 'bottom' | 'side';
@@ -140,6 +142,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
   onShowCodeEditor,
   onShowTerminal,
   onFileContentChange,
+  onClearPlan,
+  onBuildPlan,
   onSaveShortcut,
   assistantPlacement,
   showAIAssistantForBottom,
@@ -778,6 +782,8 @@ const CodingEditor: React.FC<CodingEditorProps> = ({
               readOnly={readOnlyFiles}
               onSaveShortcut={handleSaveShortcut}
               onContentChange={handleFileContentChange}
+              onClearPlan={onClearPlan}
+              onBuildPlan={onBuildPlan}
               isAIAssistantVisible={isAIAssistantVisible}
               pendingAgentChanges={pendingAgentChanges}
               onAcceptAgentChanges={onAcceptAgentChanges}

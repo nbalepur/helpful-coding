@@ -2,8 +2,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import MonacoEditor, { DiffEditor } from '@monaco-editor/react';
+import {
+  MDXEditor,
+  headingsPlugin,
+  listsPlugin,
+  quotePlugin,
+  thematicBreakPlugin,
+  markdownShortcutPlugin,
+  toolbarPlugin,
+  UndoRedo,
+  BoldItalicUnderlineToggles,
+  BlockTypeSelect,
+} from '@mdxeditor/editor';
 import { FileNode } from './FileManager';
-import { Bot, Check, X, ChevronRight } from 'lucide-react';
+import { Bot, Check, X, ChevronRight, Hammer, Trash2, Route } from 'lucide-react';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface MultiFileEditorProps {
@@ -36,6 +48,10 @@ interface MultiFileEditorProps {
   onSaveShortcut?: (fileId?: string) => void;
   // Bubble content changes up to parent (for live preview)
   onContentChange?: () => void;
+  // Plan clear callback from parent
+  onClearPlan?: () => void;
+  // Plan build callback from parent
+  onBuildPlan?: () => void;
   // Assistant visibility (to style AI Help button)
   isAIAssistantVisible?: boolean;
   // Agent changes for diff view
@@ -61,6 +77,19 @@ const getLanguageFromFileName = (filename: string): string => {
   }
 };
 
+const insertFileAfterFrontend = (nodes: FileNode[], newFile: FileNode): FileNode[] => {
+  const next = [...(nodes || [])];
+  const frontendIndex = next.findIndex(
+    (node) => node?.type === "file" && String(node?.name || "").toLowerCase() === "frontend.js"
+  );
+  if (frontendIndex >= 0) {
+    next.splice(frontendIndex + 1, 0, newFile);
+    return next;
+  }
+  next.push(newFile);
+  return next;
+};
+
 const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   onEditorMount,
   taskIndex,
@@ -72,6 +101,8 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   readOnly = false,
   onSaveShortcut,
   onContentChange,
+  onClearPlan,
+  onBuildPlan,
   isAIAssistantVisible,
   pendingAgentChanges,
   onAcceptAgentChanges,
@@ -702,6 +733,87 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
       setCode(newContent);
     }
   };
+
+  const upsertFileByName = useCallback(
+    (fileName: string, newContent: string, language?: string) => {
+      const normalizedName = String(fileName || "").trim();
+      if (!normalizedName) return;
+
+      const existing = files.find(
+        (file) => file.type === "file" && file.name.toLowerCase() === normalizedName.toLowerCase()
+      );
+      if (existing) {
+        updateFileContent(existing.id, newContent);
+        handleFileSelect(existing.id);
+        return;
+      }
+
+      const takenIds = new Set(files.map((file) => String(file.id)));
+      let nextId = normalizedName;
+      let suffix = 1;
+      while (takenIds.has(nextId)) {
+        suffix += 1;
+        nextId = `${normalizedName}-${suffix}`;
+      }
+
+      const newFile: FileNode = {
+        id: nextId,
+        name: normalizedName,
+        type: "file",
+        content: newContent,
+        language: language || getLanguageFromFileName(normalizedName),
+      };
+
+      setFiles((prevFiles) => insertFileAfterFrontend(prevFiles, newFile));
+      setOpenTabs((prev) => {
+        const existingTab = prev.find((tab) => tab.fileId === newFile.id);
+        if (existingTab) return prev;
+        return [...prev, { id: `tab_${newFile.id}`, fileId: newFile.id, name: newFile.name }];
+      });
+      setActiveFileId(newFile.id);
+      setActiveTab(`tab_${newFile.id}`);
+      setCode(newContent);
+    },
+    [files, handleFileSelect]
+  );
+
+  const removeFileByName = useCallback((fileName: string) => {
+    const normalizedName = String(fileName || "").trim().toLowerCase();
+    if (!normalizedName) return;
+
+    let removedFileId: string | null = null;
+    const removeFromNodes = (nodes: FileNode[]): FileNode[] =>
+      (nodes || []).reduce((acc: FileNode[], node) => {
+        if (!node) return acc;
+        if (node.type === "file" && String(node.name || "").toLowerCase() === normalizedName) {
+          removedFileId = node.id;
+          return acc;
+        }
+        if (Array.isArray(node.children)) {
+          acc.push({ ...node, children: removeFromNodes(node.children as FileNode[]) });
+          return acc;
+        }
+        acc.push(node);
+        return acc;
+      }, []);
+
+    const existing = files.find(
+      (file) => file.type === "file" && String(file.name || "").toLowerCase() === normalizedName
+    );
+    if (!existing) return;
+    removedFileId = existing.id;
+
+    setFiles((prevFiles) => removeFromNodes(prevFiles));
+    setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.fileId !== removedFileId));
+
+    if (activeFileId === removedFileId) {
+      const remainingFiles = files.filter((file) => file.type === "file" && file.id !== removedFileId);
+      const nextFile = remainingFiles[0];
+      setActiveFileId(nextFile?.id || "");
+      setActiveTab(nextFile ? `tab_${nextFile.id}` : "");
+      setCode(nextFile?.content || "");
+    }
+  }, [files, activeFileId, setCode]);
   
   // Accept current file with diffs
   const acceptCurrentFile = useCallback(() => {
@@ -886,25 +998,33 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   }, [getFilesWithDiffs, files, pendingAgentChanges, onAcceptAgentChanges, onRejectAgentChanges, readOnly]);
 
   // Keyboard shortcuts: Cmd/Ctrl + B toggles file sidebar, Cmd/Ctrl + S saves file
-  // Cmd/Ctrl + 1/2/3 navigates to index.html/styles.css/frontend.js
+  // Cmd/Ctrl + 1/2/3 navigates to index.html/styles.css/frontend.js, Cmd/Ctrl + P navigates to plan.md
   // Diff review shortcuts: Cmd+K/R (keep/reject file), Cmd+Enter/Delete (keep/reject all), Cmd+Left/Right (navigate)
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
       const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const keyLower = e.key?.toLowerCase?.();
       
-      // Cmd/Ctrl + 1/2/3: Navigate to specific files
-      if (isCmdOrCtrl && (e.key === '1' || e.key === '2' || e.key === '3')) {
+      // Cmd/Ctrl + 1/2/3/P: Navigate to specific files
+      if (
+        isCmdOrCtrl &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.key === '1' || e.key === '2' || e.key === '3' || keyLower === 'p' || e.code === 'KeyP')
+      ) {
         e.preventDefault();
         e.stopPropagation();
         
-        // Map keyboard numbers to file names
+        // Map shortcuts to file names
         const fileMap: Record<string, string> = {
           '1': 'index.html',
           '2': 'styles.css',
-          '3': 'frontend.js'
+          '3': 'frontend.js',
+          'p': 'plan.md'
         };
         
-        const targetFileName = fileMap[e.key];
+        const shortcutKey = e.key in fileMap ? e.key : keyLower;
+        const targetFileName = shortcutKey ? fileMap[shortcutKey] : undefined;
         if (targetFileName) {
           // Find the file in the files list (case-insensitive)
           const targetFile = files.find(f => 
@@ -1079,6 +1199,8 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
   React.useImperativeHandle(actualEditorRef, () => ({
     getAllFileContents,
     updateFileContent,
+    upsertFileByName,
+    removeFileByName,
     layout: layoutAllEditors,
     clearDiffEditor,
     selectFileByName: (fileName: string) => {
@@ -1126,12 +1248,13 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
         if (!target) return;
 
         handleFileSelect(target.id);
+        const targetId = target.id;
 
         const safeLine = typeof lineNumber === 'number' && Number.isFinite(lineNumber) ? lineNumber : undefined;
         const safeColumn = typeof columnNumber === 'number' && Number.isFinite(columnNumber) ? columnNumber : undefined;
 
         setTimeout(() => {
-          revealLocationInEditor(target.id, safeLine, safeColumn, 0, options?.scrollOnly);
+          revealLocationInEditor(targetId, safeLine, safeColumn, 0, options?.scrollOnly);
         }, 60);
       } catch (error) {
         console.error('Failed to reveal file location:', error);
@@ -1139,7 +1262,7 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
     },
     getMonacoEditor: () => liveMonacoEditorRef.current,
     getActiveFileId: () => activeFileId,
-  }), [files, activeFileId, code, editedModifiedContent, pendingAgentChanges, layoutAllEditors, clearDiffEditor, handleFileSelect, revealLocationInEditor]);
+  }), [files, activeFileId, code, editedModifiedContent, pendingAgentChanges, layoutAllEditors, clearDiffEditor, handleFileSelect, revealLocationInEditor, upsertFileByName, removeFileByName]);
 
   // Keep active editor ref in sync when switching files
   useEffect(() => {
@@ -1160,40 +1283,52 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
         <div className="tab-bar bg-transparent border-b border-gray-700/50 flex items-stretch">
           <div className="flex-1 flex overflow-x-auto items-stretch">
             {openTabs.map(tab => {
-              // Map file names to shortcut numbers
-              const getShortcutNumber = (fileName: string): number | null => {
+              // Map file names to shortcut labels
+              const getShortcutLabel = (fileName: string): string | null => {
                 const fileNameLower = fileName.toLowerCase();
-                if (fileNameLower === 'index.html') return 1;
-                if (fileNameLower === 'styles.css') return 2;
-                if (fileNameLower === 'frontend.js') return 3;
+                if (fileNameLower === 'index.html') return '1';
+                if (fileNameLower === 'styles.css') return '2';
+                if (fileNameLower === 'frontend.js') return '3';
+                if (fileNameLower === 'plan.md') return 'P';
                 return null;
               };
               
-              const shortcutNum = getShortcutNumber(tab.name);
+              const shortcutLabel = getShortcutLabel(tab.name);
               const cmdSymbol = isMac ? '⌘' : 'Ctrl';
               const hasDiffs = fileHasDiffs(tab.fileId);
+              const isPlanTab = tab.name.toLowerCase() === 'plan.md';
               
               const isActive = activeTab === tab.id;
+              const tabBaseClass = 'tab flex items-center px-3 text-sm cursor-pointer border-r border-gray-600/30 transition-all duration-200 flex-shrink-0 min-w-0';
+              const activeClass = isPlanTab
+                ? 'text-emerald-100 bg-emerald-900/25 relative after:content-[""] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-emerald-400'
+                : 'text-white bg-gray-800/50 relative after:content-[""] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-blue-400';
+              const inactiveClass = isPlanTab
+                ? ((highlightedFileId === tab.fileId
+                    ? 'text-emerald-100 bg-emerald-900/20'
+                    : 'bg-emerald-900/10 text-emerald-200/90 hover:text-emerald-100 hover:bg-emerald-900/20') +
+                  (highlightedFileId === tab.fileId ? ' translate-y-[-1px]' : ''))
+                : ((highlightedFileId === tab.fileId
+                    ? 'text-white bg-gray-700/30'
+                    : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-700/30') +
+                  (highlightedFileId === tab.fileId ? ' translate-y-[-1px]' : ''));
               
               return (
                 <div
                   key={tab.id}
-                  className={`tab flex items-center px-3 text-sm cursor-pointer border-r border-gray-600/30 transition-all duration-200 flex-shrink-0 min-w-0 ${
-                    isActive 
-                      ? 'text-white bg-gray-800/50 relative after:content-[""] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-blue-400'
-                      : (highlightedFileId === tab.fileId ? 'text-white bg-gray-700/30' : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-700/30') + (highlightedFileId === tab.fileId ? ' translate-y-[-1px]' : '')
-                  }`}
+                  className={`${tabBaseClass} ${isActive ? activeClass : inactiveClass}`}
                   onClick={() => handleTabSelect(tab.id)}
                 >
                   <span className="mr-2 flex items-center gap-1.5 min-w-0 truncate">
+                    {isPlanTab && <Route size={14} className="flex-shrink-0 text-emerald-300" aria-hidden="true" />}
                     <span className="truncate">{tab.name}</span>
                     {hasDiffs && (
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" title="Modified - needs review" />
                     )}
                   </span>
-                  {shortcutNum !== null && (
+                  {shortcutLabel !== null && (
                     <span className="ml-2 text-xs text-gray-500 opacity-70 flex-shrink-0 whitespace-nowrap">
-                      {cmdSymbol}+{shortcutNum}
+                      {cmdSymbol}+{shortcutLabel}
                     </span>
                   )}
                 </div>
@@ -1239,6 +1374,12 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
               const showDiff = !!(hasAgentChanges && editedKey && modifiedContentRaw && pendingAgentChanges?.modified && pendingAgentChanges.modified[file!.id]);
               const hasActualDiffs = showDiff && fileHasDiffs(file!.id);
               const renderDiff = showDiff && hasActualDiffs;
+              const renderMarkdownPlanEditor = !!(
+                file &&
+                file.type === 'file' &&
+                String(file.name || '').toLowerCase() === 'plan.md' &&
+                !renderDiff
+              );
               const filesWithDiffs = getFilesWithDiffs();
 
               // Return both editors with appropriate visibility
@@ -1388,68 +1529,133 @@ const MultiFileEditor: React.FC<MultiFileEditorProps> = ({
                   ) : null}
                   
                   {/* Regular Monaco Editor - shown when not in diff or no diffs remain */}
-                  <div style={(!renderDiff && isActive) ? containerStyle : hiddenStyle} className="h-full">
-                    <MonacoEditor
-                    height="100%"
-                    language={getLanguageFromFileName(file?.name || '')}
-                    value={(file && typeof file.content === 'string') ? file.content : ''}
-                    onChange={(value) => {
-                      // Update file content
-                      handleFileContentChange(tab.fileId, value || '');
-                      if (isActive) setCode(value || '');
-                    }}
-                    onMount={(editor, monaco) => {
-                      monaco.editor.setTheme('vs-dark');
-                      editorsRef.current[tab.fileId] = editor;
-                      if (isActive) {
-                        liveMonacoEditorRef.current = editor;
-                      }
-                      onEditorMount(editor, monaco);
-                      editor.addAction({
-                        id: 'escape-to-unfocus',
-                        label: 'Escape to Unfocus',
-                        keybindings: [monaco.KeyCode.Escape],
-                        run: () => {
-                          setTimeout(() => {
-                            document.body.focus();
-                            const editorContainer = editor.getContainerDomNode();
-                            if (editorContainer) {
-                              const textArea = editorContainer.querySelector('textarea');
-                              if (textArea) {
-                                (textArea as HTMLElement).blur();
-                              }
-                            }
-                          }, 0);
+                  {renderMarkdownPlanEditor ? (
+                    <div
+                      style={(!renderDiff && isActive) ? { ...containerStyle, backgroundColor: '#1e1e1e' } : hiddenStyle}
+                      className="h-full"
+                    >
+                      <div className="h-full min-h-0 flex flex-col overflow-visible">
+                        <div className="mdx-plan-surface flex-1 min-h-0 overflow-auto px-2 py-2 text-gray-100 [&_.mdxeditor]:border-0 [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:text-gray-100 [&_.mdxeditor-toolbar]:bg-gray-900/70 [&_.mdxeditor-toolbar]:border-gray-800 [&_.mdxeditor-root-contenteditable]:text-gray-100 [&_.mdxeditor-root-contenteditable_*]:text-gray-100">
+                          <MDXEditor
+                            markdown={(file && typeof file.content === 'string') ? file.content : ''}
+                            onChange={(value) => {
+                              const markdown = value || '';
+                              handleFileContentChange(tab.fileId, markdown);
+                              if (isActive) setCode(markdown);
+                            }}
+                            readOnly={readOnly}
+                            contentEditableClassName="mdx-plan-content px-2 py-2 min-h-[300px]"
+                            plugins={[
+                              headingsPlugin(),
+                              listsPlugin(),
+                              quotePlugin(),
+                              thematicBreakPlugin(),
+                              markdownShortcutPlugin(),
+                              toolbarPlugin({
+                                toolbarContents: () => (
+                                  <>
+                                    <UndoRedo />
+                                    <BlockTypeSelect />
+                                    <BoldItalicUnderlineToggles />
+                                  </>
+                                ),
+                              }),
+                            ]}
+                          />
+                        </div>
+                        <div className="flex-shrink-0 border-t border-gray-800 px-3 py-2 bg-[#1e1e1e]">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                removeFileByName('plan.md');
+                                try { onClearPlan && onClearPlan(); } catch (_) {}
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-red-600 hover:bg-red-700 text-white transition-colors"
+                              title="Clear Plan"
+                            >
+                              <Trash2 size={13} />
+                              <span>Clear Plan</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try { onBuildPlan && onBuildPlan(); } catch (_) {}
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-green-600 hover:bg-green-700 text-white transition-colors"
+                              title="Build Plan"
+                            >
+                              <Hammer size={13} />
+                              <span>Build Plan</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={(!renderDiff && isActive) ? containerStyle : hiddenStyle} className="h-full">
+                      <MonacoEditor
+                      height="100%"
+                      language={getLanguageFromFileName(file?.name || '')}
+                      value={(file && typeof file.content === 'string') ? file.content : ''}
+                      onChange={(value) => {
+                        // Update file content
+                        handleFileContentChange(tab.fileId, value || '');
+                        if (isActive) setCode(value || '');
+                      }}
+                      onMount={(editor, monaco) => {
+                        monaco.editor.setTheme('vs-dark');
+                        editorsRef.current[tab.fileId] = editor;
+                        if (isActive) {
+                          liveMonacoEditorRef.current = editor;
                         }
-                      });
-                    }}
-                    options={{
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                      fontSize: 12,
-                      lineNumbers: 'on',
-                      wordWrap: 'on',
-                      automaticLayout: true,
-                      readOnly: readOnly,
-                      theme: 'vs-dark',
-                      cursorBlinking: 'blink',
-                      cursorSmoothCaretAnimation: 'off',
-                      smoothScrolling: true,
-                      mouseWheelZoom: true,
-                      mouseWheelScrollSensitivity: 0.7,
-                      contextmenu: true,
-                      selectOnLineNumbers: true,
-                      roundedSelection: false,
-                      renderLineHighlight: 'line',
-                      folding: true,
-                      foldingStrategy: 'indentation',
-                      showFoldingControls: 'always',
-                      bracketPairColorization: { enabled: true },
-                      guides: { indentation: true },
-                      padding: { top: 0, bottom: 100 },
-                    }}
-                  />
-                  </div>
+                        onEditorMount(editor, monaco);
+                        editor.addAction({
+                          id: 'escape-to-unfocus',
+                          label: 'Escape to Unfocus',
+                          keybindings: [monaco.KeyCode.Escape],
+                          run: () => {
+                            setTimeout(() => {
+                              document.body.focus();
+                              const editorContainer = editor.getContainerDomNode();
+                              if (editorContainer) {
+                                const textArea = editorContainer.querySelector('textarea');
+                                if (textArea) {
+                                  (textArea as HTMLElement).blur();
+                                }
+                              }
+                            }, 0);
+                          }
+                        });
+                      }}
+                      options={{
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        fontSize: 12,
+                        lineNumbers: 'on',
+                        wordWrap: 'on',
+                        automaticLayout: true,
+                        readOnly: readOnly,
+                        theme: 'vs-dark',
+                        cursorBlinking: 'blink',
+                        cursorSmoothCaretAnimation: 'off',
+                        smoothScrolling: true,
+                        mouseWheelZoom: true,
+                        mouseWheelScrollSensitivity: 0.7,
+                        contextmenu: true,
+                        selectOnLineNumbers: true,
+                        roundedSelection: false,
+                        renderLineHighlight: 'line',
+                        folding: true,
+                        foldingStrategy: 'indentation',
+                        showFoldingControls: 'always',
+                        bracketPairColorization: { enabled: true },
+                        guides: { indentation: true },
+                        padding: { top: 0, bottom: 100 },
+                      }}
+                    />
+                    </div>
+                  )}
                 </React.Fragment>
               );
             })}

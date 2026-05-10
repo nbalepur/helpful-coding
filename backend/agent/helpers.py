@@ -12,9 +12,10 @@ import os
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 from fastapi.responses import JSONResponse
+import litellm
 from sqlalchemy.orm import Session
 
 from agent.replace_code import parse_search_replace_block, apply_search_replace_in_memory
@@ -37,6 +38,10 @@ from database import AssistantLogCRUD, AssistantLogCreate
 from database.sqlalchemy_models import User
 
 logger = logging.getLogger(__name__)
+ALLOWED_TASK_TYPES = {"agent", "chat", "plan"}
+PLAN_FILENAME = "plan.md"
+PLAN_MODEL = os.getenv("PLAN_MODEL", os.getenv("SUMMARY_MODEL", "gpt-4.1-2025-04-14"))
+CHATBOT_MODEL = os.getenv("CHATBOT_MODEL", PLAN_MODEL)
 
 # --------------------------
 # Message history (ephemeral)
@@ -90,6 +95,432 @@ def _strip_trailing_code_fence(text: str) -> str:
     text = text.rstrip("\n\r")
     text = re.sub(r"[\n\r]*\s*```[a-zA-Z]*\s*$", "", text)
     return text.rstrip()
+
+
+def _emit_ndjson(obj: Dict[str, Any]) -> bytes:
+    return (json.dumps(obj) + "\n").encode("utf-8")
+
+
+def _resolve_plan_content(
+    incoming_files: Optional[Dict[str, str]],
+    explicit_plan_content: Optional[str] = None,
+) -> str:
+    if isinstance(explicit_plan_content, str):
+        return explicit_plan_content
+    for filename, content in (incoming_files or {}).items():
+        if str(filename or "").strip().lower() == PLAN_FILENAME:
+            return str(content or "")
+    return ""
+
+
+def _build_plan_context_blob(incoming_files: Optional[Dict[str, str]]) -> str:
+    if not incoming_files:
+        return ""
+    snippets: List[str] = []
+    budget = 12000
+    consumed = 0
+    for filename, content in incoming_files.items():
+        name = str(filename or "")
+        if not name or name.lower() == PLAN_FILENAME:
+            continue
+        raw = str(content or "")
+        if not raw.strip():
+            continue
+        ext = Path(name).suffix.lower().lstrip(".") or "plaintext"
+        lang = {"js": "javascript", "py": "python", "md": "markdown"}.get(ext, ext)
+        room = max(0, budget - consumed)
+        if room <= 0:
+            break
+        snippet = raw[:room]
+        consumed += len(snippet)
+        snippets.append(f"<{name}>\n```{lang}\n{snippet}\n```\n</{name}>")
+    return "\n\n".join(snippets)
+
+
+def _build_chat_context_blob(incoming_files: Optional[Dict[str, str]]) -> str:
+    """Build a trimmed code-context blob for chat mode.
+
+    Chat mode is advisory only; this context is provided so the model can reference code accurately
+    and propose edits as fenced code blocks (without applying edits).
+    """
+    if not incoming_files:
+        return ""
+    snippets: List[str] = []
+    for filename, content in incoming_files.items():
+        name = str(filename or "")
+        if not name:
+            continue
+        if name.lower() == PLAN_FILENAME:
+            continue
+        raw = str(content or "")
+        if not raw.strip():
+            continue
+        ext = Path(name).suffix.lower().lstrip(".") or "plaintext"
+        lang = {"js": "javascript", "py": "python", "md": "markdown"}.get(ext, ext)
+        # Do not trim: include the full file contents for chat context.
+        snippets.append(f"<{name}>\n```{lang}\n{raw}\n```\n</{name}>")
+    return "\n\n".join(snippets)
+
+
+def _build_chat_prompt(prompt: str, incoming_files: Optional[Dict[str, str]]) -> str:
+    files_context = _build_chat_context_blob(incoming_files)
+    template = """
+You are VibeJam Chat Mode: a helpful coding assistant.
+
+You will receive a user's question plus their current project files. Your job is to help the user by:
+- answering their question with respect to their code base
+- providing brief, relevant code snippets 
+
+Hard rules (Chat Mode):
+- Do NOT apply edits, do NOT claim you changed files, do NOT output patch/search-replace blocks.
+- Do NOT output "SEARCH/REPLACE" or Aider-style replacement snippets.
+- Only respond in natural language and optional fenced code blocks.
+- If you include code, use fenced blocks with an appropriate language tag like ```html, ```css, ```javascript.
+
+Encouragement:
+- If the users' query indicates that they actually want to make edits automatically, suggest switching to Agent mode.
+
+User request:
+<user_request>
+{user_prompt}
+</user_request>
+
+Current project file context (trimmed):
+<files_context>
+{files_context}
+</files_context>
+""".strip()
+    return template.format(
+        user_prompt=str(prompt or "").strip(),
+        files_context=files_context or "(no files provided)",
+    )
+
+
+def generate_or_revise_plan(
+    prompt: str,
+    incoming_files: Optional[Dict[str, str]] = None,
+    *,
+    explicit_plan_content: Optional[str] = None,
+) -> Dict[str, str]:
+    previous_plan = _resolve_plan_content(incoming_files, explicit_plan_content=explicit_plan_content)
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "planContent": previous_plan or f"# Plan\n\n{prompt}",
+            "assistantMessage": "Plan updated without LLM (missing OPENAI_API_KEY).",
+        }
+
+    context_blob = _build_plan_context_blob(incoming_files)
+    template = """
+You are a planning assistant that writes and revises implementation plans for a request to implement a feature.
+
+User request:
+<user_request>
+{user_prompt}
+</user_request>
+
+Here is the previous plan you may need to revise:
+<previous_plan>
+{previous_plan}
+</previous_plan>
+
+Current project file context (trimmed):
+<files_context>
+{files_context}
+</files_context>
+
+Instructions:
+- Return a full revised plan document in markdown.
+- If the previous plan is blank, create a complete first plan.
+- If the previous plan exists, integrate the new user request by revising it.
+- Keep the output implementation-focused and actionable.
+- Do not wrap the result in code fences.
+- Tailor the length of the plan based on the complexity of the request. Simpler requests can have shorter plans; complex requests can have longer plans
+- Eventually, this plan will be fed into a coding agent that will be tasked to execute all of the requests in the plan. So make sure that the plan is clear such that someone could follow it and then execute it. For this same reason, you only need to focus on implementation steps, not testing, etc.
+
+
+The format of the plan should be as follows:
+<format>
+## Plan: [summarized tl;dr of feature request]
+
+#### Objective: [insert objective]
+
+#### Implementation Steps:
+1. numbered list of steps
+...
+n.
+
+#### Constraints and Notes:
+- bullet point list of steps
+...
+</format>
+If you believe that any of these sections are not necessary, do not include them
+"""
+
+    try:
+        response = litellm.completion(
+            model=PLAN_MODEL,
+            messages=[
+                {"role": "system", "content": "Generate or revise a markdown implementation plan."},
+                {
+                    "role": "user",
+                    "content": template.format(
+                        user_prompt=prompt,
+                        previous_plan=previous_plan,
+                        files_context=context_blob or "(no files provided)",
+                    ),
+                },
+            ],
+            temperature=0.3,
+        )
+        plan_content = str(response.choices[0].message.content or "").strip()
+        if not plan_content:
+            plan_content = previous_plan or f"# Plan\n\n{prompt}"
+        return {"planContent": plan_content, "assistantMessage": "Plan updated."}
+    except Exception as error:
+        logger.exception("Failed to generate/revise plan")
+        fallback = previous_plan or f"# Plan\n\n{prompt}"
+        return {"planContent": fallback, "assistantMessage": f"Plan generation error: {error}"}
+
+
+def generate_plan_summary(
+    prompt: str,
+    previous_plan_content: str,
+    plan_content: str,
+) -> str:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        if not plan_content.strip():
+            return "No plan content is available to summarize."
+        return "Plan updated."
+
+    summary_prompt = """
+You summarize how a markdown plan changed after a user request.
+
+User request:
+<user_request>
+{user_prompt}
+</user_request>
+
+Previous plan:
+<previous_plan>
+{previous_plan}
+</previous_plan>
+
+Updated plan:
+<updated_plan>
+{updated_plan}
+</updated_plan>
+
+Rules:
+- Summarize only what was added, removed, or changed in the updated plan.
+- Do not propose follow-up ideas or next-step suggestions.
+- Keep it concise (max 3 short sentences).
+- Return plain text only.
+- Use first person to indicate that you wrote the plan.
+
+At the end of the summary, briefly hint that the user can either keep making adjustments to the plan or can hit "Build" to execute the plan
+"""
+    try:
+        response = litellm.completion(
+            model=PLAN_MODEL,
+            messages=[
+                {"role": "system", "content": "Summarize plan changes only."},
+                {
+                    "role": "user",
+                    "content": summary_prompt.format(
+                        user_prompt=prompt,
+                        previous_plan=previous_plan_content or "",
+                        updated_plan=plan_content or "",
+                    ),
+                },
+            ],
+            temperature=0.2,
+        )
+        summary = str(response.choices[0].message.content or "").strip()
+        return summary or "Plan updated."
+    except Exception:
+        logger.exception("Failed to generate plan summary")
+        return "Plan updated, but summary generation failed."
+
+
+def stream_plan_summary(
+    prompt: str,
+    previous_plan_content: str,
+    plan_content: str,
+) -> Iterator[bytes]:
+    summary_text = generate_plan_summary(prompt, previous_plan_content, plan_content)
+    if not summary_text:
+        summary_text = "Plan updated."
+
+    chunk_size = 120
+    for idx in range(0, len(summary_text), chunk_size):
+        chunk = summary_text[idx: idx + chunk_size]
+        is_final = idx + chunk_size >= len(summary_text)
+        yield _emit_ndjson({
+            "event": "text",
+            "content": chunk,
+            "is_final": is_final,
+            "metadata": {"task_type": "plan_summary"},
+        })
+
+
+
+
+def execute_agent(
+    prompt: str,
+    incoming_files: Dict[str, str],
+    temp_dir_uuid: Optional[str],
+    user_id_value: Optional[int],
+    resolved_project_id: Optional[int],
+    db: Session,
+    *,
+    skip_suggestions: bool = False,
+) -> Iterator[bytes]:
+    logger.info("Assistant task type selected: agent")
+    return stream_events(
+        prompt,
+        incoming_files,
+        temp_dir_uuid,
+        user_id_value,
+        resolved_project_id,
+        db,
+        skip_suggestions=skip_suggestions,
+    )
+
+
+def execute_chat(
+    prompt: str,
+    incoming_files: Dict[str, str],
+    temp_dir_uuid: Optional[str],
+    user_id_value: Optional[int],
+    resolved_project_id: Optional[int],
+    db: Session,
+    *,
+    skip_suggestions: bool = False,
+) -> Iterator[bytes]:
+    logger.info("Assistant task type selected: chat (LiteLLM)")
+
+    def _generator() -> Iterator[bytes]:
+        try:
+            chat_prompt = _build_chat_prompt(prompt, incoming_files)
+            response = litellm.completion(
+                model=CHATBOT_MODEL,
+                messages=[
+                    {"role": "system", "content": "Chat mode: answer with text and optional fenced code blocks only."},
+                    {"role": "user", "content": chat_prompt},
+                ],
+                temperature=0.3,
+                stream=True,
+            )
+
+            parts: List[str] = []
+            for chunk in response:
+                if not chunk:
+                    continue
+                piece = ""
+                try:
+                    # LiteLLM streaming chunks typically expose delta.content
+                    choice0 = chunk["choices"][0] if isinstance(chunk, dict) else None
+                    delta = (choice0 or {}).get("delta") if isinstance(choice0, dict) else None
+                    if isinstance(delta, dict):
+                        piece = str(delta.get("content") or "")
+                except Exception:
+                    piece = ""
+                if not piece:
+                    continue
+                parts.append(piece)
+                yield _emit_ndjson({
+                    "event": "text",
+                    "content": piece,
+                    "is_final": False,
+                    "metadata": {"task_type": "chat", "chat_mode": "litellm_stream"},
+                })
+
+            final_text = _sanitize_message_text("".join(parts)).strip()
+            if not final_text:
+                final_text = "No response generated in chat mode."
+            append_history({"role": "assistant", "content": final_text})
+            yield _emit_ndjson({
+                "event": "text",
+                "content": "",
+                "is_final": True,
+                "metadata": {"task_type": "chat", "chat_mode": "litellm_stream"},
+            })
+        except Exception as chat_error:
+            yield _emit_ndjson({
+                "event": "text",
+                "content": str(chat_error),
+                "is_final": True,
+                "metadata": {"is_error": True, "task_type": "chat", "chat_mode": "ask"},
+            })
+
+    return _generator()
+
+
+def execute_plan(
+    prompt: str,
+    incoming_files: Dict[str, str],
+    temp_dir_uuid: Optional[str],
+    user_id_value: Optional[int],
+    resolved_project_id: Optional[int],
+    db: Session,
+    *,
+    skip_suggestions: bool = False,
+) -> Iterator[bytes]:
+    logger.info("Assistant task type selected: plan")
+
+    def _generator() -> Iterator[bytes]:
+        yield _emit_ndjson({
+            "event": "text",
+            "content": f"plan mode selected for prompt: {prompt}",
+            "is_final": True,
+            "metadata": {"task_type": "plan"},
+        })
+
+    return _generator()
+
+
+def dispatch_execution(
+    task_type: str,
+    prompt: str,
+    incoming_files: Dict[str, str],
+    temp_dir_uuid: Optional[str],
+    user_id_value: Optional[int],
+    resolved_project_id: Optional[int],
+    db: Session,
+    *,
+    skip_suggestions: bool = False,
+) -> Iterator[bytes]:
+    if task_type == "chat":
+        return execute_chat(
+            prompt,
+            incoming_files,
+            temp_dir_uuid,
+            user_id_value,
+            resolved_project_id,
+            db,
+            skip_suggestions=skip_suggestions,
+        )
+    if task_type == "plan":
+        return execute_plan(
+            prompt,
+            incoming_files,
+            temp_dir_uuid,
+            user_id_value,
+            resolved_project_id,
+            db,
+            skip_suggestions=skip_suggestions,
+        )
+    return execute_agent(
+        prompt,
+        incoming_files,
+        temp_dir_uuid,
+        user_id_value,
+        resolved_project_id,
+        db,
+        skip_suggestions=skip_suggestions,
+    )
 
 
 def stream_events(

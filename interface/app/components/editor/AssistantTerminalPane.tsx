@@ -2,11 +2,15 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Check, Send as SendIcon, Hand, PanelBottom, PanelRight, X, Undo, Redo } from 'lucide-react';
+import { Bot, Check, Send as SendIcon, Hand, PanelBottom, PanelRight, X, Undo, Redo, Command, MessageCircleQuestion, Route, ChevronDown, Copy } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { useAnimatedText } from '../../hooks/useAnimatedText';
 
 export type AssistantType = 'user' | 'assistant' | 'tool' | 'suggestions' | 'system';
+export type AssistantMode = 'agent' | 'chat' | 'plan';
 
 export interface AssistantItem {
   id?: string;
@@ -47,6 +51,8 @@ interface AssistantTerminalPaneProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  assistantMode?: AssistantMode;
+  onAssistantModeChange?: (mode: AssistantMode) => void;
 }
 
 // Track which messages have been fully animated (persists across re-renders)
@@ -98,6 +104,191 @@ const AnimatedTerminalText: React.FC<{
   return <>{animatedText}</>;
 };
 
+const renderAssistantMessageContent = (
+  text: string,
+  messageId: string | undefined,
+  copiedCodeBlockKey: string | null,
+  onCopyCodeBlock: (copyKey: string, code: string) => void
+) => {
+  const fenceRegex = /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g;
+  const matches = Array.from(text.matchAll(fenceRegex));
+
+  if (matches.length === 0) {
+    return (
+      <AnimatedTerminalText text={text} animate={true} />
+    );
+  }
+
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  matches.forEach((match, idx) => {
+    const fullMatch = match[0];
+    const language = (match[1] || '').trim();
+    const code = (match[2] || '').replace(/\n$/, '');
+    const start = match.index ?? 0;
+    const copyKey = `${messageId ?? 'msg'}-${idx}`;
+    const isCopied = copiedCodeBlockKey === copyKey;
+
+    if (start > cursor) {
+      const textBefore = text.slice(cursor, start);
+      if (textBefore) {
+        nodes.push(
+          <span key={`text-${idx}`} className="whitespace-pre-wrap">
+            {textBefore}
+          </span>
+        );
+      }
+    }
+
+    nodes.push(
+      <div key={`code-${idx}`} className="my-2 rounded-md border border-white/10 bg-[#111827] overflow-hidden">
+        <div className="px-2 py-1 border-b border-white/10 flex items-center justify-between gap-2">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wide">
+            {language || 'code'}
+          </div>
+          <button
+            type="button"
+            className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded px-1.5 text-[10px] leading-none transition-colors ${isCopied ? 'text-emerald-300 bg-emerald-500/15 cursor-default pointer-events-none' : 'text-gray-400 hover:text-gray-200 hover:bg-white/10'}`}
+            aria-label="Copy code block"
+            disabled={isCopied}
+            onClick={() => onCopyCodeBlock(copyKey, code)}
+          >
+            {isCopied ? (
+              <>
+                <Check size={12} />
+                <span className="leading-none">Copied!</span>
+              </>
+            ) : (
+              <Copy size={12} />
+            )}
+          </button>
+        </div>
+        <SyntaxHighlighter
+          language={language || 'text'}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            padding: '10px 12px',
+            background: '#111827',
+            fontSize: '12px',
+            lineHeight: '1.5',
+          }}
+          codeTagProps={{ style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace' } }}
+          wrapLongLines={false}
+          showLineNumbers={false}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
+    );
+
+    cursor = start + fullMatch.length;
+  });
+
+  if (cursor < text.length) {
+    const textAfter = text.slice(cursor);
+    if (textAfter) {
+      nodes.push(
+        <span key="text-tail" className="whitespace-pre-wrap">
+          {textAfter}
+        </span>
+      );
+    }
+  }
+
+  return <>{nodes}</>;
+};
+
+const ChatMarkdown: React.FC<{
+  text: string;
+  messageId?: string;
+  copiedCodeBlockKey: string | null;
+  onCopyCodeBlock: (copyKey: string, code: string) => void;
+}> = ({ text, messageId, copiedCodeBlockKey, onCopyCodeBlock }) => {
+  return (
+    <div
+      className={[
+        "prose prose-invert max-w-none",
+        // Reduce default markdown spacing (prose adds large margins).
+        "prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
+        "prose-h1:my-2 prose-h2:my-2 prose-h3:my-2 prose-h4:my-2",
+        "prose-hr:my-3",
+        // Keep code blocks compact and consistent with our styled renderer.
+        "prose-pre:my-2 prose-pre:p-0 prose-pre:bg-transparent",
+        "prose-code:text-gray-200 prose-a:text-blue-300 prose-strong:text-gray-100",
+      ].join(" ")}
+    >
+      <ReactMarkdown
+        components={{
+          code: ({ children, className, ...props }) => {
+            const raw = String(children ?? '');
+            const code = raw.replace(/\n$/, '');
+            const match = /language-(\w+)/.exec(className || '');
+            const language = match?.[1] || 'text';
+            const isBlock = /\n/.test(code);
+
+            if (!isBlock) {
+              return (
+                <code className="rounded bg-white/10 px-1 py-0.5 text-[12px]" {...props}>
+                  {code}
+                </code>
+              );
+            }
+
+            const copyKey = `${messageId ?? 'msg'}-md-${language}-${code.length}`;
+            const isCopied = copiedCodeBlockKey === copyKey;
+            return (
+              <div className="my-2 rounded-md border border-white/10 bg-[#111827] overflow-hidden">
+                <div className="px-2 py-1 border-b border-white/10 flex items-center justify-between gap-2">
+                  <div className="text-[10px] text-gray-400 uppercase tracking-wide">
+                    {language || 'code'}
+                  </div>
+                  <button
+                    type="button"
+                    className={`inline-flex h-5 items-center gap-1 whitespace-nowrap rounded px-1.5 text-[10px] leading-none transition-colors ${isCopied ? 'text-emerald-300 bg-emerald-500/15 cursor-default pointer-events-none' : 'text-gray-400 hover:text-gray-200 hover:bg-white/10'}`}
+                    aria-label="Copy code block"
+                    disabled={isCopied}
+                    onClick={() => onCopyCodeBlock(copyKey, code)}
+                  >
+                    {isCopied ? (
+                      <>
+                        <Check size={12} />
+                        <span className="leading-none">Copied!</span>
+                      </>
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                  </button>
+                </div>
+                <SyntaxHighlighter
+                  language={language}
+                  style={oneDark}
+                  customStyle={{
+                    margin: 0,
+                    padding: '10px 12px',
+                    background: '#111827',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                  }}
+                  codeTagProps={{ style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace' } }}
+                  wrapLongLines={false}
+                  showLineNumbers={false}
+                >
+                  {code}
+                </SyntaxHighlighter>
+              </div>
+            );
+          },
+          pre: ({ children }) => <>{children}</>,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
 const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerminalPaneProps>(({
   items,
   className = '',
@@ -118,6 +309,8 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   onRedo,
   canUndo = false,
   canRedo = false,
+  assistantMode = 'agent',
+  onAssistantModeChange,
 }, ref) => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -125,8 +318,13 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   const clearBtnRef = useRef<HTMLButtonElement>(null);
   const haltBtnRef = useRef<HTMLButtonElement>(null);
   const sendBtnRef = useRef<HTMLButtonElement>(null);
+  const autoScrollEnabledRef = useRef(true);
 
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number; placement: 'top' | 'left' } | null>(null);
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
+  const [copiedCodeBlockKey, setCopiedCodeBlockKey] = useState<string | null>(null);
+  const copiedCodeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showTooltip = useCallback((el: HTMLElement | null, text: string, placement: 'top' | 'left' = 'top') => {
     if (!el) return;
@@ -142,6 +340,33 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   }, []);
 
   const hideTooltip = useCallback(() => setTooltip(null), []);
+
+  const handleCopyCodeBlock = useCallback((copyKey: string, code: string) => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCodeBlockKey(copyKey);
+      if (copiedCodeTimeoutRef.current) clearTimeout(copiedCodeTimeoutRef.current);
+      copiedCodeTimeoutRef.current = setTimeout(() => {
+        setCopiedCodeBlockKey((current) => (current === copyKey ? null : current));
+      }, 1200);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copiedCodeTimeoutRef.current) clearTimeout(copiedCodeTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      if (!modeMenuRef.current) return;
+      if (modeMenuRef.current.contains(event.target as Node)) return;
+      setIsModeMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocumentPointerDown);
+    return () => document.removeEventListener('mousedown', onDocumentPointerDown);
+  }, []);
 
   // Expose focus method via ref
   useImperativeHandle(ref, () => ({
@@ -170,6 +395,24 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
   // Use controlled value if provided, otherwise use local state
   const inputValue = controlledInputValue !== undefined ? controlledInputValue : localInputValue;
   const setInputValue = onInputChange || setLocalInputValue;
+
+  // Disable auto-scroll when the user scrolls up; re-enable when they scroll back to bottom.
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const thresholdPx = 24;
+    const isNearBottom = () =>
+      container.scrollHeight - (container.scrollTop + container.clientHeight) <= thresholdPx;
+
+    const onScroll = () => {
+      autoScrollEnabledRef.current = isNearBottom();
+    };
+
+    autoScrollEnabledRef.current = isNearBottom();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll as any);
+  }, []);
 
   // When awaiting response starts, clear and disable input (via disabled attr)
   useEffect(() => {
@@ -269,6 +512,17 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     return { messages, suggestions };
   }, [items]);
 
+  const modeOptions = useMemo(() => ([
+    { value: 'agent' as AssistantMode, label: 'Agent', Icon: Command },
+    { value: 'chat' as AssistantMode, label: 'Chat', Icon: MessageCircleQuestion },
+    { value: 'plan' as AssistantMode, label: 'Plan', Icon: Route },
+  ]), []);
+
+  const currentMode = useMemo(
+    () => modeOptions.find((option) => option.value === assistantMode) ?? modeOptions[0],
+    [assistantMode, modeOptions]
+  );
+
   const lastMessage = renderedItems.messages.length > 0 ? renderedItems.messages[renderedItems.messages.length - 1] : null;
 
   // Determine if ellipses should be shown
@@ -339,6 +593,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     if (!messagesContainerRef.current) return;
     if (!messagesEndRef.current) return;
     if (!awaitingResponse) return;
+    if (!autoScrollEnabledRef.current) return;
 
     const container = messagesContainerRef.current;
     const messagesEnd = messagesEndRef.current;
@@ -374,6 +629,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     const scrollLoop = () => {
       const now = Date.now();
       if (now - lastScrollTime >= scrollThrottle) {
+        if (!autoScrollEnabledRef.current) return;
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -402,6 +658,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     if (!messagesContainerRef.current) return;
     if (!messagesEndRef.current) return;
     if (!summaryGenerated) return;
+    if (!autoScrollEnabledRef.current) return;
 
     const container = messagesContainerRef.current;
     const messagesEnd = messagesEndRef.current;
@@ -435,6 +692,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
     const scrollLoop = () => {
       const now = Date.now();
       if (now - lastScrollTime >= scrollThrottle) {
+        if (!autoScrollEnabledRef.current) return;
         // Only scroll if the message end is not visible (went off screen)
         if (!checkVisibility()) {
           try {
@@ -660,7 +918,42 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       {/* Header row with title and placement toggle button */}
       <div className="flex items-center justify-between px-2 py-1 flex-shrink-0 bg-black border-b border-white/20 h-10">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-medium">AI Assistant</span>
+          <span className="text-xs text-gray-400 font-medium">AI Assistant: </span>
+          <div className="relative" ref={modeMenuRef}>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#2b2b2b] px-2.5 py-1 text-[11px] text-gray-100 hover:bg-[#353535] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              aria-label="Assistant mode"
+              onClick={() => setIsModeMenuOpen((prev) => !prev)}
+              disabled={awaitingResponse}
+            >
+              <currentMode.Icon size={12} className="text-gray-300" />
+              <span className="leading-none">{currentMode.label}</span>
+              <ChevronDown size={12} className={`text-gray-400 transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isModeMenuOpen && !awaitingResponse && (
+              <div className="absolute left-0 top-full mt-1 min-w-[128px] rounded-md bg-[#2b2b2b] p-1 shadow-xl z-20">
+                {modeOptions.map(({ value, label, Icon }) => {
+                  const selected = value === assistantMode;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`w-full flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors ${selected ? 'bg-white/10 text-white' : 'text-gray-300 hover:bg-white/5'}`}
+                      onClick={() => {
+                        onAssistantModeChange?.(value);
+                        setIsModeMenuOpen(false);
+                      }}
+                    >
+                      <Icon size={13} className={selected ? 'text-white' : 'text-gray-400'} />
+                      <span className="flex-1 text-left">{label}</span>
+                      {selected && <Check size={12} className="text-gray-300" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {onUndo && (
@@ -711,6 +1004,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
       <div
         ref={messagesContainerRef}
         className="w-full bg-[#0a0a0a] overflow-y-auto flex-1 min-h-0"
+        style={{ overscrollBehavior: 'contain' }}
       >
         <div className="px-3 py-0 space-y-2">
           {renderedItems.messages.map((item, index) => {
@@ -788,10 +1082,14 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
             return (
               <div
                 key={item.id}
-                className="text-[13px] text-gray-300 whitespace-pre-wrap"
+                className={`text-[13px] text-gray-300 ${assistantMode === 'chat' ? 'whitespace-normal' : 'whitespace-pre-wrap'}`}
                 style={{ lineHeight: item.type === 'assistant' ? '1.7em' : undefined }}
               >
-                <AnimatedTerminalText text={displayText} animate={item.type === 'assistant'} messageId={item.id} onAnimationComplete={handleAnimationComplete} />
+                {item.type === 'assistant'
+                  ? (assistantMode === 'chat'
+                    ? <ChatMarkdown text={displayText} messageId={item.id} copiedCodeBlockKey={copiedCodeBlockKey} onCopyCodeBlock={handleCopyCodeBlock} />
+                    : renderAssistantMessageContent(displayText, item.id, copiedCodeBlockKey, handleCopyCodeBlock))
+                  : <AnimatedTerminalText text={displayText} animate={false} messageId={item.id} onAnimationComplete={handleAnimationComplete} />}
               </div>
             );
           })}
@@ -806,7 +1104,7 @@ const AssistantTerminalPane = forwardRef<AssistantTerminalPaneRef, AssistantTerm
         </div>
       </div>
       
-      {!hideSuggestions && (
+      {!hideSuggestions && assistantMode === 'agent' && (
         <div
             className="w-full bg-[#0a0a0a] flex justify-center px-3 py-3 flex-none border-t border-white/20"
           >

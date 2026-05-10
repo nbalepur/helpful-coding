@@ -33,12 +33,13 @@ async def agent_chat_stream_endpoint(request_data: dict, db: Session = Depends(g
     """
     **POST /api/agent-execution/stream**
 
-    Body: `{ "prompt", "files"?, "tempDirUuid"?, "userId"?, "projectId"?, "taskId"?, "taskName"?, "skipSuggestions"? }`
+    Body: `{ "prompt", "taskType"?, "files"?, "tempDirUuid"?, "userId"?, "projectId"?, "taskId"?, "taskName"?, "skipSuggestions"? }`
     Response: stream of NDJSON lines; `state` can be restate, signpost, tool_result, summary, suggestions, session_uuid, error.
 
     When skipSuggestions is true (e.g. for function tasks), summary is generated without suggestions and no suggestions event is emitted.
 
-    Helper: `helpers.stream_events(prompt, incoming_files, temp_dir_uuid, user_id, project_id, db, skip_suggestions=...)`.
+    taskType supports: `agent`, `chat`, `plan` (defaults to `agent`).
+    Helper: `helpers.dispatch_execution(task_type, prompt, incoming_files, temp_dir_uuid, user_id, project_id, db, skip_suggestions=...)`.
     """
     prompt = request_data.get("prompt", "")
     if not prompt:
@@ -58,12 +59,88 @@ async def agent_chat_stream_endpoint(request_data: dict, db: Session = Depends(g
         db, project_id=project_id_value, task_slug=task_slug, task_name=task_name
     )
     skip_suggestions = bool(request_data.get("skipSuggestions") or request_data.get("skip_suggestions"))
+    task_type_raw = request_data.get("taskType")
+    task_type = str(task_type_raw or "agent").strip().lower()
+    if task_type not in helpers.ALLOWED_TASK_TYPES:
+        helpers.logger.warning("Unknown taskType '%s'; defaulting to 'agent'", task_type_raw)
+        task_type = "agent"
 
     return StreamingResponse(
-        helpers.stream_events(
-            prompt, incoming_files, temp_dir_uuid, user_id_value, resolved_project_id, db,
+        helpers.dispatch_execution(
+            task_type,
+            prompt,
+            incoming_files,
+            temp_dir_uuid,
+            user_id_value,
+            resolved_project_id,
+            db,
             skip_suggestions=skip_suggestions,
         ),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Generate/revise plan (single endpoint)
+# ---------------------------------------------------------------------------
+@router.post(
+    "/api/agent-execution/plan",
+    summary="Generate or revise plan markdown",
+)
+async def generate_or_revise_plan_endpoint(request_data: dict):
+    """
+    **POST /api/agent-execution/plan**
+
+    Body: `{ "prompt": str, "files"?: { "<filename>": "<content>" }, "planContent"?: str }`
+    Response: `{ "planContent": str, "assistantMessage"?: str }`
+
+    Uses one endpoint for both first-time plan generation and iterative revision.
+    """
+    prompt = request_data.get("prompt", "")
+    if not prompt:
+        return JSONResponse(status_code=400, content={"error": "Prompt is required"})
+
+    incoming_files = request_data.get("files") or {}
+    explicit_plan_content = request_data.get("planContent") or request_data.get("plan_content")
+    result = helpers.generate_or_revise_plan(
+        prompt,
+        incoming_files,
+        explicit_plan_content=explicit_plan_content,
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Stream plan summary (no follow-up ideas)
+# ---------------------------------------------------------------------------
+@router.post(
+    "/api/agent-execution/plan/summary",
+    summary="Stream summary of plan changes",
+)
+async def stream_plan_summary_endpoint(request_data: dict):
+    """
+    **POST /api/agent-execution/plan/summary**
+
+    Body: `{ "prompt": str, "previousPlanContent"?: str, "planContent": str }`
+    Response: NDJSON text stream summarizing plan changes only.
+    """
+    prompt = request_data.get("prompt", "")
+    plan_content = request_data.get("planContent") or request_data.get("plan_content") or ""
+    previous_plan_content = (
+        request_data.get("previousPlanContent")
+        or request_data.get("previous_plan_content")
+        or ""
+    )
+    if not plan_content:
+        return JSONResponse(status_code=400, content={"error": "planContent is required"})
+
+    return StreamingResponse(
+        helpers.stream_plan_summary(prompt, previous_plan_content, plan_content),
         media_type="application/x-ndjson",
         headers={
             "X-Accel-Buffering": "no",

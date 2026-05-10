@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, RefObject } from "react";
+import { useState, useRef, useCallback, useEffect, RefObject, SetStateAction } from "react";
 import type { AssistantItem } from "../components/editor/AssistantTerminalPane";
+import type { AssistantMode } from "../components/editor/AssistantTerminalPane";
 import { ENV } from "../config/env";
 
 export interface PendingAgentChanges {
@@ -13,6 +14,7 @@ export interface PendingAgentChanges {
 
 export interface UseAssistantChatArgs {
   isTutorialMode: boolean;
+  assistantMode: AssistantMode;
   taskId: string;
   currentTaskMeta: { id: string; name?: string; projectId?: number } | null;
   numericUserId: number | null;
@@ -25,6 +27,7 @@ export interface UseAssistantChatArgs {
 
 export function useAssistantChat({
   isTutorialMode,
+  assistantMode,
   taskId,
   currentTaskMeta,
   numericUserId,
@@ -34,11 +37,23 @@ export function useAssistantChat({
   setPendingAgentChanges,
   pendingAgentChanges,
 }: UseAssistantChatArgs) {
-  const [assistantMessages, setAssistantMessages] = useState<AssistantItem[]>([]);
-  const [assistantInputValue, setAssistantInputValue] = useState("");
+  const [assistantMessagesByMode, setAssistantMessagesByMode] = useState<Record<AssistantMode, AssistantItem[]>>({
+    agent: [],
+    chat: [],
+    plan: [],
+  });
+  const [assistantInputValueByMode, setAssistantInputValueByMode] = useState<Record<AssistantMode, string>>({
+    agent: "",
+    chat: "",
+    plan: "",
+  });
   const [awaitingResponse, setAwaitingResponse] = useState(false);
   const [awaitingManualSuggestions, setAwaitingManualSuggestions] = useState(false);
-  const [summaryGenerated, setSummaryGenerated] = useState(false);
+  const [summaryGeneratedByMode, setSummaryGeneratedByMode] = useState<Record<AssistantMode, boolean>>({
+    agent: false,
+    chat: false,
+    plan: false,
+  });
 
   const assistantMessagesRef = useRef<AssistantItem[]>([]);
   const assistantAbortControllerRef = useRef<AbortController | null>(null);
@@ -46,10 +61,73 @@ export function useAssistantChat({
   const latestSuggestionsRef = useRef<string[]>([]);
   const aiCodeLoadedTimestampRef = useRef<number | null>(null);
   const assistantTerminalPaneRef = useRef<{ focusInput: () => void } | null>(null);
+  const previousAssistantModeRef = useRef<AssistantMode>(assistantMode);
+
+  const assistantMessages = assistantMessagesByMode[assistantMode] ?? [];
+  const assistantInputValue = assistantInputValueByMode[assistantMode] ?? "";
+  const summaryGenerated = summaryGeneratedByMode[assistantMode] ?? false;
+
+  const setAssistantMessages = useCallback((updater: SetStateAction<AssistantItem[]>) => {
+    setAssistantMessagesByMode((prev) => {
+      const currentMessages = prev[assistantMode] ?? [];
+      const nextMessages = typeof updater === "function"
+        ? (updater as (prevState: AssistantItem[]) => AssistantItem[])(currentMessages)
+        : updater;
+      return {
+        ...prev,
+        [assistantMode]: nextMessages,
+      };
+    });
+  }, [assistantMode]);
+
+  const setAssistantInputValue = useCallback((updater: SetStateAction<string>) => {
+    setAssistantInputValueByMode((prev) => {
+      const currentInput = prev[assistantMode] ?? "";
+      const nextInput = typeof updater === "function"
+        ? (updater as (prevState: string) => string)(currentInput)
+        : updater;
+      return {
+        ...prev,
+        [assistantMode]: nextInput,
+      };
+    });
+  }, [assistantMode]);
+
+  const setSummaryGenerated = useCallback((updater: SetStateAction<boolean>) => {
+    setSummaryGeneratedByMode((prev) => {
+      const currentValue = prev[assistantMode] ?? false;
+      const nextValue = typeof updater === "function"
+        ? (updater as (prevState: boolean) => boolean)(currentValue)
+        : updater;
+      return {
+        ...prev,
+        [assistantMode]: nextValue,
+      };
+    });
+  }, [assistantMode]);
 
   useEffect(() => {
     assistantMessagesRef.current = assistantMessages;
   }, [assistantMessages]);
+
+  useEffect(() => {
+    const previousMode = previousAssistantModeRef.current;
+    if (previousMode === assistantMode) return;
+
+    // Preserve in-progress draft across mode switches by seeding the next mode
+    // with the previous mode's draft if it doesn't already have one.
+    setAssistantInputValueByMode((prev) => {
+      const previousDraft = prev[previousMode] ?? "";
+      const nextDraft = prev[assistantMode] ?? "";
+      if (!previousDraft || nextDraft) return prev;
+      return {
+        ...prev,
+        [assistantMode]: previousDraft,
+      };
+    });
+
+    previousAssistantModeRef.current = assistantMode;
+  }, [assistantMode]);
 
   useEffect(() => {
     if (!(pendingAgentChanges?.modified && Object.keys(pendingAgentChanges.modified).length > 0)) {
@@ -164,12 +242,25 @@ export function useAssistantChat({
   );
 
   const clearAssistantState = useCallback(() => {
-    setAssistantMessages([]);
+    setAssistantMessagesByMode({
+      agent: [],
+      chat: [],
+      plan: [],
+    });
     latestSuggestionsRef.current = [];
     setPendingAgentChanges(null);
     setAwaitingResponse(false);
     setAwaitingManualSuggestions(false);
-    setAssistantInputValue("");
+    setAssistantInputValueByMode({
+      agent: "",
+      chat: "",
+      plan: "",
+    });
+    setSummaryGeneratedByMode({
+      agent: false,
+      chat: false,
+      plan: false,
+    });
   }, [setPendingAgentChanges]);
 
   return {

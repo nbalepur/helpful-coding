@@ -4,6 +4,93 @@
 
 /* Import all styles from style.css to avoid conflicts */
 @import './style.css';
+@import '@mdxeditor/editor/style.css';
+
+/* MDXEditor dark mode overrides */
+.mdxeditor {
+  --accentBase: #1f2937;
+  --accentBgSubtle: #111827;
+  --accentBg: #1f2937;
+  --accentLine: #374151;
+  --accentText: #e5e7eb;
+  --basePageBg: #1e1e1e;
+  --baseBg: #1e1e1e;
+  --baseText: #f3f4f6;
+  --baseBorder: #374151;
+  color: #f3f4f6 !important;
+}
+
+.mdxeditor .mdxeditor-toolbar {
+  background: rgba(17, 24, 39, 0.75) !important;
+  border-color: #374151 !important;
+}
+
+.mdxeditor .mdxeditor-toolbar button,
+.mdxeditor .mdxeditor-toolbar select,
+.mdxeditor .mdxeditor-toolbar [role="button"] {
+  color: #e5e7eb !important;
+  background: transparent;
+}
+
+.mdxeditor .mdxeditor-toolbar svg {
+  color: #e5e7eb !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.mdxeditor .mdxeditor-root-contenteditable,
+.mdxeditor .mdxeditor-root-contenteditable * {
+  color: #f3f4f6 !important;
+}
+
+.mdx-plan-surface .mdxeditor {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.mdx-plan-surface .mdxeditor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.mdx-plan-content h1 { font-size: 1.75rem; line-height: 2.1rem; font-weight: 700; margin: 0.75rem 0; }
+.mdx-plan-content h2 { font-size: 1.4rem; line-height: 1.9rem; font-weight: 700; margin: 0.65rem 0; }
+.mdx-plan-content h3 { font-size: 1.2rem; line-height: 1.6rem; font-weight: 700; margin: 0.55rem 0; }
+.mdx-plan-content h4,
+.mdx-plan-content h5,
+.mdx-plan-content h6 { font-size: 1.05rem; line-height: 1.45rem; font-weight: 700; margin: 0.5rem 0; }
+.mdx-plan-content p,
+.mdx-plan-content li {
+  font-size: 1.05rem;
+  line-height: 1.65rem;
+}
+
+.mdx-plan-content ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin: 0.5rem 0 0.75rem !important;
+}
+
+.mdx-plan-content ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5rem !important;
+  margin: 0.5rem 0 0.75rem !important;
+}
+
+.mdx-plan-content li {
+  display: list-item !important;
+}
+
+/* Dropdown / popover readability for MDX editor controls */
+.mdxeditor-popup-container,
+.mdxeditor-select-content {
+  background: #111827 !important;
+  color: #f3f4f6 !important;
+  border: 1px solid #374151 !important;
+  z-index: 10000 !important;
+}
 
 /* Prevent horizontal scrolling globally */
 html, body {
@@ -229,27 +316,3 @@ html, body {
 .task-card {
   box-sizing: border-box;
 }
-/* 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-} */

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mantine/core": "^6.0.19",
+    "@mdxeditor/editor": "^3.55.0",
     "@monaco-editor/react": "^4.6.0",
     "ace-builds": "^1.32.7",
     "classnames": "^2.3.2",

@@ -4,7 +4,7 @@ import React, { useState, useCallback, useImperativeHandle, forwardRef, useRef, 
 import { createPortal } from "react-dom";
 import { Download } from "lucide-react";
 import CodingEditor from "../editor/CodingEditor";
-import AssistantTerminalPane, { AssistantItem } from "../editor/AssistantTerminalPane";
+import AssistantTerminalPane, { AssistantItem, AssistantMode } from "../editor/AssistantTerminalPane";
 import SubmissionsGallery from "../submissions/SubmissionsPlaceholder";
 import { ENV } from "../../config/env";
 import { ERROR_TRY_AGAIN } from "../../constants/errorMessages";
@@ -113,6 +113,66 @@ const tabBaseClass =
 const tabActiveClass = "text-blue-400 after:bg-blue-400 after:opacity-100 cursor-default";
 const tabInactiveClass =
   "text-gray-400 hover:text-blue-400 after:bg-blue-400 after:opacity-0 hover:after:opacity-100";
+const PLAN_FILENAME = "plan.md";
+
+function upsertPlanNodeInTree(nodes: any[], content: string): any[] {
+  const source = cloneFileNodes(Array.isArray(nodes) ? nodes : []);
+  let updatedExisting = false;
+
+  const walk = (items: any[]): any[] =>
+    items.map((item) => {
+      if (!item) return item;
+      if (item.type === "file" && String(item.name || "").toLowerCase() === PLAN_FILENAME) {
+        updatedExisting = true;
+        return { ...item, content, language: item.language || "markdown" };
+      }
+      if (Array.isArray(item.children)) {
+        return { ...item, children: walk(item.children) };
+      }
+      return { ...item };
+    });
+
+  const walked = walk(source);
+  if (updatedExisting) return walked;
+
+  const planNode = {
+    id: PLAN_FILENAME,
+    name: PLAN_FILENAME,
+    type: "file",
+    content,
+    language: "markdown",
+  };
+  const frontendIdx = walked.findIndex(
+    (item) => item?.type === "file" && String(item?.name || "").toLowerCase() === "frontend.js"
+  );
+  if (frontendIdx >= 0) {
+    walked.splice(frontendIdx + 1, 0, planNode);
+  } else {
+    walked.push(planNode);
+  }
+  return walked;
+}
+
+function removePlanNodeFromTree(nodes: any[]): any[] {
+  const source = cloneFileNodes(Array.isArray(nodes) ? nodes : []);
+  const walk = (items: any[]): any[] =>
+    items
+      .filter((item) => !(item?.type === "file" && String(item?.name || "").toLowerCase() === PLAN_FILENAME))
+      .map((item) => {
+        if (!item) return item;
+        if (Array.isArray(item.children)) return { ...item, children: walk(item.children) };
+        return { ...item };
+      });
+  return walk(source);
+}
+
+function getPlanNodeFromTree(nodes: any[]): any | null {
+  const flat = flattenFileNodes(nodes);
+  return (
+    flat.find((node: any) => node?.type === "file" && String(node?.name || "").toLowerCase() === PLAN_FILENAME) ||
+    null
+  );
+}
 
 const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubmissionsPaneProps>(function CodeAndSubmissionsPane({
   rightTab,
@@ -173,6 +233,9 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
   const [logProbs, setLogProbs] = useState<any>(null);
   const [messageAIIndex, setMessageAIIndex] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>("agent");
+  const [pendingPlanExecution, setPendingPlanExecution] = useState<string | null>(null);
+  const hiddenPlanContentRef = useRef<string | null>(null);
 
   const editorRef = useRef<any>(null);
   const actualEditorRef = useRef<any>(null);
@@ -212,6 +275,7 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
 
   const assistantChat = useAssistantChat({
     isTutorialMode,
+    assistantMode,
     taskId,
     currentTaskMeta,
     numericUserId,
@@ -331,9 +395,126 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
     }
   }, [currentFiles, initialFiles, onCurrentFilesChange]);
 
-  const handleAssistantSubmit = useCallback(async (message: string) => {
-    const trimmedMessage = message.trim();
+  const handleClearPlan = useCallback(async () => {
+    const editorApi = actualEditorRef?.current as any;
+    try {
+      assistantAbortControllerRef.current?.abort();
+    } catch (_) {}
+    setAwaitingResponse(false);
+    setAwaitingManualSuggestions(false);
+    setAssistantInputValue("");
+    setSummaryGenerated(false);
+    latestSuggestionsRef.current = [];
+    setAssistantMessages([]);
+
+    try { editorApi?.removeFileByName?.(PLAN_FILENAME); } catch (_) {}
+    const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+    onCurrentFilesChange(removePlanNodeFromTree(source));
+    hiddenPlanContentRef.current = null;
+
+    try {
+      const codeStateFromEditor =
+        editorApi && typeof editorApi.getAllFileContents === "function"
+          ? (editorApi.getAllFileContents() as Record<string, string>)
+          : undefined;
+      saveSnapshot([], codeStateFromEditor);
+    } catch (_) {}
+
+    try {
+      await fetch(`${ENV.BACKEND_URL}/api/agent-history/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: numericUserId }),
+      });
+    } catch (_) {}
+  }, [
+    actualEditorRef,
+    assistantAbortControllerRef,
+    currentFiles,
+    initialFiles,
+    latestSuggestionsRef,
+    numericUserId,
+    onCurrentFilesChange,
+    saveSnapshot,
+    setAssistantInputValue,
+    setAssistantMessages,
+    setAwaitingManualSuggestions,
+    setAwaitingResponse,
+    setSummaryGenerated,
+  ]);
+
+  const clearPlanFileOnly = useCallback(() => {
+    const editorApi = actualEditorRef?.current as any;
+    try { editorApi?.removeFileByName?.(PLAN_FILENAME); } catch (_) {}
+    const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+    onCurrentFilesChange(removePlanNodeFromTree(source));
+    hiddenPlanContentRef.current = null;
+  }, [actualEditorRef, currentFiles, initialFiles, onCurrentFilesChange]);
+
+  const upsertPlanFile = useCallback((planContent: string) => {
+    const editorApi = actualEditorRef?.current as any;
+    if (editorApi?.upsertFileByName) {
+      editorApi.upsertFileByName(PLAN_FILENAME, planContent, "markdown");
+      try { editorApi.selectFileByName?.(PLAN_FILENAME); } catch (_) {}
+    } else {
+      const existingPlan = currentFiles.find(
+        (file: any) => file?.type === "file" && String(file?.name || "").toLowerCase() === PLAN_FILENAME
+      );
+      if (existingPlan && editorApi?.updateFileContent) {
+        editorApi.updateFileContent(existingPlan.id, planContent);
+      }
+    }
+
+    const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+    onCurrentFilesChange(upsertPlanNodeInTree(source, planContent));
+    fileMetadataRef.current = {
+      ...fileMetadataRef.current,
+      [PLAN_FILENAME]: { name: PLAN_FILENAME, language: "markdown" },
+    };
+  }, [actualEditorRef, currentFiles, initialFiles, onCurrentFilesChange]);
+
+  const handleAssistantModeChange = useCallback((nextMode: AssistantMode) => {
+    setAssistantMode(nextMode);
+    const editorApi = actualEditorRef?.current as any;
+
+    if (nextMode === "plan") {
+      const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+      const existingPlan = getPlanNodeFromTree(source);
+      if (!existingPlan && hiddenPlanContentRef.current && hiddenPlanContentRef.current.trim()) {
+        upsertPlanFile(hiddenPlanContentRef.current);
+      }
+      return;
+    }
+
+    const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+    const existingPlan = getPlanNodeFromTree(source);
+    if (!existingPlan) return;
+
+    const allContents =
+      editorApi && typeof editorApi.getAllFileContents === "function"
+        ? (editorApi.getAllFileContents() as Record<string, string>)
+        : {};
+    const latestPlanContent =
+      allContents[existingPlan.id] ??
+      allContents[existingPlan.name] ??
+      existingPlan.content ??
+      "";
+    hiddenPlanContentRef.current = String(latestPlanContent || "");
+
+    try { editorApi?.removeFileByName?.(PLAN_FILENAME); } catch (_) {}
+    onCurrentFilesChange(removePlanNodeFromTree(source));
+  }, [actualEditorRef, currentFiles, initialFiles, onCurrentFilesChange, upsertPlanFile]);
+
+  const handleAssistantSubmit = useCallback(async (
+    message: string,
+    options?: { displayMessage?: string; modeOverride?: AssistantMode; clearPlanOnSummaryStart?: boolean }
+  ) => {
+    const backendPrompt = String(message || "");
+    const trimmedMessage = backendPrompt.trim();
     if (!trimmedMessage) return;
+    const effectiveMode = options?.modeOverride || assistantMode;
+    const displayMessage = String(options?.displayMessage || trimmedMessage).trim() || trimmedMessage;
+    const clearPlanOnSummaryStart = !!options?.clearPlanOnSummaryStart;
 
     const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const appendMessage = (item: AssistantItem) => {
@@ -346,7 +527,7 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
     setAssistantMessages(prev => prev.filter(msg => msg.type !== "suggestions"));
     setSummaryGenerated(false);
     latestSuggestionsRef.current = [];
-    appendMessage({ type: "user", message: trimmedMessage });
+    appendMessage({ type: "user", message: displayMessage });
     setAwaitingResponse(true);
     setAssistantInputValue("");
 
@@ -379,6 +560,136 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
       });
     }
 
+    if (effectiveMode === "plan") {
+      let wasAborted = false;
+      let planUpdated = false;
+      const previousPlanContent =
+        files[PLAN_FILENAME] ??
+        files[PLAN_FILENAME.toLowerCase()] ??
+        Object.entries(files).find(([name]) => String(name || "").toLowerCase() === PLAN_FILENAME)?.[1] ??
+        "";
+
+      try {
+        const controller = new AbortController();
+        assistantAbortControllerRef.current = controller;
+        const planResponse = await fetch(`${ENV.BACKEND_URL}/api/agent-execution/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: trimmedMessage,
+            files,
+            taskId: taskId || currentTaskMeta?.id || null,
+            taskName: currentTaskMeta?.name || null,
+            userId: numericUserId,
+            planContent: previousPlanContent,
+          }),
+          signal: controller.signal,
+        });
+        if (!planResponse.ok) {
+          throw new Error("Failed to generate or revise plan");
+        }
+        const planPayload = await planResponse.json();
+        const nextPlanContent = String(planPayload?.planContent || "");
+        if (!nextPlanContent.trim()) {
+          throw new Error("Plan endpoint returned empty plan content");
+        }
+
+        upsertPlanFile(nextPlanContent);
+        planUpdated = true;
+
+        const summaryMessageId = createMessageId();
+        appendMessage({ id: summaryMessageId, type: "assistant", message: "" });
+        let summaryText = "";
+
+        const summaryResponse = await fetch(`${ENV.BACKEND_URL}/api/agent-execution/plan/summary`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: trimmedMessage,
+            previousPlanContent,
+            planContent: nextPlanContent,
+            taskId: taskId || currentTaskMeta?.id || null,
+            taskName: currentTaskMeta?.name || null,
+            userId: numericUserId,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!summaryResponse.ok) {
+          updateMessage(summaryMessageId, { message: "Plan updated, but summary generation failed." });
+          setSummaryGenerated(true);
+        } else {
+          const reader = summaryResponse.body?.getReader();
+          if (!reader) {
+            updateMessage(summaryMessageId, { message: "Plan updated." });
+            setSummaryGenerated(true);
+          } else {
+            const decoder = new TextDecoder();
+            let buffer = "";
+            const ingestLine = (rawLine: string) => {
+              const line = rawLine.trim();
+              if (!line) return;
+              let payload: any;
+              try {
+                payload = JSON.parse(line);
+              } catch {
+                return;
+              }
+              if (payload?.event === "text") {
+                const chunk = String(payload?.content || "");
+                if (chunk) {
+                  summaryText += chunk;
+                  updateMessage(summaryMessageId, { message: summaryText });
+                }
+                if (payload?.is_final) {
+                  setSummaryGenerated(true);
+                }
+              }
+            };
+
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              lines.forEach(ingestLine);
+            }
+            if (buffer) ingestLine(buffer);
+            if (!summaryText.trim()) {
+              updateMessage(summaryMessageId, { message: "Plan updated." });
+              setSummaryGenerated(true);
+            }
+          }
+        }
+      } catch (error: any) {
+        if (error?.name === "AbortError") {
+          wasAborted = true;
+          appendMessage({ type: "system", message: "Stopped coding" });
+          try {
+            setAssistantInputValue(trimmedMessage);
+            setTimeout(() => { assistantTerminalPaneRef.current?.focusInput?.(); }, 0);
+          } catch (_) {}
+        } else {
+          appendMessage({ type: "assistant", message: `Error: ${(error as Error).message} ${ERROR_TRY_AGAIN}` });
+        }
+      } finally {
+        setAwaitingResponse(false);
+        assistantAbortControllerRef.current = null;
+        if (!wasAborted) {
+          if (planUpdated) {
+            try { setAssistantInputValue(""); } catch (_) {}
+          } else {
+            try {
+              setAssistantInputValue(trimmedMessage);
+              setTimeout(() => { assistantTerminalPaneRef.current?.focusInput?.(); }, 0);
+            } catch (_) {}
+          }
+        }
+      }
+      return;
+    }
+
     filesModifiedInCurrentInteractionRef.current = new Set();
     const toolMessageIds = new Map<string, string>();
     const pendingToolMessageIds: string[] = [];
@@ -389,6 +700,7 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
     let hadEditFileToolCallEdits = false;
     let snapshotSaved = false;
     let wasAborted = false;
+    let planClearedOnSummaryStart = false;
 
     try {
       const controller = new AbortController();
@@ -398,6 +710,7 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: trimmedMessage,
+          taskType: effectiveMode,
           files,
           taskId: taskId || currentTaskMeta?.id || null,
           taskName: currentTaskMeta?.name || null,
@@ -430,6 +743,10 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
           case "text": {
             const content = payload?.content;
             if (content != null && String(content).trim() !== "") {
+              if (clearPlanOnSummaryStart && !planClearedOnSummaryStart) {
+                planClearedOnSummaryStart = true;
+                clearPlanFileOnly();
+              }
               const isError = metadata?.is_error === true;
               const message = isError ? `Error: ${content} ${ERROR_TRY_AGAIN}` : content;
               appendMessage({ type: "assistant", message });
@@ -487,6 +804,10 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
             const toolName = payload?.tool_name ?? "Tool";
             const toolType = payload?.tool_type;
             if (toolType === "edit_file") {
+              // Chat mode should never apply file edits / replacement snippets.
+              if (effectiveMode === "chat") {
+                break;
+              }
               if (status === "in_progress") {
                 const id = createMessageId();
                 const key = metadata?.filename ?? toolName;
@@ -583,12 +904,22 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
         } catch (_) {}
       } else {
         appendMessage({ type: "assistant", message: `Error: ${(error as Error).message} ${ERROR_TRY_AGAIN}` });
+        // In chat mode, restore the user's query so they can retry quickly.
+        if (effectiveMode === "chat") {
+          try {
+            setAssistantInputValue(trimmedMessage);
+            setTimeout(() => { assistantTerminalPaneRef.current?.focusInput?.(); }, 0);
+          } catch (_) {}
+        }
       }
     } finally {
       setAwaitingResponse(false);
       assistantAbortControllerRef.current = null;
       if (!wasAborted) {
-        if (filesWereEdited) {
+        // Chat mode should clear the input on submit and keep it cleared on success.
+        if (effectiveMode === "chat") {
+          try { setAssistantInputValue(""); } catch (_) {}
+        } else if (filesWereEdited) {
           try { setAssistantInputValue(""); } catch (_) {}
         } else {
           try {
@@ -600,6 +931,10 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
     }
 
     if (finalPayload && finalPayload.final_files && Object.keys(finalPayload.final_files).length > 0) {
+      // Chat mode should never apply final_files to the editor/diff view.
+      if (effectiveMode === "chat") {
+        return;
+      }
       if (hadEditFileToolCallEdits) {
         // Edits were already applied via edit_file tool_call events; don't overwrite editor or pendingAgentChanges.
         // Only attach summary/steps to existing pendingAgentChanges. (Other tool_call types do not count.)
@@ -662,10 +997,44 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
     taskLabel,
     currentTaskMeta,
     numericUserId,
+    assistantMode,
+    upsertPlanFile,
     saveSnapshot,
     sendCodeLog,
     previewTabRef,
+    clearPlanFileOnly,
   ]);
+
+  const handleBuildPlan = useCallback(() => {
+    if (awaitingResponse) return;
+    const editorApi = actualEditorRef?.current as any;
+    const source = (currentFiles && currentFiles.length > 0) ? currentFiles : cloneFileNodes(initialFiles);
+    const existingPlan = getPlanNodeFromTree(source);
+    const allContents =
+      editorApi && typeof editorApi.getAllFileContents === "function"
+        ? (editorApi.getAllFileContents() as Record<string, string>)
+        : {};
+    const nextPlanContent = String(
+      (existingPlan && (allContents[existingPlan.id] ?? allContents[existingPlan.name] ?? existingPlan.content)) ??
+      hiddenPlanContentRef.current ??
+      ""
+    ).trim();
+
+    if (!nextPlanContent) {
+      setAssistantMessages((prev) => [...prev, { type: "assistant", message: "No plan found to build." }]);
+      return;
+    }
+
+    setAssistantMode("agent");
+    setPendingPlanExecution(nextPlanContent);
+  }, [actualEditorRef, awaitingResponse, currentFiles, initialFiles, setAssistantMessages]);
+
+  useEffect(() => {
+    if (assistantMode !== "agent" || !pendingPlanExecution) return;
+    const planPrompt = pendingPlanExecution;
+    setPendingPlanExecution(null);
+    void handleAssistantSubmit(planPrompt, { clearPlanOnSummaryStart: true });
+  }, [assistantMode, handleAssistantSubmit, pendingPlanExecution]);
 
   useEffect(() => {
     if (!showCodingTerminal || !selectedTask) {
@@ -980,10 +1349,14 @@ const CodeAndSubmissionsPane = forwardRef<CodeAndSubmissionsPaneRef, CodeAndSubm
                         onRedo={handleRedo}
                         canUndo={canUndo}
                         canRedo={canRedo}
+                        assistantMode={assistantMode}
+                        onAssistantModeChange={handleAssistantModeChange}
                       />
                     )}
                     onSaveShortcut={handleSaveShortcut}
                     onFileContentChange={handleFileContentChange}
+                    onClearPlan={handleClearPlan}
+                    onBuildPlan={handleBuildPlan}
                     pendingAgentChanges={pendingAgentChanges}
                     onAcceptAgentChanges={onAcceptAgentChanges}
                     onRejectAgentChanges={onRejectAgentChanges}
