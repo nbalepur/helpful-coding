@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, usePathname } from "next/navigation";
 import UserStudyPopup, { PopupState, UserStudyPopupContext } from "./UserStudyPopup";
 import { getCookie } from "../utils/cookies";
 import { ENV } from "../config/env";
@@ -45,6 +45,7 @@ interface UserStudyPopupProviderProps {
  */
 export default function UserStudyPopupProvider({ children }: UserStudyPopupProviderProps) {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const { user, token, refreshUser, isLoading: isAuthLoading } = useAuth();
   const numericUserId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
   
@@ -438,10 +439,14 @@ export default function UserStudyPopupProvider({ children }: UserStudyPopupProvi
       return;
     }
     
-    // Recalculate on first load only
+    // Compensation page loads its own summary API; skip duplicate popup fetches on cold load.
+    const isCompensationRoute =
+      pathname === "/compensation" || pathname === "/compensation/";
     hasInitializedRef.current = true;
-    recalculateState();
-  }, [isAuthLoading, numericUserId, hasSecretPassword, passwordCheckComplete, recalculateState]);
+    if (!isCompensationRoute) {
+      recalculateState();
+    }
+  }, [isAuthLoading, numericUserId, hasSecretPassword, passwordCheckComplete, recalculateState, pathname]);
   
   // Handle password check completing after initialization
   // This ensures that if the password check completes after initialization,

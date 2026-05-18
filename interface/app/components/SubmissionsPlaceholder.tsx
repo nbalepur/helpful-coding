@@ -761,6 +761,7 @@ const SubmissionsGallery = ({ projectId, taskId }: SubmissionsGalleryProps = {})
   const [selectedTaskName, setSelectedTaskName] = useState<string>("");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailPreviewRefreshKey, setDetailPreviewRefreshKey] = useState(0);
   const detailAbortRef = useRef<AbortController | null>(null);
   const selectedPreviewRef = useRef<PreviewIframeRef | null>(null);
   const popoutWindowRef = useRef<Window | null>(null);
@@ -1765,6 +1766,7 @@ const getTooltipPosition = useCallback(
     setSelectedTaskName("");
     setDetailError(null);
     setIsDetailLoading(false);
+    setDetailPreviewRefreshKey(0);
     hideTooltip();
     try {
       window.dispatchEvent(new CustomEvent("exit-submission-view"));
@@ -2188,6 +2190,13 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
     }
   }, [selectedTitle, updatePopoutWindow]);
 
+  const handleRefreshDetailPreview = useCallback(() => {
+    setDetailPreviewRefreshKey((k) => k + 1);
+    queueMicrotask(() => {
+      updatePopoutWindow();
+    });
+  }, [updatePopoutWindow]);
+
   // If the selected submission changes while a popout is open, keep it in sync.
   useEffect(() => {
     if (isDetailView && popoutWindowRef.current && !popoutWindowRef.current.closed) {
@@ -2445,8 +2454,26 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
             <div className="flex items-center space-x-2">
               <button
                 type="button"
+                data-tooltip="Refresh preview"
+                onClick={handleRefreshDetailPreview}
+                disabled={!hasSelectedPreview || isDetailLoading || !!detailError}
+                onPointerEnter={(event) =>
+                  showTooltipForElement(event.currentTarget as HTMLElement, "Refresh preview")
+                }
+                onPointerMove={(event) =>
+                  showTooltipForElement(event.currentTarget as HTMLElement, "Refresh preview")
+                }
+                onPointerLeave={hideTooltip}
+                className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700 disabled:pointer-events-none disabled:opacity-40"
+                aria-label="Refresh preview"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
                 data-tooltip="Pop out preview"
                 onClick={handlePopout}
+                disabled={!hasSelectedPreview || isDetailLoading || !!detailError}
                 onPointerEnter={(event) =>
                   showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
                 }
@@ -2454,7 +2481,7 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                   showTooltipForElement(event.currentTarget as HTMLElement, "Pop out preview")
                 }
                 onPointerLeave={hideTooltip}
-                className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700"
+                className="rounded-full border border-transparent p-2 text-gray-300 transition-colors hover:bg-gray-700 disabled:pointer-events-none disabled:opacity-40"
                 aria-label="Pop out preview"
               >
                 <svg
@@ -2723,7 +2750,7 @@ const isSelectedReported = selectedSubmission ? !!reports[selectedSubmission.id]
                   <div className="flex-1 border-r border-gray-800/60 bg-black">
                     <PreviewIframe
                       ref={selectedPreviewRef}
-                      key={selectedSubmission?.id ?? "detail-view"}
+                      key={`${selectedSubmission?.id ?? "detail-view"}-${detailPreviewRefreshKey}`}
                       htmlContent={selectedSubmissionPreview.html}
                       cssContent={selectedSubmissionPreview.css}
                       jsContent={selectedSubmissionPreview.js}

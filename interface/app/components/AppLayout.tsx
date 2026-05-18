@@ -58,11 +58,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isLandingPage = pathname === '/landing';
 
   // Recalculate popup state on pathname changes (runs in background, doesn't block navigation)
-  // This runs in AppLayout which persists across navigation, so calculation doesn't block page transitions
+  // Skip on /compensation — that page loads its own compensation-summary API.
   useEffect(() => {
-    // Only recalculate if pathname actually changed (skip initial mount) and recalculateState is available
-    if (recalculateState && previousPathnameRef.current !== pathname && previousPathnameRef.current !== null) {
-      // Run in background without blocking navigation
+    const isCompensationRoute =
+      pathname === "/compensation" || pathname === "/compensation/";
+    if (
+      recalculateState &&
+      !isCompensationRoute &&
+      previousPathnameRef.current !== pathname &&
+      previousPathnameRef.current !== null
+    ) {
       recalculateState();
     }
     previousPathnameRef.current = pathname;

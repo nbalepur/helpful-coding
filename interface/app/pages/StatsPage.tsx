@@ -4,7 +4,7 @@ import { useState, useEffect, ReactNode } from "react";
 import { useAuth } from "../utils/auth";
 import { useUserStudyPopup } from "../components/UserStudyPopup";
 import { ENV } from "../config/env";
-import { WEBSITE_REQUIREMENT_TASKS, GAME_REQUIRED_TASKS, isWebsiteRequirementTask } from "../config/tasks";
+import { WEBSITE_REQUIREMENT_TASKS, GAME_REQUIRED_TASKS } from "../config/tasks";
 import { isWebsiteRequirementsPhaseSkippedForStudy, ensureExtraCreditCodeInSettings } from "../utils/userSettings";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { Trophy, Code, DollarSign, Star, Sparkles, BarChart3, ThumbsUp, Lightbulb, HelpCircle, CheckCircle2, Circle, CircleSlash, Lock, AlertTriangle, Copy } from "lucide-react";
@@ -60,88 +60,95 @@ interface PostTestPoolStatus {
   post_test_open?: boolean;
 }
 
-interface UserStats {
+interface CompensationSummary {
   totalSubmissions: number;
-  stage3Estimate: Stage3CompensationEstimate | null;
-  postTestPoolStatus: PostTestPoolStatus | null;
-  /** Users who completed post-test study-wide */
-  studyWidePostTestCompletionsCount: number | null;
-  /** User's submission rows on open-ended game dev tasks only */
+  averageRating: number;
+  numVotes: number;
   openEndedGameDevSubmissionCount: number;
-  /** Open-ended game dev submission rows study-wide; null if unavailable */
-  studyWideOpenEndedSubmissions: number | null;
   completedRequiredTasks: number;
   completedGameRequiredTasks: number;
-  /** Distinct non–website-recreation game tasks submitted (includes Platformer); used for post-test gate. */
   submittedGameTaskCount: number;
   platformerSubmitted: boolean;
   completedAdditionalWebsiteTasks: number;
   totalAdditionalWebsiteTasks: number;
-  averageRating: number;
-  numVotes: number;
-  votesPerProject: Array<{
-    project_id: number;
-    project_name: string;
-    num_votes: number;
-  }>;
+  preTestCompleted: boolean;
+  postTestCompleted: boolean;
   aiStats: {
     num_prompts: number;
     total_lines_generated: number;
     llm_ideas_used: number;
   };
-  mcqaAccuracy: {
-    frontend: Array<{
-      phase: string;
-      accuracy: number;
-      correct: number;
-      total: number;
-      timestamp: string | null;
-      question_category?: "all" | "html" | "css" | "js" | "other";
-    }>;
-    ux: Array<{
-      phase: string;
-      accuracy: number;
-      correct: number;
-      total: number;
-      timestamp: string | null;
-    }>;
+}
+
+interface CompensationStudyStatus {
+  stage3Estimate: Stage3CompensationEstimate | null;
+  postTestPoolStatus: PostTestPoolStatus | null;
+  studyWideOpenEndedSubmissions: number | null;
+  studyWidePostTestCompletionsCount: number | null;
+}
+
+type CompensationView = CompensationSummary & CompensationStudyStatus;
+
+function mapCompensationSummary(data: Record<string, unknown>): CompensationSummary {
+  const ai = (data.ai_stats ?? {}) as Record<string, number>;
+  return {
+    totalSubmissions: Number(data.total_submissions ?? 0),
+    averageRating: Number(data.average_rating ?? 0),
+    numVotes: Number(data.num_votes ?? 0),
+    openEndedGameDevSubmissionCount: Number(data.open_ended_game_dev_submission_count ?? 0),
+    completedRequiredTasks: Number(data.completed_required_tasks ?? 0),
+    completedGameRequiredTasks: Number(data.completed_game_required_tasks ?? 0),
+    submittedGameTaskCount: Number(data.submitted_game_task_count ?? 0),
+    platformerSubmitted: Boolean(data.platformer_submitted),
+    completedAdditionalWebsiteTasks: Number(data.completed_additional_website_tasks ?? 0),
+    totalAdditionalWebsiteTasks: Number(data.total_additional_website_tasks ?? 0),
+    preTestCompleted: Boolean(data.pre_test_completed),
+    postTestCompleted: Boolean(data.post_test_completed),
+    aiStats: {
+      num_prompts: Number(ai.num_prompts ?? 0),
+      total_lines_generated: Number(ai.total_lines_generated ?? 0),
+      llm_ideas_used: Number(ai.llm_ideas_used ?? 0),
+    },
   };
-  codingPerformance: {
-    from_scratch: Array<{
-      name: string;
-      score: number;
-      test_project_id: string;
-      time_taken_seconds: number;
-      timestamp: string;
-    }>;
-    debug: Array<{
-      name: string;
-      score: number;
-      test_project_id: string;
-      time_taken_seconds: number;
-      timestamp: string;
-    }>;
-    combined: Array<{
-      name: string;
-      score: number;
-      test_project_id: string;
-      time_taken_seconds: number;
-      timestamp: string;
-    }>;
-  };
-  comprehensionScores: {
-    avg_mcqa: number | null;
-    avg_multi_select: number | null;
-    mcqa_count: number;
-    multi_select_count: number;
-    per_project?: Array<{
-      project_id: number;
-      project_name: string;
-      avg_mcqa: number | null;
-      avg_multi_select: number | null;
-      mcqa_count: number;
-      multi_select_count: number;
-    }>;
+}
+
+function mapCompensationStudyStatus(data: Record<string, unknown>): CompensationStudyStatus {
+  let stage3Estimate: Stage3CompensationEstimate | null = null;
+  const s3 = data.stage3_estimate as Record<string, unknown> | undefined;
+  if (
+    s3 &&
+    typeof s3.reward_dollars === "number" &&
+    typeof s3.tasks_in_pay_pool === "number" &&
+    typeof s3.pay_pool_cap === "number"
+  ) {
+    stage3Estimate = s3 as unknown as Stage3CompensationEstimate;
+  }
+
+  let postTestPoolStatus: PostTestPoolStatus | null = null;
+  const pt = data.post_test_pool_status as Record<string, unknown> | undefined;
+  if (
+    pt &&
+    typeof pt.meets_task_requirement === "boolean" &&
+    typeof pt.in_post_test_pool === "boolean" &&
+    typeof pt.participant_cap === "number"
+  ) {
+    postTestPoolStatus = pt as unknown as PostTestPoolStatus;
+  }
+
+  const studyWideOpenEndedSubmissions =
+    typeof data.study_wide_open_ended_submissions === "number"
+      ? data.study_wide_open_ended_submissions
+      : null;
+  const studyWidePostTestCompletionsCount =
+    typeof data.study_wide_post_test_completions_count === "number"
+      ? data.study_wide_post_test_completions_count
+      : null;
+
+  return {
+    stage3Estimate,
+    postTestPoolStatus,
+    studyWideOpenEndedSubmissions,
+    studyWidePostTestCompletionsCount,
   };
 }
 
@@ -651,14 +658,11 @@ export default function CompensationPage() {
   const { preTestCompleted, postTestCompleted, allRequiredTasksCompleted } = useUserStudyPopup();
   const userId = user?.id && !Number.isNaN(Number(user.id)) ? Number(user.id) : null;
 
-  const [stats, setStats] = useState<UserStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<CompensationSummary | null>(null);
+  const [studyStatus, setStudyStatus] = useState<CompensationStudyStatus | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(true);
+  const [loadingStudyStatus, setLoadingStudyStatus] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fetchedPreTestCompleted, setFetchedPreTestCompleted] = useState<boolean | null>(null);
-  const [fetchedPostTestCompleted, setFetchedPostTestCompleted] = useState<boolean | null>(null);
-  const [frontendTopic, setFrontendTopic] = useState<"all" | "html" | "css" | "js">("all");
-  const [codingTypePassRate, setCodingTypePassRate] = useState<"combined" | "from_scratch" | "debug">("combined");
-  const [codingTypeTimeTaken, setCodingTypeTimeTaken] = useState<"combined" | "from_scratch" | "debug">("combined");
   // Generate animated dots only on client side to avoid hydration mismatch
   const [animatedDots, setAnimatedDots] = useState<Array<{
     color: string;
@@ -674,10 +678,11 @@ export default function CompensationPage() {
 
   // Ensure extra credit code exists when user has earned extra credit (must run unconditionally for hooks order)
   useEffect(() => {
-    if (!userId || !stats) return;
-    const completedPreTest = fetchedPreTestCompleted ?? preTestCompleted ?? false;
+    if (!userId || !summary) return;
+    const completedPreTest = preTestCompleted ?? false;
     const websiteRequirementsSkipped = isWebsiteRequirementsPhaseSkippedForStudy(user?.settings);
-    const completedWebsiteRequirementTasks = allRequiredTasksCompleted ?? stats.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
+    const completedWebsiteRequirementTasks =
+      allRequiredTasksCompleted ?? summary.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
     const stage1Completed = completedWebsiteRequirementTasks;
     const stage1Skipped = websiteRequirementsSkipped;
     const extraCreditEarned = completedPreTest && (stage1Completed || stage1Skipped);
@@ -693,291 +698,85 @@ export default function CompensationPage() {
       })
       .catch((err) => console.error("Failed to ensure extra credit code:", err));
     return () => { cancelled = true; };
-  }, [userId, stats, user?.settings, token, refreshUser, fetchedPreTestCompleted, preTestCompleted, allRequiredTasksCompleted]);
+  }, [userId, summary, user?.settings, token, refreshUser, preTestCompleted, allRequiredTasksCompleted]);
 
+  // Phase 1: fast per-user summary (checklist + overall progress + AI usage)
   useEffect(() => {
-    const fetchStats = async () => {
-      if (!userId) {
-        setLoading(false);
-        return;
-      }
+    if (!userId) {
+      setLoadingSummary(false);
+      return;
+    }
 
+    let cancelled = false;
+
+    const loadSummary = async () => {
       try {
-        setLoading(true);
+        setLoadingSummary(true);
         setError(null);
-
-        // Fetch all required data in parallel
-        const [
-          submissionsResponse,
-          tasksResponse,
-          skillCheckResponse,
-          detailedStatsResponse,
-          studyCountResponse,
-          stage3EstResponse,
-          postTestPoolResponse,
-          postTestCompletionsResponse,
-        ] = await Promise.all([
-          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/submissions`),
-          fetch(`/api/tasks`),
-          fetch(`/api/skill-check/completion-status-both?user_id=${userId}`),
-          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/stats`),
-          fetch(`${ENV.BACKEND_URL}/api/study/submission-count`),
-          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/stage3-compensation-estimate`),
-          fetch(`${ENV.BACKEND_URL}/api/users/${userId}/post-test-pool-status`),
-          fetch(`${ENV.BACKEND_URL}/api/study/post-test-completions-count`),
-        ]);
-
-        let studyWidePostTestCompletionsCount: number | null = null;
-        if (postTestCompletionsResponse.ok) {
-          try {
-            const pc = await postTestCompletionsResponse.json();
-            if (typeof pc?.post_test_completions_count === "number") {
-              studyWidePostTestCompletionsCount = pc.post_test_completions_count;
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        let postTestPoolStatus: PostTestPoolStatus | null = null;
-        if (postTestPoolResponse.ok) {
-          try {
-            const pj = await postTestPoolResponse.json();
-            if (
-              typeof pj?.meets_task_requirement === "boolean" &&
-              typeof pj?.in_post_test_pool === "boolean" &&
-              typeof pj?.participant_cap === "number"
-            ) {
-              postTestPoolStatus = pj as PostTestPoolStatus;
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        let stage3Estimate: Stage3CompensationEstimate | null = null;
-        if (stage3EstResponse.ok) {
-          try {
-            const ej = await stage3EstResponse.json();
-            if (
-              typeof ej?.reward_dollars === "number" &&
-              typeof ej?.tasks_in_pay_pool === "number" &&
-              typeof ej?.pay_pool_cap === "number"
-            ) {
-              stage3Estimate = ej as Stage3CompensationEstimate;
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        let studyWideOpenEndedSubmissions: number | null = null;
-        if (studyCountResponse.ok) {
-          try {
-            const sc = await studyCountResponse.json();
-            if (typeof sc?.open_ended_game_submissions === "number") {
-              studyWideOpenEndedSubmissions = sc.open_ended_game_submissions;
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        // Parse submissions
-        let submissionsData = { items: [] };
-        if (submissionsResponse.ok) {
-          submissionsData = await submissionsResponse.json();
-        }
-
-        const submissions = submissionsData.items || [];
-        const submittedProjectIds = new Set<number>(
-          submissions.map((sub: any) => sub.projectId).filter((id: any): id is number => id != null)
+        const response = await fetch(
+          `${ENV.BACKEND_URL}/api/users/${userId}/compensation-summary`
         );
-
-        // Parse tasks and map projectId to task name
-        let tasks: any[] = [];
-        if (tasksResponse.ok) {
-          const tasksData = await tasksResponse.json();
-          tasks = tasksData.tasks || [];
+        if (!response.ok) {
+          throw new Error(`Failed to load compensation summary (${response.status})`);
         }
-
-        const isOpenEndedGameDevTask = (task: any): boolean => {
-          if (!task?.name || task.id === "playground") {
-            return false;
-          }
-          if (task.category === "tutorial" || task.tags?.includes("tutorial")) {
-            return false;
-          }
-          if (isWebsiteRequirementTask(task)) {
-            return false;
-          }
-          if (GAME_REQUIRED_TASKS.includes(task.name)) {
-            return true;
-          }
-          const label = (task.label || "open-ended").toLowerCase().replace(/_/g, "-");
-          return label === "open-ended";
-        };
-        let openEndedGameDevSubmissionCount = 0;
-        for (const sub of submissions as { projectId?: number }[]) {
-          const task = tasks.find((t: any) => t.projectId === sub.projectId);
-          if (task && isOpenEndedGameDevTask(task)) {
-            openEndedGameDevSubmissionCount += 1;
-          }
+        const data = await response.json();
+        if (!cancelled) {
+          setSummary(mapCompensationSummary(data));
         }
-
-        if (skillCheckResponse.ok) {
-          const skillCheckData = await skillCheckResponse.json();
-          setFetchedPreTestCompleted(skillCheckData.pre_test?.completed ?? false);
-          setFetchedPostTestCompleted(skillCheckData.post_test?.completed ?? false);
-        } else {
-          setFetchedPreTestCompleted(null);
-          setFetchedPostTestCompleted(null);
-        }
-
-        // Create mapping of projectId to task name
-        const projectIdToTaskName = new Map<number, string>();
-        tasks.forEach((task: any) => {
-          if (task.projectId && task.name) {
-            projectIdToTaskName.set(task.projectId, task.name);
-          }
-        });
-
-        // Find completed task names from submissions
-        const completedTaskNames = new Set<string>();
-        submittedProjectIds.forEach((projectId: number) => {
-          const taskName = projectIdToTaskName.get(projectId);
-          if (taskName) {
-            completedTaskNames.add(taskName);
-          }
-        });
-
-        const submittedGameTaskNames = new Set<string>();
-        submittedProjectIds.forEach((projectId: number) => {
-          const task = tasks.find((t: any) => t.projectId === projectId);
-          if (!task?.name || task.id === "playground") {
-            return;
-          }
-          if (!isWebsiteRequirementTask(task)) {
-            submittedGameTaskNames.add(String(task.name).toLowerCase());
-          }
-        });
-        const submittedGameTaskCount = submittedGameTaskNames.size;
-        const platformerSubmitted = completedTaskNames.has("platformer");
-
-        const completedRequiredTasks = WEBSITE_REQUIREMENT_TASKS.filter((taskName) =>
-          completedTaskNames.has(taskName)
-        ).length;
-        const completedGameRequiredTasks = GAME_REQUIRED_TASKS.filter((taskName) =>
-          completedTaskNames.has(taskName)
-        ).length;
-
-        const additionalWebsiteTaskNames = tasks
-          .filter((task: any) => {
-            if (!task?.name || task.id === "playground") {
-              return false;
-            }
-            if (task.category === "tutorial" || task.tags?.includes("tutorial")) {
-              return false;
-            }
-            if (WEBSITE_REQUIREMENT_TASKS.includes(task.name) || GAME_REQUIRED_TASKS.includes(task.name)) {
-              return false;
-            }
-            return !isWebsiteRequirementTask(task) && (task.label || "open-ended").toLowerCase().replace(/_/g, "-") === "open-ended";
-          })
-          .map((task: any) => task.name as string);
-        const totalAdditionalWebsiteTasks = additionalWebsiteTaskNames.length;
-        const completedAdditionalWebsiteTasks = additionalWebsiteTaskNames.filter((taskName) =>
-          completedTaskNames.has(taskName)
-        ).length;
-
-        // Calculate average rating and total votes
-        let totalRating = 0;
-        let ratingCount = 0;
-        let totalVotes = 0;
-        const votesByProject = new Map<number, number>();
-        submissions.forEach((sub: any) => {
-          if (sub.ratingSummary?.average) {
-            totalRating += sub.ratingSummary.average;
-            ratingCount++;
-          }
-          if (sub.ratingSummary?.count) {
-            totalVotes += sub.ratingSummary.count;
-            // Track votes per project
-            if (sub.projectId) {
-              const currentVotes = votesByProject.get(sub.projectId) || 0;
-              votesByProject.set(sub.projectId, currentVotes + sub.ratingSummary.count);
-            }
-          }
-        });
-        const averageRating = ratingCount > 0 ? totalRating / ratingCount : 0;
-
-        // Build votes per project array - include all projects with submissions
-        const votesPerProject = submittedProjectIds.size > 0
-          ? Array.from(submittedProjectIds)
-              .map((projectId) => ({
-                project_id: projectId,
-                project_name: projectIdToTaskName.get(projectId) || `Project ${projectId}`,
-                num_votes: votesByProject.get(projectId) || 0,
-              }))
-              .sort((a, b) => b.num_votes - a.num_votes) // Sort by votes descending
-          : [];
-
-        // Parse detailed stats
-        let aiStats = { num_prompts: 0, total_lines_generated: 0, llm_ideas_used: 0 };
-        let mcqaAccuracy = { frontend: [], ux: [] };
-        let codingPerformance = { from_scratch: [], debug: [], combined: [] };
-        let comprehensionScores = { avg_mcqa: null, avg_multi_select: null, mcqa_count: 0, multi_select_count: 0, per_project: [] };
-
-        if (detailedStatsResponse.ok) {
-          const detailedStats = await detailedStatsResponse.json();
-          console.log("=== FRONTEND: Raw detailedStats from API ===");
-          console.log("Full detailedStats:", detailedStats);
-          console.log("coding_performance:", detailedStats.coding_performance);
-          console.log("from_scratch data:", detailedStats.coding_performance?.from_scratch);
-          console.log("debug data:", detailedStats.coding_performance?.debug);
-          console.log("combined data:", detailedStats.coding_performance?.combined);
-          console.log("=== END FRONTEND: Raw detailedStats ===\n");
-          
-          aiStats = detailedStats.ai_stats || aiStats;
-          mcqaAccuracy = detailedStats.mcqa_accuracy || mcqaAccuracy;
-          codingPerformance = detailedStats.coding_performance || codingPerformance;
-          comprehensionScores = {
-            ...comprehensionScores,
-            ...(detailedStats.comprehension_scores || {}),
-            per_project: detailedStats.comprehension_scores?.per_project || []
-          };
-        }
-
-        setStats({
-          totalSubmissions: submissions.length,
-          stage3Estimate,
-          postTestPoolStatus,
-          studyWidePostTestCompletionsCount,
-          openEndedGameDevSubmissionCount,
-          studyWideOpenEndedSubmissions,
-          completedRequiredTasks,
-          completedGameRequiredTasks,
-          submittedGameTaskCount,
-          platformerSubmitted,
-          completedAdditionalWebsiteTasks,
-          totalAdditionalWebsiteTasks,
-          averageRating,
-          numVotes: totalVotes,
-          votesPerProject,
-          aiStats,
-          mcqaAccuracy,
-          codingPerformance,
-          comprehensionScores,
-        });
       } catch (err) {
-        console.error("Error fetching stats:", err);
-        setError(err instanceof Error ? err.message : "Failed to load stats");
+        if (!cancelled) {
+          console.error("Error fetching compensation summary:", err);
+          setError(err instanceof Error ? err.message : "Failed to load compensation data");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoadingSummary(false);
+        }
       }
     };
 
-    fetchStats();
+    loadSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Phase 2: study-wide pool status (stage 3 pay pool, post-test cap)
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadStudyStatus = async () => {
+      try {
+        setLoadingStudyStatus(true);
+        const response = await fetch(
+          `${ENV.BACKEND_URL}/api/users/${userId}/compensation-study-status`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load study status (${response.status})`);
+        }
+        const data = await response.json();
+        if (!cancelled) {
+          setStudyStatus(mapCompensationStudyStatus(data));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Error fetching compensation study status:", err);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingStudyStatus(false);
+        }
+      }
+    };
+
+    loadStudyStatus();
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   // Generate animated dots only on client side
@@ -997,7 +796,7 @@ export default function CompensationPage() {
     setAnimatedDots(dots);
   }, []);
 
-  if (loading) {
+  if (loadingSummary) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-2 mx-auto w-full min-h-[calc(100vh-3rem)]">
         <div className="flex items-center justify-center space-x-3">
@@ -1018,14 +817,22 @@ export default function CompensationPage() {
     );
   }
 
-  if (!stats) {
+  if (!summary) {
     return null;
   }
 
+  const stats: CompensationView = {
+    ...summary,
+    stage3Estimate: studyStatus?.stage3Estimate ?? null,
+    postTestPoolStatus: studyStatus?.postTestPoolStatus ?? null,
+    studyWideOpenEndedSubmissions: studyStatus?.studyWideOpenEndedSubmissions ?? null,
+    studyWidePostTestCompletionsCount: studyStatus?.studyWidePostTestCompletionsCount ?? null,
+  };
+
   const completedWebsiteRequirementTasks =
     allRequiredTasksCompleted ?? stats.completedRequiredTasks >= WEBSITE_REQUIREMENT_TASKS.length;
-  const completedPreTest = fetchedPreTestCompleted ?? preTestCompleted ?? false;
-  const completedPostTest = fetchedPostTestCompleted ?? postTestCompleted ?? false;
+  const completedPreTest = summary.preTestCompleted || (preTestCompleted ?? false);
+  const completedPostTest = summary.postTestCompleted || (postTestCompleted ?? false);
   const requiredTaskCount = WEBSITE_REQUIREMENT_TASKS.length;
   const gameRequiredTaskCount = GAME_REQUIRED_TASKS.length;
   const completedGameRequiredTasks = stats.completedGameRequiredTasks;
@@ -1085,51 +892,6 @@ export default function CompensationPage() {
   const studyEndDateOverall = formatDateOnly(process.env.NEXT_PUBLIC_STUDY_END_DATE_OVERALL);
 
   const extraCreditCode = user?.settings?.extra_credit_code ?? localExtraCreditCode;
-
-  const pillBase =
-    "px-3 py-1 text-xs rounded-full border transition-colors focus:outline-none";
-  const pillInactive = "bg-gray-900 text-gray-300 border-gray-700 hover:border-gray-500";
-  const pillActive = "bg-blue-500/20 text-blue-200 border-blue-400";
-
-  const codingTypeOptions: Array<{ value: "combined" | "from_scratch" | "debug"; label: string }> = [
-    { value: "combined", label: "Combined" },
-    { value: "from_scratch", label: "From Scratch" },
-    { value: "debug", label: "Debug" },
-  ];
-
-  const filteredFrontendMcqa = stats.mcqaAccuracy.frontend.filter((d) => {
-    const category = d.question_category || "all";
-    return frontendTopic === "all" ? category === "all" || category === "other" : category === frontendTopic;
-  });
-
-  const comprehensionProjects =
-    stats.comprehensionScores.per_project?.filter((project) => project.project_name !== "Playground") ?? [];
-
-  const codingDatasetPassRate =
-    codingTypePassRate === "from_scratch"
-      ? stats.codingPerformance.from_scratch
-      : codingTypePassRate === "debug"
-        ? stats.codingPerformance.debug
-        : stats.codingPerformance.combined;
-
-  const codingDatasetTimeTaken =
-    codingTypeTimeTaken === "from_scratch"
-      ? stats.codingPerformance.from_scratch
-      : codingTypeTimeTaken === "debug"
-        ? stats.codingPerformance.debug
-        : stats.codingPerformance.combined;
-
-  // Debug logging for coding datasets
-  console.log("=== FRONTEND: Coding Performance Data ===");
-  console.log("stats.codingPerformance:", stats.codingPerformance);
-  console.log("stats.codingPerformance.from_scratch:", stats.codingPerformance.from_scratch);
-  console.log("stats.codingPerformance.debug:", stats.codingPerformance.debug);
-  console.log("stats.codingPerformance.combined:", stats.codingPerformance.combined);
-  console.log("codingTypePassRate:", codingTypePassRate);
-  console.log("codingDatasetPassRate:", codingDatasetPassRate);
-  console.log("codingTypeTimeTaken:", codingTypeTimeTaken);
-  console.log("codingDatasetTimeTaken:", codingDatasetTimeTaken);
-  console.log("=== END FRONTEND: Coding Performance Data ===\n");
 
   return (
     <div className="flex-1 flex flex-col items-center justify-start pt-2 px-2 mx-auto w-full relative">
@@ -1478,14 +1240,16 @@ export default function CompensationPage() {
                       <p className="text-gray-400 text-sm m-0 leading-snug pl-0">
                         <span className="text-gray-500">• </span>
                         Total open-ended submissions:{" "}
-                        {stats.studyWideOpenEndedSubmissions != null && (
+                        {loadingStudyStatus ? (
+                          <span className="text-gray-500">Loading…</span>
+                        ) : stats.studyWideOpenEndedSubmissions != null ? (
                           <>
                             <span className="text-gray-300">
                               {stats.studyWideOpenEndedSubmissions.toLocaleString()}
                             </span>{" "}
                             (only the first {stage3PayCap.toLocaleString()} are eligible)
                           </>
-                        )}
+                        ) : null}
                       </p>
                       <p className="text-gray-400 text-sm m-0 leading-snug pl-0">
                         <span className="text-gray-500">• </span>
@@ -1551,13 +1315,17 @@ export default function CompensationPage() {
                   <p className="text-green-300 text-sm font-medium mt-1">
                     {stage4PostTestCapBlocked ? "Reward: not available" : "Reward: $10"}
                   </p>
-                  {stats.studyWidePostTestCompletionsCount != null && (
+                  {(loadingStudyStatus || stats.studyWidePostTestCompletionsCount != null) && (
                     <p className="text-gray-400 text-sm m-0 mt-1 leading-snug pl-0">
                       <span className="text-gray-500">• </span>
                       Post-tests completed study-wide:{" "}
-                      <span className="text-gray-300">
-                        {stats.studyWidePostTestCompletionsCount.toLocaleString()}
-                      </span>
+                      {loadingStudyStatus ? (
+                        <span className="text-gray-500">Loading…</span>
+                      ) : (
+                        <span className="text-gray-300">
+                          {stats.studyWidePostTestCompletionsCount!.toLocaleString()}
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -1666,110 +1434,6 @@ export default function CompensationPage() {
           </div>
         </div>
 
-        {/* MCQA Accuracy Plots */}
-        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <h2 className="text-xl font-semibold text-white mb-8">MCQA Scores</h2>
-          <div className="space-y-8">
-            <SimpleLineChart
-              data={convertPhaseToTimeBased(filteredFrontendMcqa, d => d.accuracy)}
-              label="HTML/CSS/JS Questions"
-              color="#3b82f6"
-              formatValue={(v) => `${(v * 100).toFixed(0)}%`}
-              infoText={PLOT_DESCRIPTIONS.htmlCssJs}
-            />
-            <div className="border-t border-gray-700"></div>
-            <SimpleLineChart
-              data={convertPhaseToTimeBased(stats.mcqaAccuracy.ux, d => d.accuracy)}
-              label="UX Questions"
-              color="#8b5cf6"
-              formatValue={(v) => `${(v * 100).toFixed(0)}%`}
-              infoText={PLOT_DESCRIPTIONS.ux}
-            />
-          </div>
-        </div>
-
-        {/* Coding Performance Plots */}
-        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <h2 className="text-xl font-semibold text-white mb-8">Coding Performance</h2>
-          <div className="space-y-8">
-            <div className="relative pt-8">
-              <div className="absolute right-0 top-0 flex gap-2">
-                {codingTypeOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setCodingTypePassRate(opt.value)}
-                    className={`${pillBase} ${codingTypePassRate === opt.value ? pillActive : pillInactive}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <SimpleLineChart
-                data={convertCodingPerformanceToTimeBased(codingDatasetPassRate, d => d.score)}
-                label="Pass Rate"
-                color="#10b981"
-                formatValue={(v) => `${(v * 100).toFixed(1)}%`}
-                maxValue={1.0}
-                infoText={PLOT_DESCRIPTIONS.passRate}
-              />
-            </div>
-            <div className="border-t border-gray-700"></div>
-            <div className="relative pt-8">
-              <div className="absolute right-0 top-0 flex gap-2">
-                {codingTypeOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setCodingTypeTimeTaken(opt.value)}
-                    className={`${pillBase} ${codingTypeTimeTaken === opt.value ? pillActive : pillInactive}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <SimpleLineChart
-                data={convertCodingPerformanceToTimeBased(codingDatasetTimeTaken, d => d.time_taken_seconds / 60, true)}
-                label="Time Taken (minutes)"
-                color="#f59e0b"
-                formatValue={(v) => `${v.toFixed(1)}`}
-                infoText={PLOT_DESCRIPTIONS.timeTaken}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Comprehension Scores */}
-        <div className="hidden bg-gray-800 rounded-lg border border-gray-700 p-6 mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4">Comprehension Scores</h2>
-          
-          {/* Per-project charts */}
-          {comprehensionProjects.length > 0 && (
-            <div className="space-y-8">
-              <ProjectBarChart
-                data={comprehensionProjects.map(p => ({
-                  project_name: p.project_name,
-                  value: p.avg_mcqa
-                }))}
-                label="Self-Reported Comprehension"
-                color="#3b82f6"
-                overallAverage={stats.comprehensionScores.avg_mcqa}
-                infoText={PLOT_DESCRIPTIONS.perceivedComprehension}
-              />
-              <div className="border-t border-gray-700"></div>
-              <ProjectBarChart
-                data={comprehensionProjects.map(p => ({
-                  project_name: p.project_name,
-                  value: p.avg_multi_select
-                }))}
-                label="True Comprehension"
-                color="#3b82f6"
-                overallAverage={stats.comprehensionScores.avg_multi_select}
-                infoText={PLOT_DESCRIPTIONS.trueComprehension}
-              />
-            </div>
-          )}
-        </div>
       </div>
       </div>
     </div>

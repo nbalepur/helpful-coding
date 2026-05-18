@@ -6835,6 +6835,203 @@ def _project_is_open_ended_game_dev(project: Project) -> bool:
     return effective == "open-ended"
 
 
+WEBSITE_REQUIREMENT_TASK_NAMES = frozenset(
+    {
+        "website_tutorial_intro",
+        "zic_zac_zoe",
+        "website_tutorial_follow_up",
+        "zic_zac_zoe_follow_up",
+    }
+)
+GAME_REQUIRED_TASK_NAMES = frozenset({"platformer"})
+
+
+def _is_website_requirement_project(project: Project) -> bool:
+    label = (project.label or "").lower().replace("_", "-")
+    if label == "website-requirements":
+        return True
+    return (project.name or "") in WEBSITE_REQUIREMENT_TASK_NAMES
+
+
+def _is_additional_open_ended_task(project: Project) -> bool:
+    """Open-ended tasks that count toward Stage 3 pay (excludes website recreation and Platformer)."""
+    name = (project.name or "").lower()
+    if name == "playground":
+        return False
+    if name in WEBSITE_REQUIREMENT_TASK_NAMES or name in GAME_REQUIRED_TASK_NAMES:
+        return False
+    if _is_website_requirement_project(project):
+        return False
+    effective = (project.label or "open-ended").lower().replace("_", "-")
+    return effective == "open-ended"
+
+
+def _get_user_ai_stats(user_id: int, db: Session) -> Dict[str, Any]:
+  assistant_logs = db.query(AssistantLog).filter(AssistantLog.user_id == user_id).all()
+  num_prompts = len(assistant_logs)
+  total_lines = 0
+  for log in assistant_logs:
+    if log.generated_code:
+      for key, value in log.generated_code.items():
+        if isinstance(value, dict) and "content" in value:
+          content = value["content"]
+          if isinstance(content, str):
+            total_lines += len(content.splitlines())
+        elif isinstance(value, str):
+          total_lines += len(value.splitlines())
+  llm_ideas_used = db.query(CodePreference).filter(
+    CodePreference.user_id == user_id,
+    CodePreference.user_selection.isnot(None),
+  ).count()
+  return {
+    "num_prompts": num_prompts,
+    "total_lines_generated": total_lines,
+    "llm_ideas_used": llm_ideas_used,
+  }
+
+
+def _compute_compensation_user_progress(user_id: int, db: Session) -> Dict[str, Any]:
+  """Per-user task progress and submission aggregates for the compensation page."""
+  all_submissions = (
+    db.query(Submission)
+    .filter(Submission.user_id == user_id)
+    .order_by(Submission.created_at.desc())
+    .all()
+  )
+  most_recent_by_project: Dict[int, Submission] = {}
+  for submission in all_submissions:
+    if submission.project_id not in most_recent_by_project:
+      most_recent_by_project[submission.project_id] = submission
+
+  submission_ids = [s.id for s in most_recent_by_project.values()]
+  feedback_by_submission: Dict[int, List[SubmissionFeedback]] = defaultdict(list)
+  if submission_ids:
+    all_feedback = (
+      db.query(SubmissionFeedback)
+      .filter(SubmissionFeedback.submission_id.in_(submission_ids))
+      .order_by(SubmissionFeedback.created_at.desc())
+      .all()
+    )
+    for entry in all_feedback:
+      feedback_by_submission[entry.submission_id].append(entry)
+
+  total_rating = 0.0
+  rating_count = 0
+  total_votes = 0
+  for submission in most_recent_by_project.values():
+    rating_summary = build_rating_summary(feedback_by_submission.get(submission.id, []))
+    if rating_summary.get("average"):
+      total_rating += rating_summary["average"]
+      rating_count += 1
+    total_votes += int(rating_summary.get("count") or 0)
+
+  projects = db.query(Project).all()
+  project_by_id = {p.id: p for p in projects}
+
+  completed_task_names: set = set()
+  submitted_game_task_names: set = set()
+  open_ended_game_dev_submission_count = 0
+
+  for project_id in most_recent_by_project:
+    project = project_by_id.get(project_id)
+    if not project or not project.name:
+      continue
+    if _slugify(project.name) == "playground":
+      continue
+    completed_task_names.add(project.name)
+    if not _is_website_requirement_project(project):
+      submitted_game_task_names.add(project.name.lower())
+    if _project_is_open_ended_game_dev(project):
+      open_ended_game_dev_submission_count += 1
+
+  additional_task_names = [
+    p.name
+    for p in projects
+    if p.name and _is_additional_open_ended_task(p)
+  ]
+
+  completed_required_tasks = sum(
+    1 for name in WEBSITE_REQUIREMENT_TASK_NAMES if name in completed_task_names
+  )
+  completed_game_required_tasks = sum(
+    1 for name in GAME_REQUIRED_TASK_NAMES if name in completed_task_names
+  )
+  completed_additional_website_tasks = sum(
+    1 for name in additional_task_names if name in completed_task_names
+  )
+
+  return {
+    "total_submissions": len(most_recent_by_project),
+    "average_rating": total_rating / rating_count if rating_count > 0 else 0.0,
+    "num_votes": total_votes,
+    "open_ended_game_dev_submission_count": open_ended_game_dev_submission_count,
+    "completed_required_tasks": completed_required_tasks,
+    "completed_game_required_tasks": completed_game_required_tasks,
+    "submitted_game_task_count": len(submitted_game_task_names),
+    "platformer_submitted": "platformer" in submitted_game_task_names,
+    "completed_additional_website_tasks": completed_additional_website_tasks,
+    "total_additional_website_tasks": len(additional_task_names),
+  }
+
+
+def _compute_compensation_study_status(user_id: int, db: Session) -> Dict[str, Any]:
+  """Study-wide pool status (slower; loaded after user progress on the compensation page)."""
+  stage3_estimate = _compute_stage3_compensation_estimate(user_id, db)
+  post_test_pool_status = _compute_post_test_pool_status(user_id, db)
+  return {
+    "stage3_estimate": stage3_estimate,
+    "post_test_pool_status": post_test_pool_status,
+    "study_wide_open_ended_submissions": stage3_estimate.get("open_ended_submissions_study_wide"),
+    "study_wide_post_test_completions_count": post_test_pool_status.get("eligible_users_count"),
+  }
+
+
+@app.get("/api/users/{user_id}/compensation-summary", tags=["Study"])
+async def get_compensation_summary(user_id: int, db: Session = Depends(get_db)):
+  """Fast compensation payload: per-user progress, aggregates, and AI usage."""
+  user = db.query(User).filter(User.id == user_id).first()
+  if not user:
+    return JSONResponse(status_code=404, content={"error": "User not found"})
+  try:
+    progress = _compute_compensation_user_progress(user_id, db)
+    ai_stats = _get_user_ai_stats(user_id, db)
+    assignment = (
+      db.query(SkillCheckAssignment).filter(SkillCheckAssignment.user_id == user_id).first()
+    )
+    pre_st = _get_completion_status_for_phase(user_id, "pre-test", assignment, db)
+    post_st = _get_completion_status_for_phase(user_id, "post-test", assignment, db)
+    return {
+      **progress,
+      "ai_stats": ai_stats,
+      "pre_test_completed": bool(pre_st.get("completed")),
+      "post_test_completed": bool(post_st.get("completed")),
+    }
+  except Exception as e:
+    print(f"Error computing compensation summary: {e}")
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+      status_code=500, content={"error": "Failed to compute compensation summary"}
+    )
+
+
+@app.get("/api/users/{user_id}/compensation-study-status", tags=["Study"])
+async def get_compensation_study_status(user_id: int, db: Session = Depends(get_db)):
+  """Study-wide compensation pool status (stage 3 pay pool, post-test cap)."""
+  user = db.query(User).filter(User.id == user_id).first()
+  if not user:
+    return JSONResponse(status_code=404, content={"error": "User not found"})
+  try:
+    return _compute_compensation_study_status(user_id, db)
+  except Exception as e:
+    print(f"Error computing compensation study status: {e}")
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+      status_code=500, content={"error": "Failed to compute compensation study status"}
+    )
+
+
 @app.get("/api/study/submission-count", tags=["Study"])
 async def get_study_submission_count(db: Session = Depends(get_db)):
     """Submission counts for compensation page: all vs open-ended game dev tasks only."""
